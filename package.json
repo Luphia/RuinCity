@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx --tsconfig tsconfig.scripts.json scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "map:generate": "tsx scripts/generate-map.ts --seed 99991 --out public/terrain/s0",
     "sim": "tsx scripts/simulate-season.ts",
