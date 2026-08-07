@@ -56,6 +56,30 @@ body {
   image-rendering: pixelated;
 }
 
+/*
+ * 建築的第二幀。`docs/09` §2：閒置動畫 2 幀、0.8s/幀。
+ *
+ * ★ 用 CSS 而不是 React state —— 每 0.8 秒 setState 一次會讓整個
+ *   據點畫面重繪，而這只是一根煙囪在冒煙。`steps(1)` 讓它硬切，
+ *   不是淡入淡出：像素動畫不該有中間幀。
+ *   `prefers-reduced-motion` 由下面那一段一併停掉。
+ */
+.ruin-frame2 {
+  opacity: 0;
+  animation: ruin-frame2 1.6s steps(1, end) infinite;
+}
+
+@keyframes ruin-frame2 {
+  0%,
+  50% {
+    opacity: 0;
+  }
+  50.01%,
+  100% {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

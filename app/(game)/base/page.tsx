@@ -119,7 +119,15 @@ export default async function BasePage() {
           isolated: state.tiles.filter((t) => t.state === "ISOLATED").length,
         }}
         slots={slotViews}
-        coreQueue={{ label: "", doneAt: state.build.coreQueue?.doneAt ?? null }}
+        coreQueue={{
+          label: "",
+          doneAt: state.build.coreQueue?.doneAt ?? null,
+          // 主堡在 A 格；其餘 target 就是槽位代號
+          target:
+            state.build.coreQueue?.target === "CITADEL"
+              ? "A"
+              : (state.build.coreQueue?.target ?? null),
+        }}
         territoryQueues={state.build.territoryQueue.map((q) => ({
           label: "",
           doneAt: q?.doneAt ?? null,

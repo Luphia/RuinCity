@@ -11,6 +11,8 @@
 
 import { useState, useTransition } from "react";
 
+import { CoreTile } from "./CoreTile";
+import { slotLabel } from "@/lib/game/sprite";
 import { CORE_BUILDING, CORE_BUILDINGS, type CoreBuilding } from "@/lib/game/balance";
 import type { CoreSlot } from "@/lib/game/build";
 import type { Amounts } from "@/lib/game/settle";
@@ -32,6 +34,8 @@ export interface CoreSlotView {
 export interface QueueView {
   readonly label: string;
   readonly doneAt: number | null;
+  /** 核心佇列在蓋哪一格。★ 沒有它，鷹架就不知道該疊在哪一塊上 */
+  readonly target?: "A" | CoreSlot | null;
 }
 
 export interface BaseViewProps {
@@ -94,6 +98,17 @@ export function BaseView(props: BaseViewProps) {
   const [picking, setPicking] = useState<CoreSlot | null>(null);
   const now = useServerClock(props.serverTime);
 
+  /**
+   * 哪一格正在施工。核心佇列**永遠只有一條**（`docs/05` §2），
+   * 所以最多一格會有鷹架 —— 而它到期之後就要立刻拿掉，
+   * 不能等下一次伺服器 render。
+   */
+  const busySlots = new Set<string>(
+    props.coreQueue.target && props.coreQueue.doneAt && props.coreQueue.doneAt > now
+      ? [props.coreQueue.target]
+      : [],
+  );
+
   const act = (fn: () => Promise<{ ok: boolean; reason?: string }>) => {
     startTransition(async () => {
       const r = await fn();
@@ -144,21 +159,29 @@ export function BaseView(props: BaseViewProps) {
             <div
               key={s.slot}
               data-testid={`slot-${s.slot}`}
-              className="rounded border border-[#4a413a] bg-[#2e2723] p-3"
+              className="rounded border border-[#4a413a] bg-[#2e2723] p-2"
             >
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs opacity-60">{s.slot}</span>
-                <span className="text-xs tabular-nums opacity-80">
-                  {s.building ? `Lv${s.level}` : "空"}
-                </span>
-              </div>
-              <div className="mt-1 text-sm">
-                {s.building === "CITADEL"
-                  ? "主堡"
-                  : s.building
-                    ? CORE_BUILDING[s.building].label
-                    : "—"}
-              </div>
+              {/* ★ 圖本身就是按鈕：docs/09 §6「四格可直接點擊升級」 */}
+              <CoreTile
+                slot={s.slot}
+                building={s.building}
+                level={s.level}
+                busy={busySlots.has(s.slot)}
+                label={slotLabel(s.building)}
+                disabled={
+                  pending ||
+                  (s.building ? !s.next || Boolean(s.next.blocked) : false)
+                }
+                onClick={() => {
+                  if (!s.building) {
+                    setPicking(s.slot as CoreSlot);
+                    return;
+                  }
+                  if (props.onUpgrade) {
+                    act(() => props.onUpgrade!(s.slot === "A" ? "CITADEL" : (s.slot as CoreSlot)));
+                  }
+                }}
+              />
 
               {s.building ? (
                 <button
@@ -170,7 +193,7 @@ export function BaseView(props: BaseViewProps) {
                       props.onUpgrade!(s.slot === "A" ? "CITADEL" : (s.slot as CoreSlot)),
                     )
                   }
-                  className="mt-2 w-full rounded border border-[#4a413a] px-2 py-1 text-xs disabled:opacity-40"
+                  className="mt-1.5 w-full rounded border border-[#4a413a] px-2 py-1 text-xs disabled:opacity-40"
                 >
                   {s.next?.blocked
                     ? (REJECTION_TEXT[s.next.blocked] ?? s.next.blocked)
@@ -181,7 +204,7 @@ export function BaseView(props: BaseViewProps) {
                   type="button"
                   disabled={pending}
                   onClick={() => setPicking(s.slot as CoreSlot)}
-                  className="mt-2 w-full rounded border border-[#4a413a] px-2 py-1 text-xs"
+                  className="mt-1.5 w-full rounded border border-[#4a413a] px-2 py-1 text-xs"
                 >
                   選擇建築
                 </button>
