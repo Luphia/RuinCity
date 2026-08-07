@@ -134,8 +134,15 @@ export const DISBAND_POPULATION_REFUND = 0.5;
  * 低主堡高領土 → 軍隊上限小，但源源不絕（消耗戰之王）
  */
 export const POPULATION = {
-  /** 天花板 = 60 × 主堡等級^1.15 */
-  cap: { coefficient: 60, exponent: 1.15 },
+  /**
+   * 天花板 = 72 × 主堡等級^1.15（係數原為 60）。
+   *
+   * ★ 提高天花板不是為了讓大家養更多兵——絕大多數玩家是被**糧食**
+   *   卡住而不是被人口上限卡住。提高它是為了讓那些真的養得起的人
+   *   還有空間可長：兵力這一軸的 P50/P80 因此是 46/72，
+   *   是整份發展度指標裡差距最大的一條。
+   */
+  cap: { coefficient: 72, exponent: 1.15 },
   /** 成長率 = (1.5 + 0.3 × 主堡等級) × (1 + 領土數 / 30) 人/小時（已含 TIME_SCALE） */
   growth: { base: 1.5, perCitadelLevel: 0.3, territoryDivisor: 30 },
   /** 陣亡不返還 —— 人口是一條會被戰爭消耗的河，不是可反覆使用的容器 */

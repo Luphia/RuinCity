@@ -39,13 +39,17 @@ import {
   FACILITY_SCALING,
   LEGION,
   MARCH,
+  POPULATION,
   RUIN,
   ROSTER,
   SEASON_MODIFIERS,
   SPAWN_BAND,
   TERRAIN,
+  TECH,
+  TECHS,
   TIME_SCALE,
   UNIT,
+  type Tech,
   type Season,
   type Unit,
 } from "../lib/game/balance";
@@ -69,16 +73,16 @@ import {
   coreBuildingCost,
   coreBuildingSeconds,
   facilityCost,
-  facilityLevelCap,
   facilitySeconds,
   facilityYieldPerHour,
   innateDefense,
   outpostCap,
   overflowAttrition,
-  populationCap,
   populationGrowthPerHour,
   regionCapacity,
   storageCapacity,
+  techCost,
+  techSeconds,
   vaultProtection,
   territoryQueues,
   trainSeconds,
@@ -191,6 +195,14 @@ interface Tune {
   winterProduction: number;
   /** 冬季糧耗係數（數值表為 1.4） */
   winterUpkeep: number;
+  /** 主堡等級上限（數值表為 30） */
+  maxCitadel: number;
+  /** 設施等級上限的除數（數值表為 2 → ⌊L/2⌋） */
+  facilityCapDivisor: number;
+  /** 人口上限係數（數值表為 60） */
+  popCoefficient: number;
+  /** 主堡與核心建築的建造時間倍率 */
+  citadelTimeMul: number;
 }
 
 /** 全部為 1／取自數值表 —— 旋鈕只在 `--sweep` 或手動覆寫時偏離 */
@@ -204,7 +216,17 @@ const BASE_TUNE: Tune = {
   facilityGrowthDelta: 0,
   winterProduction: SEASON_MODIFIERS.WINTER.production,
   winterUpkeep: SEASON_MODIFIERS.WINTER.upkeep,
+  maxCitadel: CITADEL.maxLevel,
+  facilityCapDivisor: FACILITY_SCALING.levelCapDivisor,
+  popCoefficient: POPULATION.cap.coefficient,
+  citadelTimeMul: 1,
 };
+
+/** 天花板全部走這三個包裝，才能在 --sweep 裡一起搜 */
+const maxCitadel = () => T.maxCitadel;
+const facilityCapOf = (citadel: number) => Math.floor(citadel / T.facilityCapDivisor);
+const populationCapOf = (citadel: number) =>
+  Math.round(T.popCoefficient * citadel ** POPULATION.cap.exponent);
 
 let T: Tune = BASE_TUNE;
 let PLAYER_COUNT: number = ROSTER.playersTotal;
@@ -222,7 +244,7 @@ const growthShift = (level: number, base: number, delta: number) =>
 
 const tunedCitadelCost = (level: number) =>
   scaled(citadelUpgradeCost(level), T.citadelCost * growthShift(level, CITADEL.cost.timber.growth, T.citadelGrowthDelta));
-const tunedCoreCost = (b: "DEPOT" | "BARRACKS", level: number) =>
+const tunedCoreCost = (b: "DEPOT" | "BARRACKS" | "ARCHIVE", level: number) =>
   scaled(coreBuildingCost(b, level), T.citadelCost * growthShift(level, CITADEL.cost.timber.growth, T.citadelGrowthDelta));
 const tunedFacilityCost = (f: ProdFacility | "OUTPOST", level: number) =>
   scaled(
@@ -284,6 +306,15 @@ interface SimPlayer {
   citadel: number;
   barracks: number;
   depot: number;
+  /**
+   * 檔案館。B/C/D 三格的第三格 —— 它解鎖科技樹，
+   * 而科技是後期唯一還在吃資源的地方（見 `11` §14）。
+   */
+  archive: number;
+  /** 各科技等級 */
+  tech: Record<Tech, number>;
+  /** 研究佇列剩餘（小時）。研究不佔核心佇列，但吃同一份資源 */
+  researchUntil: number;
 
   fac: Record<ProdFacility, FacilityGroup>;
   /** 前哨營：不產出，但每級給 5,000 儲存 —— 後期主堡能不能上去全看它 */
@@ -313,10 +344,16 @@ interface SimPlayer {
   battleLosses: number;
   /** 因區域超限而損失的人口 */
   overflowLosses: number;
+  /** 資源會計：總產出、實際入庫、花掉的、因為滿倉而蒸發的 */
+  produced: number;
+  spent: number;
+  wasted: number;
   /** 遊戲月 1–2 有沒有被捲入任何戰鬥 */
   earlyCombat: boolean;
-  /** 冬季餓死的部隊數 —— 冬季逼迫是否真的發生，看這個而不是瞬時收支 */
+  /** 冬季餓死的部隊數 */
   winterStarved: number;
+  /** 冬季「產出養不起現有軍隊」的小時數 —— 這才是冬季壓力的本體 */
+  winterDeficitHours: number;
   peakArmyPop: number;
   blockedByStorageHours: number;
   /** 核心佇列真正在動工的小時數 —— 佇列如果常常閒著，「唯一一條核心佇列」就不是取捨 */
@@ -347,7 +384,7 @@ const STEWARD_ROI_AWARENESS = 0.35;
 const MANUAL_DUTY: Record<Archetype, number> = {
   ACTIVE: 1.0,
   CASUAL: 0.85,
-  DELEGATED: 0.48,
+  DELEGATED: 0.28,
 };
 
 /**
@@ -375,6 +412,54 @@ const EFFICIENCY: Record<Archetype, number> = {
   CASUAL: 0.95,
   DELEGATED: 0.88,
 };
+
+/**
+ * ★ 發展度：一位玩家把「主堡 Lv30 的完全體」走完了幾成。
+ *
+ * 四條軸各自對照它在主堡滿級時的理論上限。權重給主堡最重，
+ * 因為它同時決定其他三條的天花板 —— 它不是四分之一，是那個閘門本身。
+ *
+ * 設計目標：**第 80 百分位的玩家剛好完成 80%**。
+ * 也就是說五個人裡有一個能推過八成，其餘的人在賽季結束時
+ * 手上都還有明確的下一步 —— 天花板要看得見，但摸不到。
+ */
+const DEV_WEIGHTS = {
+  citadel: 0.3,
+  territory: 0.2,
+  facility: 0.175,
+  army: 0.175,
+  tech: 0.15,
+} as const;
+
+function developmentIndex(p: SimPlayer): number {
+  const maxLevel = maxCitadel();
+  const maxTerritory = T.territoryPerLevel * maxLevel;
+  const maxFacility = facilityCapOf(maxLevel);
+  const maxArmy = populationCapOf(maxLevel);
+
+  let facCount = 0;
+  let facLevels = 0;
+  for (const f of PROD) {
+    facCount += p.fac[f].count;
+    facLevels += p.fac[f].levels;
+  }
+  const avgFacility = facCount > 0 ? facLevels / facCount : 0;
+
+  return (
+    DEV_WEIGHTS.citadel * Math.min(1, p.citadel / maxLevel) +
+    DEV_WEIGHTS.territory * Math.min(1, territoryOf(p) / maxTerritory) +
+    DEV_WEIGHTS.facility * Math.min(1, avgFacility / maxFacility) +
+    DEV_WEIGHTS.army * Math.min(1, armyPopulation(p.army) / maxArmy) +
+    DEV_WEIGHTS.tech * Math.min(1, totalTechLevels(p) / MAX_TECH_LEVELS)
+  );
+}
+
+function percentile(values: readonly number[], q: number): number {
+  if (values.length === 0) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const i = Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))));
+  return sorted[i]!;
+}
 
 function territoryOf(p: SimPlayer): number {
   let n = p.supportTiles + p.outposts.count;
@@ -469,6 +554,9 @@ function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] 
       citadel: 1,
       barracks: 0,
       depot: 0,
+      archive: 0,
+      tech: Object.fromEntries(TECHS.map((t) => [t, 0])) as Record<Tech, number>,
+      researchUntil: 0,
       // 初始 4 × 4 據點：一格主堡 + 每類產出設施各一座 Lv1
       fac: {
         FARM: { count: 1, levels: 1 },
@@ -489,6 +577,7 @@ function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] 
       coreQueueUntil: 0,
       territoryQueueUntil: [0],
       starvedTotal: 0,
+      winterDeficitHours: 0,
       raidsLaunched: 0,
       raidsWon: 0,
       raidsSuffered: 0,
@@ -496,6 +585,9 @@ function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] 
       lostToRaids: 0,
       battleLosses: 0,
       overflowLosses: 0,
+      produced: 0,
+      spent: 0,
+      wasted: 0,
       earlyCombat: false,
       winterStarved: 0,
       peakArmyPop: 10,
@@ -512,6 +604,24 @@ function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] 
  * 伐木場蓋在森林是 ×1.25、礦坑蓋在礦脈是 ×1.4，但好地有限，
  * 蓋到第 30 座時就只剩平原甚至荒地（見 `map/profile.ts`）。
  */
+/** 耕作：糧食產出 +4%/級 */
+const cultivationBonus = (p: SimPlayer) => p.tech.CULTIVATION * TECH.CULTIVATION.perLevel;
+/** 開採：木石鐵產出 +4%/級 */
+const extractionBonus = (p: SimPlayer) => p.tech.EXTRACTION * TECH.EXTRACTION.perLevel;
+
+function techYieldBonus(p: SimPlayer, f: ProdFacility): number {
+  return f === "FARM" ? cultivationBonus(p) : extractionBonus(p);
+}
+
+function totalTechLevels(p: SimPlayer): number {
+  let n = 0;
+  for (const t of TECHS) n += p.tech[t];
+  return n;
+}
+
+/** 全部科技點滿的總等級數 —— 發展度的分母之一 */
+const MAX_TECH_LEVELS = TECHS.reduce((s, t) => s + TECH[t].maxLevel, 0);
+
 function facYield(
   p: SimPlayer,
   f: ProdFacility,
@@ -521,7 +631,7 @@ function facYield(
 ): number {
   // terrainMultiplier 已經涵蓋地形，所以這裡用 PLAIN（倍率 1.0）當基準
   return (
-    facilityYieldPerHour(f, level, "PLAIN", { season }) *
+    facilityYieldPerHour(f, level, "PLAIN", { season, techBonus: techYieldBonus(p, f) }) *
     terrainMultiplier(p.profile, f, count) *
     T.yieldMul
   );
@@ -548,7 +658,11 @@ function canAfford(p: SimPlayer, cost: Bundle): boolean {
 }
 
 function pay(p: SimPlayer, cost: Bundle) {
-  for (const r of RES) p.res[r] -= cost[r] ?? 0;
+  for (const r of RES) {
+    const v = cost[r] ?? 0;
+    p.res[r] -= v;
+    p.spent += v;
+  }
 }
 
 /** 這筆開銷是否**永遠**存不到（超過儲存上限）—— 倉庫的存在理由 */
@@ -573,7 +687,7 @@ function exceedsStorage(p: SimPlayer, cost: Bundle): boolean {
  * 真實玩家蓋倉庫是為了解鎖下一級主堡，不是為了看數字變大。
  */
 function depotTarget(p: SimPlayer): number {
-  const c = tunedCitadelCost(Math.min(CITADEL.maxLevel, p.citadel + 2));
+  const c = tunedCitadelCost(Math.min(maxCitadel(), p.citadel + 2));
   const need = Math.max(c.timber ?? 0, c.stone ?? 0, c.iron ?? 0) * 1.15;
   let lvl = 0;
   while (lvl < p.citadel && storageCapacity(p.citadel, lvl, p.outposts.levels) < need) lvl++;
@@ -585,14 +699,26 @@ function barracksTarget(p: SimPlayer): number {
 }
 
 /**
+ * 檔案館的目標等級。
+ *
+ * 研究速度 +6%/級，而科技本身是後期唯一還吃得下資源的地方，
+ * 所以發育傾向（militaryBias 低）的玩家會把它推得比較高。
+ * 它跟主堡、兵營、倉庫**共用那條唯一的核心佇列** ——
+ * 這才是「每一分鐘你在升主堡，就是一分鐘你沒在升檔案館」真正的樣子。
+ */
+function archiveTarget(p: SimPlayer): number {
+  return Math.min(p.citadel, Math.round(6 + (1 - p.militaryBias) * 14));
+}
+
+/**
  * 核心佇列：主堡 / 兵營 / 倉庫三選一，永遠只有一條。
  * 依優先序往下找第一個付得起的 —— 付不起就往下讓，不空轉。
  */
-function runCoreQueue(p: SimPlayer, hour: number, eff: number) {
+function runCoreQueue(p: SimPlayer, hour: number, eff: number, rand: () => number) {
   if (p.coreQueueUntil > hour) return;
 
   const nextCitadel = tunedCitadelCost(p.citadel + 1);
-  const storageBlocked = p.citadel < CITADEL.maxLevel && exceedsStorage(p, nextCitadel);
+  const storageBlocked = p.citadel < maxCitadel() && exceedsStorage(p, nextCitadel);
 
   // ① 倉庫是**先決條件**，不是選項：存不下就永遠升不上去。
   //    這正是「資源上限逼迫玩家做建築取捨」要製造的壓力。
@@ -601,7 +727,7 @@ function runCoreQueue(p: SimPlayer, hour: number, eff: number) {
     if (canAfford(p, cost)) {
       pay(p, cost);
       p.depot++;
-      const h = coreBuildingSeconds("DEPOT", p.depot) / 3600 / eff;
+      const h = (coreBuildingSeconds("DEPOT", p.depot) * T.citadelTimeMul) / 3600 / eff;
       p.coreQueueUntil = hour + h;
       p.coreBusyHours += h;
       return;
@@ -615,34 +741,83 @@ function runCoreQueue(p: SimPlayer, hour: number, eff: number) {
     if (canAfford(p, cost)) {
       pay(p, cost);
       p.barracks++;
-      const h = coreBuildingSeconds("BARRACKS", p.barracks) / 3600 / eff;
+      const h = (coreBuildingSeconds("BARRACKS", p.barracks) * T.citadelTimeMul) / 3600 / eff;
       p.coreQueueUntil = hour + h;
       p.coreBusyHours += h;
       return;
     }
   }
 
-  // ③ 主堡
-  if (!storageBlocked && p.citadel < CITADEL.maxLevel && canAfford(p, nextCitadel)) {
+  // ③ 檔案館：解鎖科技樹。發育流會排在主堡前面
+  if (p.archive < archiveTarget(p) && (p.archive === 0 || rand() < 1 - p.militaryBias)) {
+    const cost = tunedCoreCost("ARCHIVE", p.archive + 1);
+    if (canAfford(p, cost)) {
+      pay(p, cost);
+      p.archive++;
+      const h = (coreBuildingSeconds("ARCHIVE", p.archive) * T.citadelTimeMul) / 3600 / eff;
+      p.coreQueueUntil = hour + h;
+      p.coreBusyHours += h;
+      return;
+    }
+  }
+
+  // ④ 主堡
+  if (!storageBlocked && p.citadel < maxCitadel() && canAfford(p, nextCitadel)) {
     pay(p, nextCitadel);
     p.citadel++;
-    const h = citadelUpgradeSeconds(p.citadel) / 3600 / eff;
+    const h = (citadelUpgradeSeconds(p.citadel) * T.citadelTimeMul) / 3600 / eff;
     p.coreQueueUntil = hour + h;
     p.coreBusyHours += h;
     return;
   }
 
-  // ④ 主堡卡在存量或資源上 → 把倉庫先往上墊（提前為下一級鋪路）
+  // ⑤ 主堡卡在存量或資源上 → 把倉庫先往上墊（提前為下一級鋪路）
   if (p.depot < depotTarget(p)) {
     const cost = tunedCoreCost("DEPOT", p.depot + 1);
     if (canAfford(p, cost)) {
       pay(p, cost);
       p.depot++;
-      const h = coreBuildingSeconds("DEPOT", p.depot) / 3600 / eff;
+      const h = (coreBuildingSeconds("DEPOT", p.depot) * T.citadelTimeMul) / 3600 / eff;
       p.coreQueueUntil = hour + h;
       p.coreBusyHours += h;
     }
   }
+}
+
+/**
+ * 挑下一個要研究的科技：單位成本的效益最高者。
+ *
+ * 產出類（耕作、開採）直接換成資源，軍事類（鍛造、甲冑）換成戰力，
+ * 兩者用 militaryBias 加權 —— 打仗流的人會先點鍛造，發育流先點耕作。
+ */
+function bestTech(p: SimPlayer): { tech: Tech; cost: Record<Res, number>; hours: number } | null {
+  let best: { tech: Tech; cost: Record<Res, number>; hours: number; score: number } | null = null;
+
+  for (const t of TECHS) {
+    const level = p.tech[t] + 1;
+    if (level > TECH[t].maxLevel) continue;
+    // 遺物工藝要遺物，而模擬沒有模擬遺物的取得
+    if (TECH[t].cost.relic) continue;
+
+    const raw = techCost(t, level);
+    const cost: Record<Res, number> = {
+      grain: raw.grain ?? 0,
+      timber: raw.timber ?? 0,
+      stone: raw.stone ?? 0,
+      iron: raw.iron ?? 0,
+    };
+    if (!canAfford(p, cost)) continue;
+
+    const military = t === "FORGING" || t === "PLATING" || t === "SIEGECRAFT" || t === "MARCHING";
+    const weight = military ? p.militaryBias : 1 - p.militaryBias;
+    const totalCost = cost.grain + cost.timber + cost.stone + cost.iron;
+    const score = (TECH[t].perLevel * weight) / Math.max(1, totalCost);
+
+    if (!best || score > best.score) {
+      best = { tech: t, cost, hours: techSeconds(t, level, p.archive) / 3600, score };
+    }
+  }
+  return best;
 }
 
 type ActionKind = "SUPPORT" | "OUTPOST" | "OUTPOST_UP" | "CLAIM" | "UPGRADE";
@@ -686,7 +861,7 @@ function bestTerritoryAction(
     ? (gain: number, cost: number) => gain ** STEWARD_ROI_AWARENESS / cost
     : (gain: number, cost: number) => gain / cost;
   const territory = territoryOf(p);
-  const facCap = facilityLevelCap(p.citadel);
+  const facCap = facilityCapOf(p.citadel);
 
   // ── 拓荒 ──
   if (territory < tunedTerritoryCap(p)) {
@@ -742,7 +917,7 @@ function bestTerritoryAction(
   // 用 ROI 比永遠比不過設施，但它是後期主堡唯一的解鎖鑰匙。
   if (
     p.outposts.count > 0 &&
-    p.citadel < CITADEL.maxLevel &&
+    p.citadel < maxCitadel() &&
     p.outposts.levels / p.outposts.count < facCap &&
     exceedsStorage(p, tunedCitadelCost(p.citadel + 1))
   ) {
@@ -1032,11 +1207,15 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
       const y = yieldOf(p, season);
       for (const r of RES) {
         if (r === "grain") continue;
+        p.produced += y[r];
+        const before = p.res[r];
         p.res[r] = Math.min(cap, p.res[r] + y[r]);
+        p.wasted += y[r] - (p.res[r] - before);
       }
 
       // ── 養兵糧耗 ──────────────────────────────────────
       const upkeep = upkeepPerHour(p.army, { season });
+      if (seasonName === "WINTER" && y.grain < upkeep) p.winterDeficitHours++;
       p.res.grain = Math.min(cap, p.res.grain + y.grain - upkeep);
 
       // 糧食見底 → 每 10 分鐘餓死 3%（一小時六次）
@@ -1053,7 +1232,7 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
       }
 
       // ── 人口累積 ──────────────────────────────────────
-      const popCap = populationCap(p.citadel);
+      const popCap = populationCapOf(p.citadel);
       const used = armyPopulation(p.army);
       p.population = Math.min(
         Math.max(0, popCap - used),
@@ -1062,7 +1241,7 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
 
       // ── 核心佇列（永遠手動，執政官不碰）──────────────
       const manual = rand() < MANUAL_DUTY[p.archetype];
-      if (manual) runCoreQueue(p, hour, eff);
+      if (manual) runCoreQueue(p, hour, eff, rand);
 
       // ── 領土佇列 ──────────────────────────────────────
       // 一小時內可能完成多件事（立旗 7–15 分、低階設施更短），
@@ -1083,6 +1262,18 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
           pay(p, action.cost);
           applyTerritoryAction(p, action);
           p.territoryQueueUntil[q] = cursor + action.hours / eff;
+        }
+      }
+
+      // ── 研究佇列 ──────────────────────────────────────
+      // 獨立於核心佇列，但吃同一份資源。後期主堡與領土都頂到天花板之後，
+      // 這是唯一還在消耗產出的地方。
+      if (p.archive > 0 && p.researchUntil <= hour) {
+        const best = bestTech(p);
+        if (best) {
+          pay(p, best.cost);
+          p.tech[best.tech]++;
+          p.researchUntil = hour + best.hours / eff;
         }
       }
 
@@ -1322,14 +1513,28 @@ function evaluate(results: SeasonResult[]): Check[] {
   // ★ 量的是**真的餓死了部隊**，而不是某一瞬間的收支為負 ——
   //   玩家一旦被餓過就會把軍隊砍到養得起，瞬時收支會立刻回到正的，
   //   用瞬時值量會誤判成「冬季完全沒有壓力」。
+  // ★ 量的是「產出養不起現有軍隊」的小時數，而不是「真的餓死了」。
+  //   M1 加入掠奪之後，撐得住的玩家會**去搶**而不是餓死 ——
+  //   那正是設計要的行為，但它會讓「餓死」這個指標看不見冬季的壓力。
+  //   壓力的本體是「你必須做點什麼，否則就會餓死」。
+  const winterPressure = avg(
+    (r) => r.players.filter((p) => p.winterDeficitHours >= 12).length / r.players.length,
+  );
+  checks.push({
+    label: "冬季糧食收支轉負超過 12 小時的玩家",
+    pass: winterPressure >= 0.62,
+    actual: `${(winterPressure * 100).toFixed(0)}%`,
+    target: "≥ 62%（其餘是刻意養小軍隊的發育流）",
+  });
+
   const winterStarve = avg(
     (r) => r.players.filter((p) => p.winterStarved > 0).length / r.players.length,
   );
   checks.push({
-    label: "冬季有部隊餓死的玩家比例",
-    pass: winterStarve >= 0.7,
+    label: "冬季真的餓死部隊的玩家",
+    pass: winterStarve >= 0.25 && winterStarve <= 0.7,
     actual: `${(winterStarve * 100).toFixed(0)}%`,
-    target: "≥ 70%",
+    target: "25–70%（有壓力，但不是所有人都被壓垮）",
   });
 
   const winterLoss = avg((r) => {
@@ -1483,12 +1688,41 @@ function evaluate(results: SeasonResult[]): Check[] {
     target: "< 8%",
   });
 
+  // ── 發展度分佈 ────────────────────────────────────────────
+  const devAt = (q: number) =>
+    avg((r) => percentile(r.players.map(developmentIndex), q));
+  const p50 = devAt(0.5);
+  const p80 = devAt(0.8);
+  const p99 = devAt(0.99);
+
+  checks.push({
+    label: "★ 第 80 百分位玩家的發展度",
+    pass: p80 >= 0.76 && p80 <= 0.84,
+    actual: `${(p80 * 100).toFixed(1)}%`,
+    target: "80% ± 4",
+  });
+  checks.push({
+    label: "中位數玩家的發展度",
+    pass: p50 >= 0.6 && p50 <= 0.72,
+    actual: `${(p50 * 100).toFixed(1)}%`,
+    target: "60–72%",
+  });
+  // ★ 上限 90% 而不是 100%：模擬裡的 600 個玩家跑的是同一套貪婪啟發式，
+  //   彼此只差在勤奮度、屯糧紀律與出生地。真人之間的策略差距遠大於此，
+  //   所以這一項的上緣是**模型的性質**，不是遊戲的性質。
+  checks.push({
+    label: "最強的那 1% 的發展度",
+    pass: p99 >= 0.78 && p99 < 0.95,
+    actual: `${(p99 * 100).toFixed(1)}%`,
+    target: "78–95%（要有人明顯領先，但沒人走滿）",
+  });
+
   // 主堡 Lv30 在 12 天內不該達成
   const maxedShare = avg(
-    (r) => r.players.filter((p) => p.citadel >= CITADEL.maxLevel).length / r.players.length,
+    (r) => r.players.filter((p) => p.citadel >= maxCitadel()).length / r.players.length,
   );
   checks.push({
-    label: "賽季結束時達到主堡 Lv30 的比例",
+    label: `賽季結束時達到主堡 Lv${maxCitadel()} 的比例`,
     pass: maxedShare < 0.05,
     actual: `${(maxedShare * 100).toFixed(1)}%`,
     target: "< 5%（天花板應望而不可及）",
@@ -1584,7 +1818,7 @@ function main() {
   if (args.includes("--players")) {
     PLAYER_COUNT = Number(args[args.indexOf("--players") + 1]) || ROSTER.playersTotal;
   }
-  for (const k of ["citadelCost", "facilityCost", "yieldMul", "claimCost", "territoryPerLevel", "citadelGrowthDelta", "facilityGrowthDelta", "winterProduction", "winterUpkeep"] as const) {
+  for (const k of ["citadelCost", "facilityCost", "yieldMul", "claimCost", "territoryPerLevel", "citadelGrowthDelta", "facilityGrowthDelta", "winterProduction", "winterUpkeep", "maxCitadel", "facilityCapDivisor", "popCoefficient", "citadelTimeMul"] as const) {
     const i = args.indexOf(`--${k}`);
     if (i >= 0) T = { ...T, [k]: Number(args[i + 1]) };
   }
@@ -1642,7 +1876,10 @@ function main() {
     console.log(
       `\n  ── 範例積極玩家 #${p.id}（bias ${p.militaryBias.toFixed(2)}）────────────`,
     );
-    console.log(`  主堡 ${p.citadel} · 兵營 ${p.barracks} · 倉庫 ${p.depot}`);
+    console.log(
+      `  主堡 ${p.citadel} · 兵營 ${p.barracks} · 倉庫 ${p.depot} · 檔案館 ${p.archive}` +
+        ` · 科技 ${totalTechLevels(p)}/${MAX_TECH_LEVELS}`,
+    );
     for (const f of PROD) {
       const g = p.fac[f];
       console.log(
@@ -1663,6 +1900,68 @@ function main() {
         `（上限 ${capacityOf(p)}）`,
     );
   }
+
+  const devs = sample.players.map(developmentIndex).sort((a, b) => a - b);
+  console.log("\n  ── 發展度分佈（第 1 場）──────────────────────────────────");
+  console.log(
+    "  " +
+      [10, 25, 50, 75, 80, 90, 99]
+        .map((q) => `P${q} ${(percentile(devs, q / 100) * 100).toFixed(0)}%`)
+        .join("   "),
+  );
+  const capped = (fn: (p: SimPlayer) => boolean) =>
+    `${((sample.players.filter(fn).length / sample.players.length) * 100).toFixed(0)}%`;
+  console.log(
+    `  頂到天花板的比例：主堡 ${capped((p) => p.citadel >= maxCitadel())}` +
+      ` · 領土 ${capped((p) => territoryOf(p) >= tunedTerritoryCap(p))}` +
+      ` · 設施 ${capped((p) => {
+        let c = 0;
+        let l = 0;
+        for (const f of PROD) {
+          c += p.fac[f].count;
+          l += p.fac[f].levels;
+        }
+        return c > 0 && l / c >= facilityCapOf(p.citadel);
+      })}` +
+      ` · 人口 ${capped((p) => armyPopulation(p.army) >= populationCapOf(p.citadel) * 0.95)}`,
+  );
+  const axisOf = (fn: (p: SimPlayer) => number) => {
+    const v = sample.players.map(fn).sort((a, b) => a - b);
+    return `${(percentile(v, 0.5) * 100).toFixed(0)}/${(percentile(v, 0.8) * 100).toFixed(0)}`;
+  };
+  const maxT = T.territoryPerLevel * maxCitadel();
+  console.log(
+    "  各軸 P50/P80：" +
+      `主堡 ${axisOf((p) => p.citadel / maxCitadel())}` +
+      ` · 領土 ${axisOf((p) => territoryOf(p) / maxT)}` +
+      ` · 設施 ${axisOf((p) => {
+        let c = 0;
+        let l = 0;
+        for (const f of PROD) {
+          c += p.fac[f].count;
+          l += p.fac[f].levels;
+        }
+        return c > 0 ? l / c / facilityCapOf(maxCitadel()) : 0;
+      })}` +
+      ` · 兵力 ${axisOf((p) => armyPopulation(p.army) / populationCapOf(maxCitadel()))}` +
+      ` · 科技 ${axisOf((p) => totalTechLevels(p) / MAX_TECH_LEVELS)}`,
+  );
+  const techLevels = sample.players.map(totalTechLevels).sort((a, b) => a - b);
+  console.log(
+    `  科技等級合計（上限 ${MAX_TECH_LEVELS}）：` +
+      `中位 ${techLevels[techLevels.length >> 1]}` +
+      ` · 最高 ${techLevels[techLevels.length - 1]}` +
+      ` · 檔案館中位 ${sample.players.map((p) => p.archive).sort((a, b) => a - b)[sample.players.length >> 1]}`,
+  );
+
+  const acct = (fn: (p: SimPlayer) => number) =>
+    Math.round(sample.players.reduce((s, p) => s + fn(p), 0) / sample.players.length);
+  console.log(
+    `  資源會計（每人平均）：產出 ${acct((p) => p.produced).toLocaleString()}` +
+      ` · 花掉 ${acct((p) => p.spent).toLocaleString()}` +
+      ` · 滿倉蒸發 ${acct((p) => p.wasted).toLocaleString()}` +
+      `（${((acct((p) => p.wasted) / Math.max(1, acct((p) => p.produced))) * 100).toFixed(0)}%）`,
+  );
 
   console.log("\n  ── 戰爭節奏（第 1 場）────────────────────────────────────");
   const seasonBattles = { SPRING: 0, SUMMER: 0, AUTUMN: 0, WINTER: 0 } as Record<Season, number>;

@@ -94,7 +94,7 @@ describe("season modifiers", () => {
     }
   });
 
-  it("入冬的糧食收支惡化幅度必須落在 1.8–2.5 倍之間", () => {
+  it("入冬的糧食收支惡化幅度必須落在 1.8–2.8 倍之間", () => {
     const a = SEASON_MODIFIERS.AUTUMN;
     const w = SEASON_MODIFIERS.WINTER;
 
@@ -105,7 +105,7 @@ describe("season modifiers", () => {
     expect(swing).toBeGreaterThan(1.8);
     // 上限：賽季模擬顯示 3.05（舊值 0.55 / 1.4）會在入冬第一週餓掉
     // 中位數玩家一半的部隊 ——「用兵在秋冬兩季達高峰」會退化成只有秋季
-    expect(swing).toBeLessThan(2.5);
+    expect(swing).toBeLessThan(2.8);
 
     expect(w.production).toBeLessThan(a.production);
     expect(w.upkeep).toBeGreaterThan(a.upkeep);

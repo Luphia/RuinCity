@@ -186,7 +186,7 @@ CREATE TABLE player_population (
   player_id   BIGINT PRIMARY KEY REFERENCES players(id),
   amount      NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (amount >= 0), -- 可用人口
   rate        NUMERIC(10,3) NOT NULL DEFAULT 0,   -- 每小時成長，由主堡與領土數決定
-  cap         NUMERIC(10,0) NOT NULL DEFAULT 60,  -- 60 × 主堡等級^1.15
+  cap         NUMERIC(10,0) NOT NULL DEFAULT 72,  -- 72 × 主堡等級^1.15
   used        NUMERIC(12,3) NOT NULL DEFAULT 0,   -- 已被部隊佔用（含行軍中）
   settled_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
