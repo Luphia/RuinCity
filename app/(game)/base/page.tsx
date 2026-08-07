@@ -4,7 +4,10 @@ import { planCoreBuild, type CoreSlot } from "@/lib/game/build";
 import { deriveRates, outpostUpkeep } from "@/lib/game/economy-state";
 import { BaseView, type CoreSlotView } from "@/components/base/BaseView";
 import { BriefingCard } from "@/components/steward/BriefingCard";
-import { constructCore, upgradeCore } from "@/app/actions/base";
+import { constructCore, trainUnits, upgradeCore } from "@/app/actions/base";
+import { producersOf, unlockedUnits } from "@/lib/game/train";
+import { CORE_BUILDING } from "@/lib/game/balance";
+import type { TrainQueueView } from "@/components/base/ArmyPanel";
 import {
   acknowledgeBriefing,
   loadStewardBriefing,
@@ -122,6 +125,18 @@ export default async function BasePage() {
         }))}
         seasonLabel={SEASON_LABEL[state.season]}
         serverTime={now}
+        army={{
+          garrison: state.garrison,
+          unlocked: unlockedUnits(state.build.slots),
+          resources: state.economy.resources,
+          capacity: derived.capacity,
+          freePopulation: Math.max(
+            0,
+            state.economy.population.cap - state.economy.population.used,
+          ),
+          queues: trainQueueViews(state),
+          onTrain: trainUnits,
+        }}
         onUpgrade={upgradeCore}
         onConstruct={constructCore}
       />
@@ -141,6 +156,30 @@ function planFor(
     return { cost: zeroAmounts(), seconds: 0, blocked: "CITADEL_MAXED" };
   }
   return { cost: plan.cost, seconds: plan.seconds, blocked: null };
+}
+
+/**
+ * 招募佇列的顯示。民兵永遠有一條（不需要任何建築），
+ * 每一座生產建築再各給一條。
+ */
+function trainQueueViews(
+  state: Awaited<ReturnType<typeof loadAndSettle>>,
+): TrainQueueView[] {
+  const out: TrainQueueView[] = [
+    {
+      producer: null,
+      label: "民兵",
+      doneAt: state.train.militiaQueue?.doneAt ?? null,
+    },
+  ];
+  for (const p of producersOf(state.build.slots)) {
+    out.push({
+      producer: p.building,
+      label: `${CORE_BUILDING[p.building].label} Lv${p.level}`,
+      doneAt: state.train.queues[p.building]?.doneAt ?? null,
+    });
+  }
+  return out;
 }
 
 async function currentPlayerId(): Promise<number> {

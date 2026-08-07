@@ -461,12 +461,12 @@ describe("★ 簡報的警告：執政官看到的事", () => {
   });
 });
 
-describe("募兵（M3 之前只會被佇列擋下）", () => {
+describe("募兵", () => {
   const levyOn = directives({
     levy: { enabled: true, mix: { MILITIA: 1 }, populationReserve: 0, reserve: zeroAmounts() },
   });
 
-  it("沒有兵營佇列就記 QUEUE_BUSY", () => {
+  it("沒有閒置的招募佇列就記 QUEUE_BUSY", () => {
     const d = decideStewardActions(input({ directives: levyOn, barracksQueuesFree: 0 }));
     expect(d.actions).toHaveLength(0);
     expect(d.blocked).toContainEqual({ directive: "LEVY", reason: "QUEUE_BUSY" });

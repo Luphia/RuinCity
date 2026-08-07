@@ -15,6 +15,9 @@ import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import { clampPause, parseDirectives, type Directives } from "@/lib/game/steward";
+import { sanitiseStewardName } from "@/lib/game/avatar";
+import { unlockedUnits } from "@/lib/game/train";
+import type { Unit } from "@/lib/game/balance";
 import { stewardDirectiveSlots } from "@/lib/game/formulas";
 import {
   acknowledgeBriefingWithin,
@@ -64,6 +67,8 @@ export interface StewardBoard {
   readonly serverTime: number;
   /** 執政官派出、還沒立旗完成的拓荒隊 */
   readonly recallable: readonly { readonly eventId: number; readonly x: number; readonly y: number; readonly doneAt: number }[];
+  /** 募兵方針的兵種選單，只列現在招得動的 */
+  readonly unlockedUnits: readonly Unit[];
 }
 
 export async function loadStewardBoard(): Promise<StewardBoard> {
@@ -109,6 +114,7 @@ export async function loadStewardBoard(): Promise<StewardBoard> {
       capacity: state.economy.capacity,
       serverTime: now,
       recallable,
+      unlockedUnits: unlockedUnits(state.build.slots),
     };
   });
 }
@@ -191,8 +197,8 @@ export async function recallClaim(eventId: number): Promise<StewardResult> {
     // 已經立旗完成的召不回來 —— 那塊地已經是你的了
     if (event.resolveAt.getTime() <= now) return { ok: false, reason: "ALREADY_DONE" };
 
-    const state = await settleWithin(tx, playerId);
-    const p = (event.payload ?? {}) as { x?: unknown; y?: unknown };
+    const state = await settleWithin(tx, playerId, now);
+    const p = (event.payload ?? {}) as { x?: unknown; y?: unknown; militia?: unknown };
     const { claimCost } = await import("@/lib/game/territory");
     // 下單時的領土數 = 現在的領土數（那一格還沒入帳）
     const refund = claimCost(state.tiles.length);
@@ -207,6 +213,15 @@ export async function recallClaim(eventId: number): Promise<StewardResult> {
       })
       .where(eq(schema.playerResources.playerId, playerId));
 
+    // ★ 民兵在下單時就被扣掉了（`base-ops.ts`），召回要還回來
+    const militia = typeof p.militia === "number" ? p.militia : 0;
+    if (militia > 0) {
+      await tx
+        .update(schema.playerPopulation)
+        .set({ used: String(Math.max(0, state.economy.population.used - militia)) })
+        .where(eq(schema.playerPopulation.playerId, playerId));
+    }
+
     // 標記為已結算 —— `parsePayload` 認不出 RECALLED 的 payload，
     // 就算被讀到也會被安全地跳過
     await tx
@@ -216,6 +231,29 @@ export async function recallClaim(eventId: number): Promise<StewardResult> {
 
     revalidatePath("/steward");
     revalidatePath("/territory");
+    return { ok: true };
+  });
+}
+
+/**
+ * 重新命名執政官。
+ *
+ * ★ 純外觀、免費（`docs/18` §10）。額外的方針欄位是戰力所以不可販售，
+ *   但名字與皮膚不是 —— 這條線要劃清楚。
+ */
+export async function renameSteward(name: string): Promise<StewardResult> {
+  const playerId = await currentPlayerId();
+  const clean = sanitiseStewardName(name);
+  if (clean === null) return { ok: false, reason: "EMPTY_NAME" };
+
+  return withTransaction(async (tx) => {
+    await ensureSteward(tx, playerId);
+    await tx
+      .update(schema.stewards)
+      .set({ name: clean })
+      .where(eq(schema.stewards.playerId, playerId));
+    revalidatePath("/steward");
+    revalidatePath("/base");
     return { ok: true };
   });
 }

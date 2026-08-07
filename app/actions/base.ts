@@ -28,7 +28,7 @@ import { ISOLATION_GRACE_MS, recomputeIsolation } from "@/lib/game/territory";
 import { serverNow } from "@/lib/time";
 import { scheduleEvent, settleWithin, spendAmounts } from "@/lib/server/player-state";
 import { buildTerritoryBoard, type TerritoryBoard } from "@/lib/server/territory-board";
-import { buildFacilityFor, claimTileFor } from "@/lib/server/base-ops";
+import { buildFacilityFor, claimTileFor, trainUnitsFor } from "@/lib/server/base-ops";
 
 export interface ActionResult {
   readonly ok: boolean;
@@ -196,6 +196,21 @@ export async function buildFacility(
     revalidatePath("/base");
     revalidatePath("/territory");
   }
+  return result;
+}
+
+/**
+ * 招募。
+ *
+ * ★ 與拓荒、建設一樣，驗證在 `lib/server/base-ops.ts` ——
+ *   執政官的募兵方針走的是**同一個函式**。
+ */
+export async function trainUnits(unit: string, count: number): Promise<ActionResult> {
+  const playerId = await currentPlayerId();
+  const now = await serverNow();
+
+  const result = await withTransaction((tx) => trainUnitsFor(tx, playerId, unit, count, now));
+  if (result.ok) revalidatePath("/base");
   return result;
 }
 

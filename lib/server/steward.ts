@@ -32,7 +32,8 @@ import {
 } from "@/lib/game/steward";
 import { schema } from "@/lib/db";
 import { withTransaction, type TxDb } from "@/lib/db/tx";
-import { buildFacilityFor, claimTileFor } from "@/lib/server/base-ops";
+import { buildFacilityFor, claimTileFor, trainUnitsFor } from "@/lib/server/base-ops";
+import { freeTrainQueues } from "@/lib/game/train";
 import { scheduleEvent, settleWithin } from "@/lib/server/player-state";
 import { buildTerritoryBoard } from "@/lib/server/territory-board";
 
@@ -166,12 +167,12 @@ export async function runStewardWithin(
     steward.directives.pausedUntil !== null && steward.directives.pausedUntil > now;
   if (!anyEnabled || paused) {
     // 還是要結算（事件到期了就該生效），也還是要把安全網排下去
-    const settled = await settleWithin(tx, playerId);
+    const settled = await settleWithin(tx, playerId, now);
     await scheduleNextTick(tx, settled.seasonId, playerId, now);
     return { ran: false, decision: null, executed: 0, failed: 0 };
   }
 
-  const state = await settleWithin(tx, playerId);
+  const state = await settleWithin(tx, playerId, now);
   const board = await buildTerritoryBoard(tx, state, now);
 
   const derived = deriveRates({
@@ -210,8 +211,7 @@ export async function runStewardWithin(
       used: state.economy.population.used,
     },
     territoryQueuesFree: board.queuesFreeCount,
-    // M3 之前沒有兵營佇列。募兵的決策邏輯已經寫好也測過了
-    barracksQueuesFree: 0,
+    barracksQueuesFree: freeTrainQueues(state.train, now),
     ownedCount: state.tiles.length,
     territoryCapacity: board.capacity,
     candidates: board.candidates,
@@ -272,9 +272,7 @@ async function execute(tx: TxDb, playerId: number, action: StewardAction, now: n
     case "BUILD":
       return buildFacilityFor(tx, playerId, action.x, action.y, action.facility, now);
     case "LEVY":
-      // M3 才有兵營。`decideStewardActions` 在 barracksQueuesFree = 0 時
-      // 根本不會產出這個動作，所以這裡到不了 —— 但別讓它靜靜地成功
-      return { ok: false, reason: "NOT_IMPLEMENTED" as const };
+      return trainUnitsFor(tx, playerId, action.unit, action.count, now);
   }
 }
 

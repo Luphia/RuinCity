@@ -10,11 +10,12 @@
 
 import { useState, useTransition } from "react";
 
-import { FACILITIES, FACILITY, type Facility } from "@/lib/game/balance";
+import { FACILITIES, FACILITY, UNIT, type Facility } from "@/lib/game/balance";
 import type { Directives } from "@/lib/game/steward";
 import type { StewardBoard, StewardResult } from "@/app/actions/steward";
 import type { Amounts } from "@/lib/game/settle";
 import { useServerClock } from "@/components/use-server-clock";
+import { avatarSvg, STEWARD_NAME_MAX } from "@/lib/game/avatar";
 
 const RESOURCE_LABEL: Record<keyof Amounts, string> = {
   grain: "糧",
@@ -36,12 +37,16 @@ export interface StewardViewProps {
   readonly onPause: (hours: number) => Promise<StewardResult>;
   readonly onResume: () => Promise<StewardResult>;
   readonly onRecall: (eventId: number) => Promise<StewardResult>;
+  /** 純外觀、免費（`docs/18` §9、§10） */
+  readonly onRename: (name: string) => Promise<StewardResult>;
 }
 
 export function StewardView(props: StewardViewProps) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [d, setD] = useState<Directives>(props.board.directives);
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState(props.board.name);
   const now = useServerClock(props.board.serverTime);
 
   const act = (fn: () => Promise<StewardResult>) => {
@@ -60,8 +65,46 @@ export function StewardView(props: StewardViewProps) {
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 bg-[#1a1614] p-4 text-[#e8dcc0]">
       <header className="flex items-center gap-3">
         <Avatar seed={props.board.avatarSeed} />
-        <div>
-          <h1 className="text-lg font-bold">執政官 · {props.board.name}</h1>
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <div className="flex gap-1">
+              <input
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                maxLength={STEWARD_NAME_MAX * 2}
+                data-testid="steward-name-input"
+                className="w-full rounded border border-[#4a413a] bg-[#1a1614] px-2 py-1 text-sm"
+              />
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  act(async () => {
+                    const r = await props.onRename(draftName);
+                    if (r.ok) setRenaming(false);
+                    return r;
+                  })
+                }
+                className="rounded border border-[#a35a3a] px-2 py-1 text-xs disabled:opacity-40"
+              >
+                改名
+              </button>
+            </div>
+          ) : (
+            <h1 className="text-lg font-bold">
+              執政官 · {props.board.name}
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftName(props.board.name);
+                  setRenaming(true);
+                }}
+                className="ml-2 rounded border border-[#4a413a] px-2 py-0.5 align-middle text-[10px] font-normal opacity-70"
+              >
+                改名
+              </button>
+            </h1>
+          )}
           <p className="text-[11px] opacity-60">
             執行你的政策，不替你做決策。核心佇列與軍事永遠手動。
           </p>
@@ -152,7 +195,7 @@ export function StewardView(props: StewardViewProps) {
       {/* ── 募兵 ── */}
       <Section
         title="募兵 Levy"
-        note="兵營佇列閒置時依配比招兵 —— 兵營在 M3 開放"
+        note="招募佇列閒置時依配比招兵。一座生產建築 = 一條佇列"
         enabled={d.levy.enabled}
         onToggle={(v) => setD({ ...d, levy: { ...d.levy, enabled: v } })}
       >
@@ -168,6 +211,31 @@ export function StewardView(props: StewardViewProps) {
             className="w-24 rounded border border-[#4a413a] bg-[#1a1614] px-2 py-1 text-right tabular-nums"
           />
         </label>
+        <div>
+          <div className="mb-1 text-[10px] opacity-60">兵種配比（點擊切換；權重相同）</div>
+          <div className="flex flex-wrap gap-1">
+            {props.board.unlockedUnits.map((u) => {
+              const on = (d.levy.mix[u] ?? 0) > 0;
+              return (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => {
+                    const mix = { ...d.levy.mix };
+                    if (on) delete mix[u];
+                    else mix[u] = 1;
+                    setD({ ...d, levy: { ...d.levy, mix } });
+                  }}
+                  className={`rounded border px-2 py-1 text-[11px] ${
+                    on ? "border-[#a35a3a] bg-[#4a413a]" : "border-[#4a413a] opacity-50"
+                  }`}
+                >
+                  {UNIT[u].label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <Reserve
           value={d.levy.reserve}
           max={props.board.capacity}
@@ -355,28 +423,20 @@ function Priority({
 }
 
 /**
- * 32×32 像素頭像的佔位。
+ * 32×32 像素頭像（`docs/18` §9）。
  *
- * 美術資源（兜帽、面罩、義眼、傷疤的組合）還沒進來，
- * 先用 seed 決定的色塊網格 —— 它至少是**穩定且各人不同**的。
+ * ★ 用 `dangerouslySetInnerHTML` 是因為 `avatarSvg` 產生的是我們自己
+ *   組出來的字串 —— 唯一的變數是一個數字 seed，沒有任何使用者輸入
+ *   會進到那個字串裡。
  */
 function Avatar({ seed }: { seed: number }) {
-  const cells: string[] = [];
-  let s = seed >>> 0;
-  for (let i = 0; i < 16; i++) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    const shade = 40 + ((s >>> 8) % 60);
-    cells.push(`hsl(28 18% ${shade}%)`);
-  }
+  const svg = avatarSvg(seed, 2);
   return (
     <div
       aria-hidden
-      className="grid size-10 shrink-0 grid-cols-4 overflow-hidden rounded border border-[#4a413a]"
-    >
-      {cells.map((c, i) => (
-        <span key={i} style={{ background: c }} />
-      ))}
-    </div>
+      className="size-16 shrink-0 overflow-hidden rounded border border-[#4a413a] bg-[#2e2723]"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }
 

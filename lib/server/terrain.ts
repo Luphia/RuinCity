@@ -26,6 +26,17 @@ export function terrainDirFor(seasonId: number | string): string {
   return `s${seasonId}`;
 }
 
+/**
+ * 地形檔的根目錄。
+ *
+ * 預設是 `public/terrain`（跟 CDN 供的是同一份檔案）。
+ * `TERRAIN_ROOT` 讓整合測試指到一份臨時的 fixture ——
+ * 也讓地形檔之後能搬到 volume 或物件儲存而不用改程式。
+ */
+function terrainRoot(): string {
+  return process.env.TERRAIN_ROOT ?? join(process.cwd(), "public", "terrain");
+}
+
 async function loadChunk(dir: string, cx: number, cy: number): Promise<Uint8Array | null> {
   let perSeason = cache.get(dir);
   if (!perSeason) {
@@ -37,7 +48,7 @@ async function loadChunk(dir: string, cx: number, cy: number): Promise<Uint8Arra
   if (hit) return hit;
 
   try {
-    const buf = await readFile(join(process.cwd(), "public", "terrain", dir, `${k}.bin`));
+    const buf = await readFile(join(terrainRoot(), dir, `${k}.bin`));
     const bytes = new Uint8Array(buf);
     perSeason.set(k, bytes);
     return bytes;
@@ -105,10 +116,7 @@ export async function loadRuins(
   if (hit) return hit;
 
   try {
-    const raw = await readFile(
-      join(process.cwd(), "public", "terrain", seasonDir, "meta.json"),
-      "utf8",
-    );
+    const raw = await readFile(join(terrainRoot(), seasonDir, "meta.json"), "utf8");
     const meta = JSON.parse(raw) as { ruins?: { x?: unknown; y?: unknown }[] };
     const ruins = (meta.ruins ?? []).flatMap((r) =>
       typeof r.x === "number" && typeof r.y === "number" ? [{ x: r.x, y: r.y }] : [],

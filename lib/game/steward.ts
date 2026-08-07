@@ -36,6 +36,7 @@ import {
 import { facilityCost, facilityLevelCap, stewardDirectiveSlots } from "./formulas";
 import { deriveSeed, mulberry32 } from "./rng";
 import { claimCost } from "./territory";
+import { maxAffordable } from "./train";
 import { zeroAmounts, type Amounts, type SettleResource } from "./settle";
 
 // ─────────────────────────────────────────────────────────────
@@ -243,7 +244,7 @@ export interface StewardInput {
 
   /** 閒置的領土佇列數。拓荒與建設**共用**這些佇列 */
   readonly territoryQueuesFree: number;
-  /** 閒置的兵營佇列數。M3 之前一律 0 */
+  /** 閒置的招募佇列數（民兵 + 每一座生產建築各一條） */
   readonly barracksQueuesFree: number;
 
   readonly ownedCount: number;
@@ -576,8 +577,8 @@ function pickCandidate(
 /**
  * 募兵。
  *
- * ★ M3 之前 `barracksQueuesFree` 恆為 0，所以這裡只會產出 `QUEUE_BUSY`。
- *   決策邏輯先寫好並測起來，M3 接上兵營之後不需要改這個函式。
+ * ★ 招出來的兵留在本營。行軍與戰鬥是 M3 ——
+ *   而執政官**永遠**不會碰那兩件事（`18` §2）。
  */
 function planLevy(
   input: StewardInput,
@@ -621,16 +622,16 @@ function planLevy(
     const wantCount = Math.floor((popBudget * share) / Math.max(1, spec.population));
     if (wantCount <= 0) continue;
 
-    // 錢與人口哪個先見底就以哪個為準
-    const byResource = Math.min(
-      ...(["grain", "timber", "stone", "iron"] as const).map((r) =>
-        spec.cost[r] > 0 ? Math.floor(spent[r] / spec.cost[r]) : Infinity,
-      ),
-    );
-    const count = Math.max(
-      0,
-      Math.min(wantCount, byResource, Math.floor(popLeft / Math.max(1, spec.population))),
-    );
+    /**
+     * ★ 用**與執行端相同的** `maxAffordable`，不要在這裡自己算一次。
+     *
+     *   `checkTrain` 會擋下「一次下的單超過倉庫容得下的量」——
+     *   規劃時漏掉那一條，執政官就會排出一個**保證失敗**的動作，
+     *   然後每一輪都在簡報上留一筆 BLOCKED。
+     *   規劃與執行必須共用同一個可負擔性函式，否則兩邊遲早會分岔。
+     */
+    const affordable = maxAffordable(unit, spent, input.capacity, popLeft);
+    const count = Math.max(0, Math.min(wantCount, affordable));
     if (count <= 0) continue;
 
     actions.push({ kind: "LEVY", unit, count });

@@ -21,7 +21,9 @@
  * 不確定性的來源只有 I/O，而這裡一個都沒有。
  */
 
-import type { CoreBuilding, Facility, Terrain } from "./balance";
+import type { CoreBuilding, Facility, Terrain, Unit } from "./balance";
+import { UNITS } from "./balance";
+import { mergeUnits, PRODUCERS, type Producer } from "./train";
 import { CORE_SLOTS, DEMOLISH_COOLDOWN_MS, type CoreSlot, type SlotState } from "./build";
 import { deriveRates, outpostUpkeep, type TileWithFacility } from "./economy-state";
 import { zeroAmounts, type Amounts, type PlayerEconomy, type ScheduledEvent } from "./settle";
@@ -33,6 +35,8 @@ export interface WorldState {
   readonly slots: Readonly<Record<CoreSlot, SlotState>>;
   readonly tiles: readonly TileWithFacility[];
   readonly lastDemolishAt: number | null;
+  /** 本營駐軍。行軍與戰鬥是 M3，這裡只有「招募完成後放哪裡」 */
+  readonly garrison: Readonly<Partial<Record<Unit, number>>>;
 }
 
 export type M2Payload =
@@ -65,7 +69,14 @@ export type M2Payload =
       readonly cooldownUntil: number;
     }
   | { readonly kind: "ISOLATION_EXPIRE"; readonly x: number; readonly y: number }
-  | { readonly kind: "DELIVERY"; readonly listingId: number; readonly amounts: Amounts };
+  | { readonly kind: "DELIVERY"; readonly listingId: number; readonly amounts: Amounts }
+  | {
+      readonly kind: "TRAIN";
+      readonly unit: Unit;
+      readonly count: number;
+      /** null = 民兵佇列 */
+      readonly producer: string | null;
+    };
 
 const isSlot = (v: unknown): v is CoreSlot => CORE_SLOTS.includes(v as CoreSlot);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -139,6 +150,17 @@ export function parsePayload(type: string, raw: unknown): M2Payload | null {
       return { kind: "ISOLATION_EXPIRE", x: p.x, y: p.y };
     }
 
+    case "TRAIN_DONE": {
+      if (!isNum(p.count) || p.count <= 0) return null;
+      if (!UNITS.includes(p.unit as Unit)) return null;
+      return {
+        kind: "TRAIN",
+        unit: p.unit as Unit,
+        count: Math.floor(p.count),
+        producer: typeof p.producer === "string" ? p.producer : null,
+      };
+    }
+
     case "MARKET_DELIVERY": {
       if (!isNum(p.listingId)) return null;
       return { kind: "DELIVERY", listingId: p.listingId, amounts: amountsOf(p.amounts) };
@@ -205,12 +227,12 @@ export function resolveEvent(world: WorldState, payload: M2Payload): ResolveOutc
         facilityLevel: 0,
         terrain: payload.terrain,
       };
-      return {
-        credit: zeroAmounts(),
-        // 拓荒隊的民兵留在新領土上駐守，人口被佔用
-        populationUsedDelta: payload.militia,
-        world: { ...world, tiles: [...world.tiles, tile] },
-      };
+      /**
+       * ★ 人口在**下單時**就被扣了（`base-ops.ts` 的 `claimTileFor`）。
+       *   這裡再扣一次就是扣兩次 —— 拓荒隊出發那一刻人就走了，
+       *   不是立旗那一刻才走。
+       */
+      return { ...none, world: { ...world, tiles: [...world.tiles, tile] } };
     }
 
     case "DEMOLISH": {
@@ -222,6 +244,21 @@ export function resolveEvent(world: WorldState, payload: M2Payload): ResolveOutc
         world: {
           ...world,
           slots: { ...world.slots, [payload.slot]: { building: null, level: 0 } },
+        },
+      };
+    }
+
+    case "TRAIN": {
+      /**
+       * ★ 只把部隊放進駐軍，**不動人口** ——
+       *   人口在下單時就被佔用了（`train.ts` 的開頭）。
+       *   在這裡再扣一次就是扣兩次。
+       */
+      return {
+        ...none,
+        world: {
+          ...world,
+          garrison: mergeUnits(world.garrison, payload.unit, payload.count),
         },
       };
     }
@@ -321,6 +358,9 @@ export interface QueueSnapshot {
   readonly coreQueue: { readonly target: "CITADEL" | CoreSlot; readonly doneAt: number } | null;
   readonly territoryQueue: readonly ({ readonly doneAt: number } | null)[];
   readonly lastDemolishAt: number | null;
+  /** 每一座生產建築的招募佇列；`null` 這個鍵是民兵佇列 */
+  readonly trainQueues: Readonly<Partial<Record<Producer, { readonly doneAt: number } | null>>>;
+  readonly militiaQueue: { readonly doneAt: number } | null;
 }
 
 /**
@@ -340,6 +380,8 @@ export function deriveQueues(
   let coreQueue: QueueSnapshot["coreQueue"] = null;
   const territoryQueue: ({ doneAt: number } | null)[] = Array.from({ length: queueCount }, () => null);
   let lastDemolishAt: number | null = null;
+  const trainQueues: Partial<Record<Producer, { doneAt: number } | null>> = {};
+  let militiaQueue: { doneAt: number } | null = null;
 
   for (const e of pending) {
     const p = parsePayload(e.type, e.payload);
@@ -365,6 +407,18 @@ export function deriveQueues(
           coreQueue = { target: p.slot, doneAt: e.resolveAt };
         }
         break;
+      case "TRAIN": {
+        if (p.producer === null) {
+          if (!militiaQueue || e.resolveAt > militiaQueue.doneAt) {
+            militiaQueue = { doneAt: e.resolveAt };
+          }
+        } else if (PRODUCERS.includes(p.producer as Producer)) {
+          const key = p.producer as Producer;
+          const cur = trainQueues[key];
+          if (!cur || e.resolveAt > cur.doneAt) trainQueues[key] = { doneAt: e.resolveAt };
+        }
+        break;
+      }
       case "FACILITY":
       case "CLAIM": {
         const i = p.queueIndex;
@@ -379,5 +433,5 @@ export function deriveQueues(
     }
   }
 
-  return { coreQueue, territoryQueue, lastDemolishAt };
+  return { coreQueue, territoryQueue, lastDemolishAt, trainQueues, militiaQueue };
 }

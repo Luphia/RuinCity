@@ -15,6 +15,7 @@ import { CORE_BUILDING, CORE_BUILDINGS, type CoreBuilding } from "@/lib/game/bal
 import type { CoreSlot } from "@/lib/game/build";
 import type { Amounts } from "@/lib/game/settle";
 import { useServerClock } from "@/components/use-server-clock";
+import { ArmyPanel, type ArmyPanelProps } from "@/components/base/ArmyPanel";
 
 export interface CoreSlotView {
   readonly slot: "A" | CoreSlot;
@@ -46,6 +47,8 @@ export interface BaseViewProps {
   readonly seasonLabel: string;
   /** 伺服器 render 當下的時間。倒數以此為基準校正，不信任客戶端時鐘 */
   readonly serverTime: number;
+  /** 軍隊面板。招募與駐軍，行軍與戰鬥是 M3 */
+  readonly army: Omit<ArmyPanelProps, "serverTime">;
   readonly onUpgrade?: (target: "CITADEL" | CoreSlot) => Promise<{ ok: boolean; reason?: string }>;
   readonly onConstruct?: (
     slot: CoreSlot,
@@ -230,6 +233,8 @@ export function BaseView(props: BaseViewProps) {
           ))}
         </div>
       </section>
+
+      <ArmyPanel {...props.army} serverTime={props.serverTime} />
 
       {message ? (
         <p data-testid="base-message" className="rounded bg-[#6e3a26] px-3 py-2 text-xs">

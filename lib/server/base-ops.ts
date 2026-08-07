@@ -24,7 +24,9 @@ import "server-only";
 
 import { and, eq } from "drizzle-orm";
 
+import { SEASON_MODIFIERS } from "@/lib/game/balance";
 import { checkBuild, freeTerritoryQueue, planFacility } from "@/lib/game/build";
+import { checkTrain, planTrain } from "@/lib/game/train";
 import { territoryCapacity } from "@/lib/game/formulas";
 import { planClaim } from "@/lib/game/territory";
 import { schema } from "@/lib/db";
@@ -52,7 +54,7 @@ export async function claimTileFor(
   y: number,
   now: number,
 ): Promise<OpResult> {
-  const state = await settleWithin(tx, playerId);
+  const state = await settleWithin(tx, playerId, now);
 
   const queueIndex = freeTerritoryQueue(state.build, now);
   if (queueIndex < 0) return { ok: false, reason: "NO_FREE_QUEUE" };
@@ -88,9 +90,20 @@ export async function claimTileFor(
     return { ok: false, reason: "INSUFFICIENT_RESOURCES" };
   }
 
-  // 拓荒隊要帶民兵出去，人口不夠就派不出去（`docs/02` §2.2 的第二重遞增）
+  /**
+   * 拓荒隊要帶民兵出去，人口不夠就派不出去（`docs/02` §2.2 的第二重遞增）。
+   *
+   * ★ 人口在**這裡**就扣掉，不是等到立旗完成 —— 拓荒隊出發那一刻人就走了。
+   *   等到完成才扣的話，四條佇列可以各自下滿，總和超過人口上限。
+   *   召回時退還（`recallClaim`）。
+   */
   const freePop = state.economy.population.cap - state.economy.population.used;
   if (freePop < plan.militia) return { ok: false, reason: "INSUFFICIENT_POPULATION" };
+
+  await tx
+    .update(schema.playerPopulation)
+    .set({ used: String(state.economy.population.used + plan.militia) })
+    .where(eq(schema.playerPopulation.playerId, playerId));
 
   await tx
     .update(schema.playerResources)
@@ -119,6 +132,62 @@ export async function claimTileFor(
   return { ok: true, doneAt };
 }
 
+/**
+ * 招募。
+ *
+ * ★ 人口在**這裡**就被扣掉，不是等到 `TRAIN_DONE`。
+ *   三條佇列各自下滿的話，總和會遠超過人口上限 ——
+ *   等到完成才發現超了，就只能在「憑空多出人口」與「白花資源」
+ *   之間二選一。先扣起來，取消時再退。
+ *
+ * 行軍與戰鬥是 M3；這裡招出來的兵直接進本營駐軍。
+ */
+export async function trainUnitsFor(
+  tx: TxDb,
+  playerId: number,
+  unit: string,
+  count: number,
+  now: number,
+): Promise<OpResult> {
+  const state = await settleWithin(tx, playerId, now);
+
+  const plan = planTrain(state.train, unit, count, now, {
+    trainingModifier: SEASON_MODIFIERS[state.season].training,
+  });
+  if ("reason" in plan) return { ok: false, reason: plan.reason };
+
+  const freePop = state.economy.population.cap - state.economy.population.used;
+  const check = checkTrain(plan, state.economy.resources, state.economy.capacity, freePop);
+  if (!check.ok) return { ok: false, reason: check.reason };
+
+  const next = spendAmounts(state.economy.resources, plan.cost);
+  await tx
+    .update(schema.playerResources)
+    .set({
+      grain: String(next.grain),
+      timber: String(next.timber),
+      stone: String(next.stone),
+      iron: String(next.iron),
+    })
+    .where(eq(schema.playerResources.playerId, playerId));
+
+  await tx
+    .update(schema.playerPopulation)
+    .set({ used: String(state.economy.population.used + plan.population) })
+    .where(eq(schema.playerPopulation.playerId, playerId));
+
+  const doneAt = now + plan.seconds * 1000;
+  await scheduleEvent(tx, {
+    seasonId: state.seasonId,
+    type: "TRAIN_DONE",
+    actorId: playerId,
+    payload: { kind: "TRAIN", unit: plan.unit, count: plan.count, producer: plan.producer },
+    resolveAt: doneAt,
+  });
+
+  return { ok: true, doneAt };
+}
+
 /** 在自己的領土格上蓋／升設施 */
 export async function buildFacilityFor(
   tx: TxDb,
@@ -128,7 +197,7 @@ export async function buildFacilityFor(
   facility: string,
   now: number,
 ): Promise<OpResult> {
-  const state = await settleWithin(tx, playerId);
+  const state = await settleWithin(tx, playerId, now);
   const tile = state.tiles.find((t) => t.x === x && t.y === y);
   if (!tile) return { ok: false, reason: "NOT_OWNED" };
 

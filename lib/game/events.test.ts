@@ -31,6 +31,7 @@ function world(over: Partial<WorldState> = {}): WorldState {
     },
     tiles: [],
     lastDemolishAt: null,
+    garrison: {},
     ...over,
   };
 }
@@ -111,7 +112,7 @@ describe("resolveEvent", () => {
     expect(r.world.slots.B).toEqual({ building: "BARRACKS", level: 3 });
   });
 
-  it("拓荒把新的一格加進來，並佔用民兵", () => {
+  it("★ 拓荒只把地加進來 —— 民兵在**下單時**就扣過了", () => {
     const r = resolveEvent(world(), {
       kind: "CLAIM",
       x: 10,
@@ -122,7 +123,8 @@ describe("resolveEvent", () => {
     });
     expect(r.world.tiles).toHaveLength(1);
     expect(r.world.tiles[0]).toMatchObject({ x: 10, y: 11, terrain: "FOREST", state: "NORMAL" });
-    expect(r.populationUsedDelta).toBe(5);
+    // 在這裡再扣一次就是扣兩次（`base-ops.ts` 的 `claimTileFor`）
+    expect(r.populationUsedDelta).toBe(0);
   });
 
   it("★ 同一塊地重複結算不會變成兩塊", () => {

@@ -3,6 +3,7 @@ import {
   loadStewardBoard,
   pauseSteward,
   recallClaim,
+  renameSteward,
   resumeSteward,
   setDirectives,
 } from "@/app/actions/steward";
@@ -37,6 +38,7 @@ export default async function StewardPage() {
       onPause={pauseSteward}
       onResume={resumeSteward}
       onRecall={recallClaim}
+      onRename={renameSteward}
     />
   );
 }

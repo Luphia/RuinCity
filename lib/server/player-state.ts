@@ -10,7 +10,13 @@ import "server-only";
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 
-import { SEASON_MODIFIERS, type Facility, type Season, type Terrain } from "@/lib/game/balance";
+import {
+  SEASON_MODIFIERS,
+  type Facility,
+  type Season,
+  type Terrain,
+  type Unit,
+} from "@/lib/game/balance";
 import { seasonModifiersAt } from "@/lib/game/calendar";
 import { deriveRates, outpostUpkeep, type TileWithFacility } from "@/lib/game/economy-state";
 import {
@@ -28,6 +34,7 @@ import {
   type ScheduledEvent,
 } from "@/lib/game/settle";
 import { recomputeIsolation } from "@/lib/game/territory";
+import type { TrainState } from "@/lib/game/train";
 import { serverNow } from "@/lib/time";
 import { schema } from "@/lib/db";
 import { withTransaction, type TxDb } from "@/lib/db/tx";
@@ -45,6 +52,10 @@ export interface LoadedPlayer {
   readonly economy: PlayerEconomy;
   readonly build: BuildState;
   readonly tiles: readonly TileWithFacility[];
+  /** 本營駐軍。行軍與戰鬥是 M3 */
+  readonly garrison: Readonly<Partial<Record<Unit, number>>>;
+  /** 招募佇列的狀態，`planTrain` 要 */
+  readonly train: TrainState;
   readonly season: Season;
 }
 
@@ -75,8 +86,18 @@ export async function loadAndSettle(playerId: number): Promise<LoadedPlayer> {
   return withTransaction(async (tx) => settleWithin(tx, playerId));
 }
 
-export async function settleWithin(tx: TxDb, playerId: number): Promise<LoadedPlayer> {
-  const now = await serverNow();
+/**
+ * @param at 結算到哪一刻。**只有測試與重放會傳** ——
+ *   正常路徑一律走 `serverNow()`，不接受客戶端傳進來的時間
+ *   （CLAUDE.md 第三條界線）。呼叫端能傳，是因為呼叫端已經在
+ *   伺服器上了；真正的界線在 Server Action 的邊緣，不在這裡。
+ */
+export async function settleWithin(
+  tx: TxDb,
+  playerId: number,
+  at?: number,
+): Promise<LoadedPlayer> {
+  const now = at ?? (await serverNow());
 
   const [player] = await tx
     .select()
@@ -136,11 +157,24 @@ export async function settleWithin(tx: TxDb, playerId: number): Promise<LoadedPl
       terrain: t.terrain as Terrain,
     }));
 
+  const [homeGarrison] = await tx
+    .select()
+    .from(schema.garrisons)
+    .where(
+      and(
+        eq(schema.garrisons.seasonId, player.seasonId),
+        eq(schema.garrisons.ownerId, playerId),
+        eq(schema.garrisons.atX, player.baseX),
+        eq(schema.garrisons.atY, player.baseY),
+      ),
+    );
+
   const world0: WorldState = {
     citadel: player.citadelLevel,
     slots: { B: slotOf(slots, "B"), C: slotOf(slots, "C"), D: slotOf(slots, "D") },
     tiles,
     lastDemolishAt: null,
+    garrison: (homeGarrison?.units ?? {}) as WorldState["garrison"],
   };
 
   const derived = deriveRates({
@@ -212,6 +246,24 @@ export async function settleWithin(tx: TxDb, playerId: number): Promise<LoadedPl
 
   await writeTiles(tx, player.seasonId, playerId, player.allianceId, world0.tiles, world.tiles);
 
+  // 招募完成的部隊進本營駐軍
+  if (JSON.stringify(world.garrison) !== JSON.stringify(world0.garrison)) {
+    await tx
+      .insert(schema.garrisons)
+      .values({
+        seasonId: player.seasonId,
+        ownerId: playerId,
+        atX: player.baseX,
+        atY: player.baseY,
+        hostId: playerId,
+        units: world.garrison as never,
+      })
+      .onConflictDoUpdate({
+        target: [schema.garrisons.seasonId, schema.garrisons.ownerId, schema.garrisons.atX, schema.garrisons.atY],
+        set: { units: world.garrison as never },
+      });
+  }
+
   // ── 寫回經濟 ──────────────────────────────────────────────
   await tx
     .update(schema.playerResources)
@@ -278,6 +330,12 @@ export async function settleWithin(tx: TxDb, playerId: number): Promise<LoadedPl
     economy: result.economy,
     build: buildState,
     tiles: world.tiles,
+    garrison: world.garrison,
+    train: {
+      slots: world.slots,
+      queues: queues.trainQueues,
+      militiaQueue: queues.militiaQueue,
+    },
     season: seasonOf(seasonStartedAt, now),
   };
 }

@@ -16,7 +16,7 @@ pnpm install
 cp .env.example .env.local     # 填入 DATABASE_URL 與 AUTH_SECRET
 pnpm dev
 
-pnpm check                     # typecheck + lint + unit test
+pnpm check                     # typecheck + lint + 單元測試 + 整合測試（PGlite）
 pnpm test:e2e                  # Playwright（需要 build）
 pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是否同步
 ```
@@ -52,6 +52,9 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 倒數計時器 | 客戶端一律用 `components/use-server-clock.ts` 的 `useServerClock(serverTime)`，只取客戶端時鐘的**間隔**，不取它的絕對值 |
 | 事件 | 新增事件類型時，`lib/game/events.ts` 的 `parsePayload` 與 `resolveEvent` 都要跟上。認不出來的 payload 回 `null` 被跳過 —— 不會炸掉結算，但效果也不會發生 |
 | 執政官 | 只在**伺服器端**觸發（結算迴圈 + 2h 安全網），不接在頁面載入上 —— 否則它會搶走玩家正要用的佇列。禁區（核心佇列、軍事、拆除、交易）在回傳型別上就不存在，別加回來 |
+| 規劃 vs 執行 | 任何「先規劃、後執行」的路徑，可負擔性判斷只能有一份實作（`maxAffordable`）。兩份遲早分岔，症狀是「系統一直在嘗試一件永遠做不到的事」 |
+| 人口 | 拓荒的民兵與招募的兵都在**下單時**就計入 `population.used`，不是完成時。多條佇列各自下滿會超過上限 |
+| 整合測試 | `lib/**/*.integration.test.ts` 跑在 PGlite（WASM Postgres）上，`pnpm test` 就會跑。不需要容器或連線字串 |
 
 ## 目前進度
 
