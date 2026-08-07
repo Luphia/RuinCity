@@ -50,6 +50,7 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
   });
 
   const [ready, setReady] = useState(false);
+  const [sceneError, setSceneError] = useState<string | null>(null);
   const [zoomLabel, setZoomLabel] = useState("區域");
 
   // ── 場景建立 ────────────────────────────────────────────────
@@ -67,16 +68,32 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
       screenHeight: height,
     });
 
-    // PixiJS 只能在瀏覽器跑，所以動態載入 —— 也讓 server bundle 不含它
+    /**
+     * PixiJS 只能在瀏覽器跑，所以動態載入 —— 也讓 server bundle 不含它。
+     *
+     * ★ 這個 promise **一定要接 catch**。它會失敗的方式不只一種：
+     *   chunk 載不到（dev cache 壞掉、CDN 掉一個檔）、WebGL 不可用
+     *   （虛擬機、關掉硬體加速的瀏覽器）、GPU context 被系統回收。
+     *
+     *   沒有 catch 的話，rejection 被吞掉、`ready` 永遠是 false，
+     *   畫面就停在「載入中…」——**沒有錯誤、沒有提示、沒有重試**。
+     *   使用者看到的是「地圖打不開」，而 console 以外沒有任何線索。
+     */
     void (async () => {
-      const { MapScene } = await import("@/lib/render/scene");
-      const scene = await MapScene.create(canvas, width, height);
-      if (cancelled) {
-        scene.destroy();
-        return;
+      try {
+        const { MapScene } = await import("@/lib/render/scene");
+        const scene = await MapScene.create(canvas, width, height);
+        if (cancelled) {
+          scene.destroy();
+          return;
+        }
+        sceneRef.current = scene;
+        setReady(true);
+      } catch (e) {
+        if (cancelled) return;
+        console.error("[map] 場景建立失敗", e);
+        setSceneError(e instanceof Error ? e.message : String(e));
       }
-      sceneRef.current = scene;
-      setReady(true);
     })();
 
     return () => {
@@ -264,6 +281,30 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
       >
         {zoomLabel}
       </div>
+
+      {/* ★ 場景起不來時要說話，而不是無限「載入中…」 */}
+      {sceneError ? (
+        <div
+          data-testid="map-scene-error"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#1a1614]/95 p-6 text-center text-[#e8dcc0]"
+        >
+          <p className="font-bold text-[#c4442f]">地圖畫布起不來</p>
+          <p className="max-w-xs text-xs leading-relaxed opacity-80">
+            地圖用 WebGL 繪製。瀏覽器關掉硬體加速、或開發時 <code>.next</code>{" "}
+            快取壞掉，都會卡在這裡。
+          </p>
+          <code className="max-w-xs break-all rounded bg-[#2e2723] px-2 py-1 text-[11px] opacity-70">
+            {sceneError}
+          </code>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded border border-[#8a6b3a] px-4 py-2 text-sm text-[#d9a441]"
+          >
+            重新載入
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -9,15 +9,12 @@
  * ★ I/O 全部留在這一層。`/lib/game/map` 底下沒有任何檔案系統存取。
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { MAP, SPAWN_BANDS, TERRAINS } from "../lib/game/balance";
 import { hashSeed } from "../lib/game/rng";
 import { formatFairness } from "../lib/game/map/fairness";
 import { randomSquads } from "../lib/game/map/spawn";
 import { generateWorld } from "../lib/game/map/world";
-import { CODE_TERRAIN, idx } from "../lib/game/map/terrain";
+import { writeTerrainFiles } from "../lib/server/terrain-files";
 
 /** `docs/01` §3.2：切成 64×64 的 chunk，每格 1 byte */
 const CHUNK = 64;
@@ -27,7 +24,7 @@ function arg(name: string, fallback?: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
-function main() {
+async function main() {
   const rawSeed = arg("seed", "12345")!;
   const seed = /^\d+$/.test(rawSeed) ? Number(rawSeed) : hashSeed(rawSeed);
   const outDir = arg("out");
@@ -104,59 +101,16 @@ function main() {
   console.log(`\n  ${world.fairness.pass ? "✓ 全數通過" : "✗ 未全數通過"}\n`);
 
   if (outDir) {
-    mkdirSync(outDir, { recursive: true });
-    let bytes = 0;
-    for (let cy = 0; cy < chunksPerCol; cy++) {
-      for (let cx = 0; cx < chunksPerRow; cx++) {
-        const buf = new Uint8Array(CHUNK * CHUNK);
-        for (let y = 0; y < CHUNK; y++) {
-          for (let x = 0; x < CHUNK; x++) {
-            const gx = cx * CHUNK + x;
-            const gy = cy * CHUNK + y;
-            // 超出地圖的部分填成山脈（深淵不可通行）
-            buf[y * CHUNK + x] =
-              gx < MAP.width && gy < MAP.height
-                ? world.map.cells[idx(gx, gy, MAP.width)]!
-                : CODE_TERRAIN.indexOf("MOUNTAIN");
-          }
-        }
-        writeFileSync(join(outDir, `${cx}_${cy}.bin`), buf);
-        bytes += buf.length;
-      }
-    }
-
-    writeFileSync(
-      join(outDir, "meta.json"),
-      JSON.stringify(
-        {
-          seed: world.seed,
-          width: MAP.width,
-          height: MAP.height,
-          chunk: CHUNK,
-          chunksPerRow,
-          chunksPerCol,
-          terrainCodes: terrainCodeTable(),
-          ruins: world.ruins,
-          areas: world.split.areas,
-          fairness: world.fairness.checks,
-          spawns: world.spawns.points,
-        },
-        null,
-        2,
-      ),
-    );
-
+    // ★ 與封盤期寫的是**同一份**程式（`lib/server/terrain-files.ts`）——
+    //   兩份實作遲早會分岔，而分岔的症狀是「開發地圖能開、正式賽季的開不了」
+    const out = await writeTerrainFiles(world, outDir);
     console.log(
-      `  已寫出 ${chunksPerRow * chunksPerCol} 個 chunk（${(bytes / 1024).toFixed(0)} KB）+ meta.json → ${outDir}\n`,
+      `  已寫出 ${out.chunks} 個 chunk（${(out.bytes / 1024).toFixed(0)} KB）+ meta.json → ${out.dir}\n`,
     );
   }
 
   process.exit(world.fairness.pass ? 0 : 1);
 }
 
-/** 序列化時的地形碼對照，讓前端不必重複寫一份 */
-function terrainCodeTable(): Record<string, number> {
-  return Object.fromEntries(TERRAINS.map((t, i) => [t, i]));
-}
 
-main();
+void main();

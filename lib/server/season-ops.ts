@@ -375,6 +375,25 @@ export async function lockdownSeason(
       .where(eq(schema.seasonRegistrations.id, a.registrationId));
   }
 
+  /**
+   * ★ 地形檔要在這裡寫出來。
+   *
+   *   地形在賽季內永不改變，所以它是靜態資產：封盤期產一次、走 CDN。
+   *   少了這一步，`/map` 就只能指著開發用的 `s0` —— 玩家看到的是一張
+   *   跟自己那一局無關的地圖，連自己的據點都不在上面。
+   *
+   *   寫檔失敗不該讓封盤整個失敗（例如唯讀的檔案系統）：地圖畫不出來
+   *   很糟，但比整場賽季開不成好。失敗只記一筆。
+   */
+  try {
+    const { terrainDirName, terrainRoot, writeTerrainFiles } = await import("./terrain-files");
+    const { join } = await import("node:path");
+    const out = await writeTerrainFiles(world, join(terrainRoot(), terrainDirName(seasonId)));
+    log(`地形檔 ${out.chunks} 個 chunk（${(out.bytes / 1024).toFixed(0)} KB）→ ${out.dir}`);
+  } catch (e) {
+    log(`⚠ 地形檔寫入失敗，/map 會退回開發地圖：${e instanceof Error ? e.message : String(e)}`);
+  }
+
   await tx
     .update(schema.seasons)
     .set({
