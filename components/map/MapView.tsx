@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 /**
  * 地圖頁面外殼：抓總覽資料、掛上畫布、顯示選取資訊。
  */
@@ -101,6 +103,16 @@ export function MapView() {
           <span data-testid="selected-tile">
             {selected ? `(${selected.x}, ${selected.y})` : "點選格子查看"}
           </span>
+          {/* ★ 點了格子就給出口：展開成 50×50 的戰場視圖 */}
+          {selected ? (
+            <Link
+              href={`/tile/${selected.x}/${selected.y}`}
+              data-testid="expand-tile"
+              className="rounded border border-[#8a6b3a] px-2 py-0.5 text-[#d9a441]"
+            >
+              展開此格 ⚔
+            </Link>
+          ) : null}
           {overview ? (
             <span className="opacity-70">
               賽季 {overview.seasonId} · seed {overview.seed} · 遺跡{" "}

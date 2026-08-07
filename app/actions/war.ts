@@ -238,3 +238,71 @@ export async function loadWarBoard(): Promise<WarBoard> {
     };
   });
 }
+
+// ─────────────────────────────────────────────────────────────
+// 戰場重播
+// ─────────────────────────────────────────────────────────────
+
+export interface BattleReplay {
+  readonly reportId: number;
+  readonly atX: number;
+  readonly atY: number;
+  readonly marchType: string;
+  readonly outcome: string;
+  /** 我是攻方還是守方 —— 決定畫面上的敵我配色說明 */
+  readonly viewerIsAttacker: boolean;
+  readonly attacker: { army: Army; losses: Army };
+  readonly defender: { army: Army; losses: Army };
+}
+
+/**
+ * 讀一份戰報，整理成戰場重播的輸入。
+ *
+ * ★ 重播**只是戰報的另一種讀法**：armies 與 losses 全部來自 snapshot，
+ *   seed 就是戰報 id —— 兩位當事人看到的是同一場戲，而戲的結局
+ *   收斂到戰報的數字（`lib/game/battlefield.ts`）。這裡沒有任何計算。
+ *
+ * ★ 只有當事人看得到 —— 與戰報本身同一條授權規則。
+ */
+export async function loadBattleReplay(reportId: number): Promise<BattleReplay | null> {
+  const playerId = await currentPlayerId();
+
+  const { getDb } = await import("@/lib/db");
+  const [r] = await getDb()
+    .select()
+    .from(schema.battleReports)
+    .where(
+      and(
+        eq(schema.battleReports.id, reportId),
+        or(
+          eq(schema.battleReports.attackerId, playerId),
+          eq(schema.battleReports.defenderId, playerId),
+        ),
+      ),
+    )
+    .limit(1);
+  if (!r) return null;
+
+  const s = (r.snapshot ?? {}) as Record<string, unknown>;
+  if (s.kind !== "BATTLE") return null;
+
+  const attacker = s.attacker as { sent?: unknown; losses?: unknown } | undefined;
+  const defender = s.defender as { present?: unknown; losses?: unknown } | undefined;
+
+  return {
+    reportId: r.id,
+    atX: r.atX,
+    atY: r.atY,
+    marchType: r.marchType,
+    outcome: r.outcome,
+    viewerIsAttacker: r.attackerId === playerId,
+    attacker: {
+      army: parseArmy(attacker?.sent ?? {}),
+      losses: parseArmy(attacker?.losses ?? {}),
+    },
+    defender: {
+      army: parseArmy(defender?.present ?? {}),
+      losses: parseArmy(defender?.losses ?? {}),
+    },
+  };
+}

@@ -5,6 +5,7 @@
  * 對應 docs/04-military-combat.md 與 docs/09-art-ux.md §5.1。
  */
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { UNIT, type Unit } from "@/lib/game/balance";
@@ -243,16 +244,28 @@ export function WarView(props: WarViewProps) {
           <ul className="space-y-1" data-testid="battle-reports">
             {props.board.reports.map((r) => (
               <li key={r.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpenReport(openReport === r.id ? null : r.id)}
-                  className="w-full rounded border border-[#4a413a] bg-[#2e2723] px-3 py-1.5 text-left text-xs"
-                >
-                  <span className={outcomeColour(r)}>{outcomeLabel(r)}</span>
-                  <span className="ml-2 opacity-70">
-                    {TYPE_LABEL[r.marchType] ?? r.marchType} ({r.atX}, {r.atY})
-                  </span>
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setOpenReport(openReport === r.id ? null : r.id)}
+                    className="min-w-0 flex-1 rounded border border-[#4a413a] bg-[#2e2723] px-3 py-1.5 text-left text-xs"
+                  >
+                    <span className={outcomeColour(r)}>{outcomeLabel(r)}</span>
+                    <span className="ml-2 opacity-70">
+                      {TYPE_LABEL[r.marchType] ?? r.marchType} ({r.atX}, {r.atY})
+                    </span>
+                  </button>
+                  {/* 偵查報告沒有戰場，只有戰鬥才有重播 */}
+                  {r.snapshot.kind === "BATTLE" ? (
+                    <Link
+                      href={`/battle/${r.id}`}
+                      data-testid={`replay-${r.id}`}
+                      className="shrink-0 rounded border border-[#8a6b3a] px-2 py-1.5 text-xs text-[#d9a441]"
+                    >
+                      ▶ 戰場
+                    </Link>
+                  ) : null}
+                </div>
                 {openReport === r.id ? <BattleReportCard report={r} /> : null}
               </li>
             ))}
