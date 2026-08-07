@@ -63,6 +63,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 出生點 | 兩點之間的切比雪夫距離**至少 2**（`HARD_MIN_SPACING`）—— 核心是 2×2，差一格就會疊到同一格 `tiles`。`poissonPick` 會被呼叫很多次，硬性下限只有靠那份跨呼叫的 blocker 才守得住 |
 | 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
 | 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |
+| 本機登入 | 沒設 `EMAIL_SERVER` 時，開發模式會把 magic link 印在終端機上（`usesDevMailbox()`）。token 仍是 Auth.js 發的、只能用一次、會過期 —— 換掉的只有投遞管道。production 一律關閉 |
 
 ## 目前進度
 
@@ -122,3 +123,13 @@ M5b 的出生點下限讓「冬季真的餓死部隊的玩家」從 3% 掉到 2%
 
 設計目標是「**80% 的玩家只走得完 80% 發展度**」（`docs/11` §14）——
 改任何天花板之前先看那一節，特別是「分母灌水」那個陷阱。
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

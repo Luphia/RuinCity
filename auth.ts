@@ -10,7 +10,7 @@ import {
   authUsers,
   authVerificationTokens,
 } from "@/lib/db/auth-schema";
-import { hasGoogleProvider } from "@/lib/env";
+import { hasGoogleProvider, hasSmtp, usesDevMailbox } from "@/lib/env";
 
 /**
  * Auth.js v5。**不做訪客帳號** —— 只有 Google OAuth 與 Email OTP。
@@ -33,11 +33,41 @@ if (hasGoogleProvider()) {
   );
 }
 
-if (process.env.EMAIL_SERVER && process.env.EMAIL_FROM) {
+if (hasSmtp()) {
   providers.push(
     Nodemailer({
-      server: process.env.EMAIL_SERVER,
-      from: process.env.EMAIL_FROM,
+      server: process.env.EMAIL_SERVER!,
+      from: process.env.EMAIL_FROM!,
+    }),
+  );
+} else if (usesDevMailbox()) {
+  /**
+   * ★ 開發用的「信箱」＝ 終端機。
+   *
+   *   驗證流程一步都沒有少：token 仍由 Auth.js 產生、寫進
+   *   `auth_verification_tokens`、只能用一次、會過期。
+   *   換掉的只有投遞管道 —— `sendVerificationRequest` 不寄信，改印出來。
+   *
+   *   `jsonTransport` 是 nodemailer 的 no-op transport：provider 的型別
+   *   要求一個 server，但我們覆寫了寄送，所以它永遠不會被用到，
+   *   更不會去連任何一台 SMTP。
+   */
+  providers.push(
+    Nodemailer({
+      server: { jsonTransport: true },
+      from: "RuinCity <dev@ruincity.local>",
+      async sendVerificationRequest({ identifier, url }) {
+        console.log(
+          [
+            "",
+            "┌─ 登入連結（開發模式，沒有真的寄信）",
+            `│  ${identifier}`,
+            `│  ${url}`,
+            "└─ 設定 EMAIL_SERVER 與 EMAIL_FROM 就會改走真的 SMTP",
+            "",
+          ].join("\n"),
+        );
+      },
     }),
   );
 }

@@ -84,6 +84,8 @@
 | **M5b：`@neondatabase/serverless` 不是通用的 Postgres client** | 它只對 Neon 端點說話。指向本機 docker 的 Postgres 會連不上，而錯誤看起來像網路問題。`lib/db/driver.ts` 依 URL 的 host 自動切到 node-postgres |
 | **M5b：`drizzle-kit migrate` 把錯誤吞掉** | 連不上、密碼錯、SQL 撞到既有物件全都長成 `[⣷] applying migrations...` 加 exit 1。改用 `drizzle-orm` 的 migrator（`scripts/migrate.ts`），同一個資料夾同一張紀錄表，但錯誤照實印 |
 | **`.env.example` 從來沒進過版控** | `.gitignore` 的 `.env*` 把它一起吃掉了，而 README、CLAUDE.md 與 `lib/env.ts` 的錯誤訊息全都叫人 `cp .env.example .env.local`。從 M0 就是壞的，只在已經有 `.env.local` 的機器上看不出來 |
+| **M5b：本機開發不該需要能寄信的 SMTP** | 登入是 email magic link，於是「seed 一場賽季」與「真的走進去」之間卡著一道「先去申請 Gmail 應用程式密碼」的牆。沒設 `EMAIL_SERVER` 時開發模式把連結印在終端機上 —— token 仍是 Auth.js 發的、只能用一次、會過期，換掉的只有投遞管道。production 一律關閉：「以為信寄出去了、其實沒有」比「沒設定」糟得多 |
+| **★ 「登入後才能登記」是一句死路** | `/seasons` 未登入時只印那句話，沒有出口 —— 而被種子腳本放進賽季的人看到的正是這一格，他缺的只有登入。一般化：**任何一句「你需要先做 X」都應該是一個能點的 X**。狀態頁最容易累積這種死路，每一種狀態都描述得很清楚，就是沒說怎麼離開 |
 | **M3：`settle.ts` 不該認識兵種** | 它只回報「糧食見底且收支為負持續了多久」，餓死哪些兵是 `army.ts` 的事。同一條界線的延續：那一層只做速率 × 時間的積分 |
 
 ---

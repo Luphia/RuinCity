@@ -10,6 +10,7 @@
  *   所以送出鈕要問一次 —— 這是整個賽季裡最不可逆的一次點擊。
  */
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import type { RegisterResult, SeasonBoard } from "@/app/actions/season";
@@ -116,7 +117,17 @@ export function SeasonBoardView({ board, onRegister }: SeasonBoardViewProps) {
           等那一場結束後就能報名下一場。
         </p>
       ) : !board.signedIn ? (
-        <p className="mt-4 rounded bg-[#2e2723] p-3 text-sm opacity-80">登入後才能登記。</p>
+        /**
+         * ★ 這裡一定要是一個**連結**，不能只是一句「登入後才能登記」。
+         *   已經被種子腳本放進賽季的人打開這一頁，看到的就是這一格 ——
+         *   而他缺的只有登入這一步。沒有出口的話，那句話等於死路。
+         */
+        <Link
+          href="/signin"
+          className="mt-4 block rounded bg-[#8a6b3a] p-3 text-center text-sm font-bold"
+        >
+          登入 —— 登記與進入據點都需要
+        </Link>
       ) : null}
 
       {/* ── 名額表：熱門陣營先滿是設計的一部分 ─────────────── */}
@@ -331,6 +342,20 @@ function MyCard({ board }: { board: SeasonBoard }) {
       ) : (
         <p className="mt-1 text-xs opacity-70">
           出生點在封盤期公布。你會在開戰前 12 小時就知道自己生在哪、鄰居是誰。
+        </p>
+      )}
+
+      {/* ★ 開賽之後這一頁最重要的東西就是「進去」那個按鈕 */}
+      {mine.playerId !== null ? (
+        <Link
+          href="/base"
+          className="mt-3 block rounded bg-[#8a6b3a] py-2.5 text-center font-bold"
+        >
+          進入據點 →
+        </Link>
+      ) : (
+        <p className="mt-3 text-xs opacity-70">
+          開賽時所有人同時進入 —— 資源在同一秒開始累積，早報名不會多賺。
         </p>
       )}
     </section>
