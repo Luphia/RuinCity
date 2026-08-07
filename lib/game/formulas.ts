@@ -199,7 +199,11 @@ export function storageCapacity(
 export function vaultProtection(
   citadelLevel: number,
   depotLevel: number,
-  season?: SeasonModifiers,
+  /**
+   * 只用到 `vault` 這一項，所以型別只要求那一個欄位 ——
+   * 呼叫端可以傳整份 `SEASON_MODIFIERS[s]`，也可以只傳 `{ vault: 2 }`。
+   */
+  season?: Pick<SeasonModifiers, "vault">,
 ): number {
   const base =
     300 + CORE_BUILDING_EFFECT.depotVaultPerLevel * depotLevel + 30 * citadelLevel;

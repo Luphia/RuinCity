@@ -18,7 +18,7 @@ test.describe("M0 smoke", () => {
   });
 
   test("M2 的遊戲路由都在登入牆後面", async ({ page }) => {
-    for (const path of ["/territory", "/market", "/steward"]) {
+    for (const path of ["/territory", "/war", "/market", "/steward"]) {
       await page.goto(path);
       await expect(page).toHaveURL(/\/signin$/);
     }

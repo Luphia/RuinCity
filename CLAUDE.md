@@ -55,11 +55,13 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 規劃 vs 執行 | 任何「先規劃、後執行」的路徑，可負擔性判斷只能有一份實作（`maxAffordable`）。兩份遲早分岔，症狀是「系統一直在嘗試一件永遠做不到的事」 |
 | 人口 | 拓荒的民兵與招募的兵都在**下單時**就計入 `population.used`，不是完成時。多條佇列各自下滿會超過上限 |
 | 整合測試 | `lib/**/*.integration.test.ts` 跑在 PGlite（WASM Postgres）上，`pnpm test` 就會跑。不需要容器或連線字串 |
+| 跨玩家事件 | 需要不只一個玩家的鎖的東西（戰鬥）**不屬於 `events` 表**。行軍由結算迴圈直接掃 `marches`，理由見 `docs/11` §19.1 |
+| 隨機性 | 結算路徑一律 `mulberry32(deriveSeed(...))`，不用 `Math.random()`。交易會重試，而重試不該變成「再擲一次骰子」 |
 
 ## 目前進度
 
-見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b 都已完成**，
-下一步是 M3（軍隊、行軍、戰鬥）。
+見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b、M3 都已完成**，
+下一步是 M3b（區域容量與超限損耗）與 M4（聯盟）。
 
 戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過四輪
 （`BALANCE_VERSION` = `2026.08.07-e`，理由見
@@ -77,6 +79,10 @@ M2b 的執政官走**與玩家完全相同的驗證路徑**（`lib/server/base-o
 Server Action 與執政官的差別只在「誰解析出 playerId」。
 AI 玩家與遺跡軍團之後也接在這裡。理由見 `docs/11` §17.3。
 
+M3 把 PvP 循環接上了：派兵、抵達結算、掠奪、回程、戰報、來襲預警
+（`lib/server/march-ops.ts` 與 `battle-ops.ts`）。結構上的決定見 `docs/11` §19，
+其中最重要的一條是 §19.1：**跨玩家的結算不走 per-player 的事件 applier**。
+
 ```bash
 pnpm tsx scripts/generate-map.ts --seed 99991         # 地圖 + 五項公平性驗證
 pnpm tsx scripts/generate-map.ts --seed 99991 --out public/terrain/s1
@@ -91,7 +97,7 @@ pnpm tsx scripts/simulate-season.ts --sweep           # 網格搜尋數值組合
 
 **改數值之前先跑模擬。** 目前 27/31 通過，`docs/03` §6 的十二個曲線目標
 只差月 9 的兵力一項。剩下四項的成因都寫在 `docs/11` §15.5，
-其中「區域超限損兵」要等 M3 的聯盟協同行動才驗得到。
+其中「區域超限損兵」要等 M3b 的區域容量才驗得到。
 
 設計目標是「**80% 的玩家只走得完 80% 發展度**」（`docs/11` §14）——
 改任何天花板之前先看那一節，特別是「分母灌水」那個陷阱。

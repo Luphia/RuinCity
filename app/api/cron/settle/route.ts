@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte } from "drizzle-orm";
 
 import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import { settleWithin } from "@/lib/server/player-state";
+import { resolveArrivals } from "@/lib/server/battle-ops";
 import { runStewardWithin } from "@/lib/server/steward";
 import { serverNow } from "@/lib/time";
 
@@ -40,6 +41,31 @@ export async function GET(request: Request) {
   }
 
   const now = await serverNow();
+
+  /**
+   * ★ 行軍**先**結算。
+   *
+   *   戰鬥會改變雙方的駐軍與資源，而執政官的決策要看到最新的狀態 ——
+   *   順序反了，一位剛被搶光的玩家會拿著「被搶前」的資源去拓荒。
+   */
+  let marches = { resolved: 0, battles: 0, failures: 0 };
+  try {
+    const { getDb } = await import("@/lib/db");
+    const seasons = await getDb()
+      .select({ id: schema.seasons.id })
+      .from(schema.seasons)
+      .where(eq(schema.seasons.status, "RUNNING"));
+    for (const s of seasons) {
+      const r = await withTransaction((tx) => resolveArrivals(tx, s.id, now));
+      marches = {
+        resolved: marches.resolved + r.resolved,
+        battles: marches.battles + r.battles,
+        failures: marches.failures + r.failures,
+      };
+    }
+  } catch {
+    // 沒有資料庫的環境（E2E、預覽）不該讓這條路由 500
+  }
 
   let due: { actorId: number | null; type: string }[] = [];
   try {
@@ -96,6 +122,7 @@ export async function GET(request: Request) {
     ok: true,
     settled,
     stewardRuns,
+    marches,
     failures,
     pending: Math.max(0, actors.size - BATCH),
     serverTime: new Date(now).toISOString(),

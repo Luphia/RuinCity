@@ -34,6 +34,7 @@ import {
   type ScheduledEvent,
 } from "@/lib/game/settle";
 import { recomputeIsolation } from "@/lib/game/territory";
+import { armyUpkeep, parseArmy, starve } from "@/lib/game/army";
 import type { TrainState } from "@/lib/game/train";
 import { serverNow } from "@/lib/time";
 import { schema } from "@/lib/db";
@@ -169,6 +170,20 @@ export async function settleWithin(
       ),
     );
 
+  /**
+   * ★ 行軍中的部隊**照吃糧**。不然「把軍隊派出去繞圈」就是免費的倉庫，
+   *   而冬季「你不能把軍隊留著不用」的收束機制會整個失效（`docs/16` §8）。
+   */
+  const inTransit = await tx
+    .select({ units: schema.marches.units })
+    .from(schema.marches)
+    .where(
+      and(
+        eq(schema.marches.ownerId, playerId),
+        eq(schema.marches.status, "IN_TRANSIT"),
+      ),
+    );
+
   const world0: WorldState = {
     citadel: player.citadelLevel,
     slots: { B: slotOf(slots, "B"), C: slotOf(slots, "C"), D: slotOf(slots, "D") },
@@ -183,10 +198,14 @@ export async function settleWithin(
     tiles,
   });
 
+  const upkeep = outpostUpkeep(derived.outpostLevels);
+  const marchingArmies = inTransit.map((m) => parseArmy(m.units));
+  upkeep.grain += armyUpkeep([world0.garrison, ...marchingArmies]).grain;
+
   const economy: PlayerEconomy = {
     resources: amountsFrom(resources),
     baseRates: derived.baseRates,
-    baseUpkeep: outpostUpkeep(derived.outpostLevels),
+    baseUpkeep: upkeep,
     capacity: derived.capacity,
     population: {
       amount: num(population.amount),
@@ -214,7 +233,22 @@ export async function settleWithin(
     }),
     apply: applier.apply,
   });
-  const world = applier.world();
+  let world = applier.world();
+
+  /**
+   * ★ 餓死在**結算之後**一次算完。
+   *
+   *   `settlePlayer` 只回報「糧食見底且收支為負持續了多久」——
+   *   它不認識兵種。餓死哪些兵、餓死幾個，是 `army.ts` 的事。
+   *
+   *   已知的近似：一段之內軍隊變小之後糧耗會下降，但那個回饋
+   *   要到下一段才反映。分段的邊界是事件與換季，而玩家通常每幾小時
+   *   就會被結算一次，所以誤差有界。
+   */
+  const starvation = starve(world.garrison, result.starvingMs);
+  if (Object.keys(starvation.lost).length > 0) {
+    world = { ...world, garrison: starvation.survivors };
+  }
 
   // 事件套完之後的速率 —— 寫回資料庫的是**這一組**，不是結算前的
   const finalRates = deriveRates({

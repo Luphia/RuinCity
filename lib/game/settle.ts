@@ -83,6 +83,13 @@ export interface SettleResult {
   readonly resolved: readonly ScheduledEvent[];
   /** 因為滿倉而蒸發的量。UI 用它顯示「你浪費了多少」 */
   readonly overflow: Amounts;
+  /**
+   * 整段結算裡「糧食見底且收支為負」的總時長（毫秒）。
+   *
+   * 呼叫端拿它去餓死部隊（`army.ts` 的 `starve`）——
+   * 這一層不認識兵種，也不該認識。
+   */
+  readonly starvingMs: number;
   /** 實際跨過幾段（事件 + 換季）。測試與除錯用 */
   readonly segments: number;
 }
@@ -123,14 +130,33 @@ function accrueSegment(
   fromMs: number,
   toMs: number,
   season: { production: number; upkeep: number },
-): { resources: Amounts; overflow: Amounts; population: PopulationState } {
+): {
+  resources: Amounts;
+  overflow: Amounts;
+  population: PopulationState;
+  /** 這一段裡「糧食見底且收支為負」持續了多久（毫秒） */
+  starvingMs: number;
+} {
   const hours = Math.max(0, toMs - fromMs) / 3_600_000;
   const resources = { ...economy.resources };
   const overflow = zeroAmounts();
+  let starvingMs = 0;
 
   for (const r of SETTLE_RESOURCES) {
     const rate = economy.baseRates[r] * season.production - economy.baseUpkeep[r] * season.upkeep;
     const next = resources[r] + rate * hours;
+
+    /**
+     * ★ 糧食見底之後**還剩多少時間在挨餓**。
+     *
+     * 這一層只算「餓了多久」，不算「死了誰」——
+     * 餓死哪些兵是 `army.ts` 的事，而 `settle.ts` 不認識兵種。
+     * 這是同一條界線的延續：這裡只做速率 × 時間的積分。
+     */
+    if (r === "grain" && rate < 0 && next < 0) {
+      const hoursUntilEmpty = resources[r] / -rate;
+      starvingMs += Math.max(0, hours - hoursUntilEmpty) * 3_600_000;
+    }
 
     if (next > economy.capacity) {
       overflow[r] = next - economy.capacity;
@@ -149,7 +175,7 @@ function accrueSegment(
     amount: Math.min(headroom, economy.population.amount + economy.population.rate * hours),
   };
 
-  return { resources, overflow, population };
+  return { resources, overflow, population, starvingMs };
 }
 
 /**
@@ -166,7 +192,7 @@ export function settlePlayer(
 ): SettleResult {
   const from = economy.settledAt;
   if (now <= from) {
-    return { economy, resolved: [], overflow: zeroAmounts(), segments: 0 };
+    return { economy, resolved: [], overflow: zeroAmounts(), segments: 0, starvingMs: 0 };
   }
 
   // ── 建立時間軸：事件 + 換季點 ──────────────────────────────
@@ -186,6 +212,7 @@ export function settlePlayer(
   const overflow = zeroAmounts();
   const resolved: ScheduledEvent[] = [];
   let segments = 0;
+  let starvingMs = 0;
 
   const advanceTo = (to: number) => {
     if (to <= cursor) return;
@@ -194,6 +221,7 @@ export function settlePlayer(
     const season = ctx.modifiersOf(seasonAt(ctx.seasonStartedAt, cursor));
     const step = accrueSegment(current, cursor, to, season);
     for (const r of SETTLE_RESOURCES) overflow[r] += step.overflow[r];
+    starvingMs += step.starvingMs;
     current = { ...current, resources: step.resources, population: step.population };
     cursor = to;
     segments++;
@@ -215,6 +243,7 @@ export function settlePlayer(
     resolved,
     overflow,
     segments,
+    starvingMs,
   };
 }
 
