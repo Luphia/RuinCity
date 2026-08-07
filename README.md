@@ -8,8 +8,13 @@
 地圖上散落著 **三座古老遺跡**——同時控制它們，就是這場戰爭的終局。
 
 **一場賽季 12 天，每一天是遊戲裡的一個月。**
-春天發育、夏天開戰、秋天會戰，而冬天產出腰斬、糧耗暴漲——
-你養不起一支不打仗的軍隊。終局是被時間逼出來的。
+春天發育、夏天開戰、秋天是遠征的唯一窗口，
+而冬天產出腰斬、糧耗暴漲、前線補給縮水四成——
+遠征軍撤回或餓死，戰爭收縮到每個人的家門口。
+問題不再是「我能打下哪裡」，是「我撐不撐得到第 12 天」。
+
+沒有新手保護期。限制來自世界如何運作：
+**你能在一個地方投入多少兵力，取決於你在那裡有多少基礎建設。**
 
 事先登記、全員同時開賽、每 7 天開新的一場。
 你的核心只有 4 格、建造佇列永遠只有 1 條，
@@ -34,7 +39,7 @@
 | [`docs/01-world-map.md`](docs/01-world-map.md) | 500×500 世界、地形、出生點、地圖生成 |
 | [`docs/02-base-territory.md`](docs/02-base-territory.md) | 2×2 核心據點、建築、領土佔領與連通性 |
 | [`docs/03-economy.md`](docs/03-economy.md) | 五種資源、產出與消耗、倉庫與掠奪保護 |
-| [`docs/04-military-combat.md`](docs/04-military-combat.md) | 兵種、行軍、戰鬥公式、掠奪、新手保護 |
+| [`docs/04-military-combat.md`](docs/04-military-combat.md) | 兵種、行軍、戰鬥公式、掠奪、士氣與防守優勢 |
 | [`docs/05-ruins-season.md`](docs/05-ruins-season.md) | 三座遺跡、佔領機制、賽季勝利與傳承 |
 | [`docs/06-alliance.md`](docs/06-alliance.md) | 聯盟系統（v1 範圍與 v2 規劃） |
 | [`docs/07-tech-architecture.md`](docs/07-tech-architecture.md) | Next.js / React 架構、結算引擎、反作弊 |
@@ -46,6 +51,7 @@
 | [`docs/13-season-registration.md`](docs/13-season-registration.md) | 賽季登記制、三分天下陣營、出生點批次分配與公平性驗證 |
 | [`docs/14-time-and-cadence.md`](docs/14-time-and-cadence.md) | 12 天賽季、遊戲曆法、四季效應、7 天輪替、時間係數 |
 | [`docs/15-ai-players.md`](docs/15-ai-players.md) | AI 玩家：補足 600 人、三種性格、固定腳本曲線、離線託管 |
+| [`docs/16-supply-and-attrition.md`](docs/16-supply-and-attrition.md) | 補給線、區域軍隊容量、城池防禦——取代新手保護期的有機限制 |
 
 ## 技術棧（摘要）
 

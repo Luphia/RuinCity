@@ -150,6 +150,16 @@ CREATE TABLE base_slots (
 ### 資源：快照 + 速率（惰性結算）
 
 ```sql
+-- 人口：與資源相同的「快照 + 速率」模型（見 03 §3.2）
+CREATE TABLE player_population (
+  player_id   BIGINT PRIMARY KEY REFERENCES players(id),
+  amount      NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (amount >= 0), -- 可用人口
+  rate        NUMERIC(10,3) NOT NULL DEFAULT 0,   -- 每小時成長，由主堡與領土數決定
+  cap         NUMERIC(10,0) NOT NULL DEFAULT 60,  -- 60 × 主堡等級^1.15
+  used        NUMERIC(12,3) NOT NULL DEFAULT 0,   -- 已被部隊佔用（含行軍中）
+  settled_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
 CREATE TABLE player_resources (
   player_id    BIGINT PRIMARY KEY REFERENCES players(id),
   grain        NUMERIC(14,3) NOT NULL DEFAULT 500 CHECK (grain  >= 0),
@@ -209,6 +219,43 @@ CREATE INDEX tiles_player_idx   ON tiles (player_id) WHERE player_id IS NOT NULL
 觸發時機：任一領土格易主時，對受影響玩家跑一次 BFS，
 標記所有無法回到核心的格子為 ISOLATED，並排程 ISOLATION_EXPIRE 事件（+24h）。
 ```
+
+## 3b. 區域與軍隊容量
+
+```sql
+-- 100 個 50×50 區域。地形固定，名稱由 seed 生成。
+CREATE TABLE regions (
+  season_id  INT      NOT NULL REFERENCES seasons(id),
+  region_id  SMALLINT NOT NULL,          -- 0–99，= (y/50)*10 + (x/50)
+  name       TEXT     NOT NULL,          -- 「鏽谷」「斷旗高地」…
+  PRIMARY KEY (season_id, region_id)
+);
+
+-- 每個聯盟在每個區域的容量快取。
+-- 只在該區域內的領土 / 前哨營 / 據點等級變動時重算，不是每次查詢都算。
+CREATE TABLE region_capacity (
+  season_id    INT      NOT NULL,
+  region_id    SMALLINT NOT NULL,
+  holder_kind  TEXT     NOT NULL,        -- ALLIANCE | PLAYER（無聯盟者）
+  holder_id    BIGINT   NOT NULL,
+  base_capacity NUMERIC(10,0) NOT NULL,  -- 未套用季節係數的原始值
+  stationed    NUMERIC(10,0) NOT NULL DEFAULT 0,  -- 當前停駐人口
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (season_id, region_id, holder_kind, holder_id)
+);
+
+CREATE INDEX region_cap_holder_idx ON region_capacity (holder_kind, holder_id);
+```
+
+**季節係數不入庫**：`有效容量 = base_capacity × 季節係數(now)`，
+在讀取時計算。這讓季節切換不需要重寫 100 × N 列。
+
+**超限結算**：每小時一個 `REGION_ATTRITION` 事件掃描
+`stationed > base_capacity × 季節係數` 的列，
+對超出部分套用 5% 損兵並標記該區域的糧耗倍率。
+
+**重算觸發**：領土易主、前哨營升降級、據點主堡升級、聯盟成員異動
+→ 只重算受影響的 `(region_id, holder)` 組合，不是全表。
 
 ## 4. 軍事
 
@@ -356,6 +403,8 @@ CREATE TYPE event_type AS ENUM (
   'CONTEST_EXPIRE', 'RUIN_TICK', 'RUIN_UNSEAL', 'CAMP_RESPAWN',
   'SEASON_VICTORY_CHECK', 'SEASON_EXPIRE', 'NEWBIE_EXPIRE',
   'SEASON_CHANGE',      -- 四季切換（每 3 真實日）與切換前 6 小時預警
+  'REGION_ATTRITION',   -- 每小時：區域超限的損兵與糧耗懲罰（見 16 §2.2）
+  'STARVATION',         -- 糧食歸零時的餓死結算
   'AI_TICK',            -- 每遊戲月邊界的 AI 決策（見 15 §7.1）
   'AI_RETALIATE',       -- AI 反擊（被攻擊後 1–4 小時）
   'AI_TAKEOVER'         -- 離線真人轉 AI 託管
