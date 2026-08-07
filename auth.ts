@@ -90,6 +90,16 @@ export const authConfig: NextAuthConfig = {
   pages: {
     signIn: "/signin",
     verifyRequest: "/signin/check-email",
+    /**
+     * ★ 沒有這一行的話，寄信失敗會把使用者丟到 Auth.js 內建的
+     *   `/api/auth/error?error=Configuration` —— 一個英文的
+     *   「Server error / Check the server logs」，而且常常直接彈回登入頁。
+     *
+     *   使用者看到的是「按了登入按鈕，然後回到同一頁」：沒有錯誤、
+     *   沒有提示、沒有任何線索說明剛剛發生了什麼。
+     *   導回我們自己的登入頁，才有地方把原因說出來。
+     */
+    error: "/signin",
   },
   callbacks: {
     session({ session, user }) {

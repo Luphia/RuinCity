@@ -6,13 +6,39 @@ import { hasEmailProvider, hasGoogleProvider, usesDevMailbox } from "@/lib/env";
 
 export const metadata = { title: "登入" };
 
-export default async function SignInPage() {
+/**
+ * Auth.js 的錯誤碼 → 一句說得出「現在該做什麼」的中文。
+ *
+ * ★ `Configuration` 幾乎一定是 SMTP。Auth.js 把「設定有問題」與
+ *   「寄信失敗」歸成同一碼，而在這個專案裡前者只有一種可能。
+ */
+const ERROR_TEXT: Record<string, string> = {
+  Configuration:
+    "寄送登入信失敗 —— 伺服器的 EMAIL_SERVER 設定有問題（帳密錯誤或連不上 SMTP）。" +
+    "本機開發可以把 EMAIL_SERVER 與 EMAIL_FROM 整個拿掉，登入連結就會改印在終端機上。",
+  AccessDenied: "這個帳號沒有登入權限。",
+  Verification: "這個登入連結已經用過或過期了。重新要一個新的。",
+  EmailSignin: "寄送登入信失敗。檢查 EMAIL_SERVER，或把它拿掉改用終端機模式。",
+  OAuthSignin: "OAuth provider 連線失敗。",
+  OAuthCallback: "OAuth 回呼失敗 —— 通常是 callback URL 與 AUTH_URL 對不上。",
+  Default: "登入失敗。",
+};
+
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (session?.user) redirect("/");
 
   const google = hasGoogleProvider();
   const email = hasEmailProvider();
   const devMailbox = usesDevMailbox();
+
+  const raw = (await searchParams).error;
+  const code = Array.isArray(raw) ? raw[0] : raw;
+  const errorText = code ? (ERROR_TEXT[code] ?? ERROR_TEXT.Default!) : null;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-8 px-6 py-16">
@@ -23,6 +49,13 @@ export default async function SignInPage() {
           所以我們不做訪客帳號。
         </p>
       </div>
+
+      {errorText ? (
+        <p className="border-alarm text-alarm rounded border p-4 text-sm leading-relaxed">
+          {errorText}
+          <span className="text-ash-deep mt-2 block font-mono text-xs">error={code}</span>
+        </p>
+      ) : null}
 
       <div className="flex flex-col gap-3">
         {google ? (
