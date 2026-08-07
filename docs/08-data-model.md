@@ -11,12 +11,14 @@ CREATE TABLE seasons (
   seed          BIGINT      NOT NULL,       -- 地圖生成種子（可能在封盤期被換掉多次）
   status        TEXT        NOT NULL,       -- REGISTRATION | SEALED | RUNNING |
                                             -- ENDING | ARCHIVED
-  registration_opens_at  TIMESTAMPTZ,       -- 登記期開始（開賽前 8 天）
-  registration_closes_at TIMESTAMPTZ,       -- 封盤（開賽前 24 小時）
-  started_at    TIMESTAMPTZ,                -- T = 0，全員同時進入
-  join_closes_at TIMESTAMPTZ,               -- T + 14 天，關閉中途加入
-  ends_at       TIMESTAMPTZ,                -- 保底 8 週
-  registered_count INT NOT NULL DEFAULT 0,
+  registration_opens_at  TIMESTAMPTZ,       -- 登記期開始（開賽前 3.5 天）
+  registration_closes_at TIMESTAMPTZ,       -- 封盤（開賽前 12 小時）
+  started_at    TIMESTAMPTZ,                -- T = 0，600 人同時進入
+  ends_at       TIMESTAMPTZ,                -- T + 12 天（期滿結算）
+  balance_version TEXT NOT NULL,            -- ★ 數值表版本快照，封盤時固定。
+                                            -- 進行中的賽季永不受新版本影響（見 12 B16）
+  human_count   INT NOT NULL DEFAULT 0,     -- 真人數（公開）
+  ai_count      INT NOT NULL DEFAULT 0,     -- AI 數（公開），human + ai = 600
   ruin_positions JSONB,                     -- 封盤期產生
   fairness_report JSONB,                    -- 五項驗證的實際數值（公開給玩家）
   victory_alliance_id BIGINT,
@@ -35,19 +37,20 @@ CREATE TABLE season_registrations (
   assigned_x   SMALLINT,                    -- 封盤期分配後寫入
   assigned_y   SMALLINT,
   player_id    BIGINT REFERENCES players(id),  -- T=0 建立 player 後回填
-  joined_late  BOOLEAN NOT NULL DEFAULT false,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (season_id, user_id)
 );
 
--- 名額控制：容量是「隨總登記數動態成長」的計算值，不是固定欄位。
--- 只存已用計數，容量在登記交易中即時計算並檢查（見 13 §2.1）。
+-- 名額控制：每場固定 600 人 → 容量是常數，不需動態計算。
+-- 陣營 200 / 陣營；出生帶 前線 40 / 中原 100 / 邊陲 60。
 CREATE TABLE season_quotas (
   season_id  INT      NOT NULL REFERENCES seasons(id),
-  faction    SMALLINT NOT NULL,
-  spawn_band TEXT     NOT NULL,
-  taken      INT      NOT NULL DEFAULT 0 CHECK (taken >= 0),
-  PRIMARY KEY (season_id, faction, spawn_band)
+  faction    SMALLINT NOT NULL,          -- 1 | 2 | 3
+  spawn_band TEXT     NOT NULL,          -- VANGUARD | HEARTLAND | FRONTIER
+  capacity   INT      NOT NULL,          -- 40 | 100 | 60
+  taken      INT      NOT NULL DEFAULT 0,
+  PRIMARY KEY (season_id, faction, spawn_band),
+  CHECK (taken >= 0 AND taken <= capacity)
 );
 
 CREATE INDEX reg_squad_idx ON season_registrations (season_id, squad_code)
@@ -56,31 +59,41 @@ CREATE INDEX reg_squad_idx ON season_registrations (season_id, squad_code)
 
 ### 登記的併發控制
 
-名額容量是總登記數的函式，所以每次登記都會改變**所有陣營**的容量。
-必須在單一交易內序列化：
+固定 600 人讓這件事變得非常單純——容量是常數，
+`CHECK (taken <= capacity)` 直接在資料庫層擋住超賣，
+不需要 advisory lock 或應用層的容量計算：
 
 ```sql
 BEGIN;
-  -- 用賽季層級的 advisory lock 序列化整個登記操作。
-  -- 登記期 7 天處理 1,500 筆，序列化完全不是效能瓶頸。
-  SELECT pg_advisory_xact_lock('season_reg'::regclass::int, $seasonId);
-
-  SELECT registered_count FROM seasons WHERE id = $seasonId;
-  -- capacity = max(20, ceil((registered_count + 1) * 1.08 / 3))
-  -- bandCapacity = max(6, ceil(factionTaken * ratio * 1.15))
-
-  SELECT taken FROM season_quotas
-   WHERE season_id = $seasonId AND faction = $f AND spawn_band = $b;
-  -- 超出容量 → ROLLBACK 並回傳「名額已滿」
+  -- 單一原子遞增；超出容量時 CHECK 約束會讓這句失敗
+  UPDATE season_quotas
+     SET taken = taken + 1
+   WHERE season_id = $seasonId AND faction = $f AND spawn_band = $b
+     AND taken < capacity
+  RETURNING taken;
+  -- 0 rows → 名額已滿，ROLLBACK 並回傳友善訊息
 
   INSERT INTO season_registrations (...) VALUES (...);
-  UPDATE season_quotas SET taken = taken + 1 WHERE ...;
-  UPDATE seasons SET registered_count = registered_count + 1 WHERE id = $seasonId;
+  UPDATE seasons SET human_count = human_count + 1 WHERE id = $seasonId;
 COMMIT;
 ```
 
-> 容量隨總數成長，代表**一次登記可能同時解鎖其他陣營的名額**。
-> 前端需在提交失敗時重新拉取即時名額，而不是用快取值判斷可否登記。
+> 上一版因為採用「隨總登記數動態成長」的容量，
+> 需要賽季層級的 advisory lock 把整個登記流程序列化。
+> **固定 600 人的決策讓這套機制整個消失了** —— 這是規格簡化帶來的實作簡化。
+
+### AI 補足（封盤期）
+
+```sql
+-- 封盤時，對每個 (faction, spawn_band) 補足 capacity - taken 個 AI
+-- AI 直接建立 players（user_id = NULL），不經過 season_registrations
+INSERT INTO players (season_id, user_id, is_ai, ai_persona, ai_variance, ...)
+SELECT $seasonId, NULL, true, pick_persona(i), 0.85 + random_from_seed(i) * 0.30, ...
+  FROM generate_series(1, $shortfall) AS i;
+```
+
+性格配比 Settler 50% / Warden 35% / Warlord 15%，
+`ai_variance` 由賽季 seed 決定性產生（不用 `random()`，保持可重現）。
 
 CREATE TABLE users (
   id            BIGSERIAL PRIMARY KEY,
@@ -101,16 +114,28 @@ CREATE TABLE users (
 CREATE TABLE players (
   id             BIGSERIAL PRIMARY KEY,
   season_id      INT    NOT NULL REFERENCES seasons(id),
-  user_id        BIGINT NOT NULL REFERENCES users(id),
+  user_id        BIGINT REFERENCES users(id),  -- AI 為 NULL
   alliance_id    BIGINT REFERENCES alliances(id),
+  faction        SMALLINT NOT NULL,          -- 1 | 2 | 3
+  spawn_band     TEXT     NOT NULL,          -- VANGUARD | HEARTLAND | FRONTIER
   base_x         SMALLINT NOT NULL,          -- 核心據點左上角 (A 格)
   base_y         SMALLINT NOT NULL,
   citadel_level  SMALLINT NOT NULL DEFAULT 1,
   newbie_until   TIMESTAMPTZ NOT NULL,
+  last_seen_at   TIMESTAMPTZ,                -- 用於 AI 託管判定與遺物分配
   settled_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- AI 欄位（見 15-ai-players.md §7.3）
+  is_ai          BOOLEAN NOT NULL DEFAULT false,
+  ai_persona     TEXT,                       -- SETTLER | WARDEN | WARLORD
+  ai_variance    NUMERIC(4,3),               -- ±15% 個體偏移，賽季開始時決定
+  ai_takeover_at TIMESTAMPTZ,                -- 非 NULL = 託管中的真人帳號
   UNIQUE (season_id, user_id),
   UNIQUE (season_id, base_x, base_y)
 );
+
+CREATE INDEX players_ai_idx      ON players (season_id, is_ai);
+CREATE INDEX players_faction_idx ON players (season_id, faction);
+-- 一位使用者同時只能在一場「進行中」的賽季（見 12 B1），於應用層驗證
 
 -- 核心 2×2 的四個格位
 CREATE TABLE base_slots (
@@ -169,8 +194,8 @@ CREATE INDEX tiles_player_idx   ON tiles (player_id) WHERE player_id IS NOT NULL
 
 **設計說明**：
 `tiles` 只存**已被佔用**的格子，不是全部 250,000 列。
-賽季高峰約 3,000 玩家 × 平均 60 格 ≈ **180,000 列**，加上營地與遺跡約 19 萬列，
-在 Postgres 上是很小的表，viewport range query 走索引在 5ms 內完成。
+賽季高峰約 600 玩家 × 平均 60 格 ≈ **36,000 列**，加上營地與遺跡約 4.8 萬列，
+在 Postgres 上小到幾乎不需要優化，viewport range query 走索引在 2ms 內完成。
 
 `alliance_id` 是反正規化欄位（可由 `player_id → players.alliance_id` 推出），
 但地圖著色是最高頻查詢，值得用一個 trigger 或應用層同步維護來換取效能。
@@ -299,8 +324,9 @@ CREATE TABLE ruins (
   season_id     INT      NOT NULL,
   x             SMALLINT NOT NULL,       -- 中心格
   y             SMALLINT NOT NULL,
-  phase         TEXT     NOT NULL DEFAULT 'DORMANT', -- DORMANT | AWAKENED |
+  phase         TEXT     NOT NULL DEFAULT 'SEALED',  -- SEALED | DORMANT | AWAKENED |
                                                      -- CONTESTED | CONTROLLED
+  unseals_at    TIMESTAMPTZ NOT NULL,      -- T + 3 天（夏季首日）
   guard_units   JSONB    NOT NULL,       -- 剩餘 PvE 守衛
   control_alliance_id BIGINT REFERENCES alliances(id),
   progress      NUMERIC(5,2) NOT NULL DEFAULT 0,     -- 0–100
@@ -327,8 +353,12 @@ CREATE TABLE ruin_control_log (
 CREATE TYPE event_type AS ENUM (
   'BUILD_DONE', 'DEMOLISH_DONE', 'TRAIN_DONE',
   'MARCH_ARRIVE', 'CLAIM_DONE', 'ISOLATION_EXPIRE',
-  'CONTEST_EXPIRE', 'RUIN_TICK', 'CAMP_RESPAWN',
-  'SEASON_VICTORY_CHECK', 'NEWBIE_EXPIRE'
+  'CONTEST_EXPIRE', 'RUIN_TICK', 'RUIN_UNSEAL', 'CAMP_RESPAWN',
+  'SEASON_VICTORY_CHECK', 'SEASON_EXPIRE', 'NEWBIE_EXPIRE',
+  'SEASON_CHANGE',      -- 四季切換（每 3 真實日）與切換前 6 小時預警
+  'AI_TICK',            -- 每遊戲月邊界的 AI 決策（見 15 §7.1）
+  'AI_RETALIATE',       -- AI 反擊（被攻擊後 1–4 小時）
+  'AI_TAKEOVER'         -- 離線真人轉 AI 託管
 );
 
 CREATE TABLE events (
@@ -352,21 +382,31 @@ CREATE INDEX events_actor_idx   ON events (actor_id, resolve_at) WHERE resolved_
 
 ## 8. 資料量估算（賽季高峰）
 
+**單場賽季**（600 人、12 天）：
+
 | 表 | 列數 | 說明 |
 | --- | --- | --- |
-| `players` | 3,000 | |
-| `player_resources` | 3,000 | |
-| `base_slots` | 12,000 | 4 × 玩家數 |
-| `tiles` | ~190,000 | 領土 + 據點 + 營地 + 遺跡 |
-| `garrisons` | ~15,000 | 含增援與前哨駐軍 |
-| `marches`（進行中） | ~3,000 | |
-| `events`（未結算） | ~20,000 | |
-| `events`（累計 8 週） | ~8,000,000 | 按月分割表，賽季結束歸檔 |
-| `battle_reports` | ~2,000,000 | 90 天後歸檔至冷儲存 |
-| `chat_messages` | ~5,000,000 | 30 天滾動刪除 |
+| `players` | 600 | 真人 + AI |
+| `player_resources` | 600 | |
+| `base_slots` | 2,400 | 4 × 玩家數 |
+| `tiles` | ~48,000 | 領土（600 × ~60）+ 據點 + 營地 + 遺跡 |
+| `garrisons` | ~4,000 | 含增援與前哨駐軍 |
+| `marches`（進行中） | ~800 | |
+| `events`（未結算） | ~6,000 | |
+| `events`（累計 12 天） | ~900,000 | 賽季結束歸檔 |
+| `battle_reports` | ~250,000 | |
+| `chat_messages` | ~400,000 | |
 
-`events` 與 `battle_reports` 用 **PostgreSQL 宣告式分割（按週）**，
-賽季結束時整批 `DETACH PARTITION` 歸檔，不影響線上效能。
+**同時兩場並行**：以上數字 ×2。
+
+> **短賽季反而讓伺服器成本大幅下降。**
+> 原設計（單場 3,000 人 × 8 週）的 `events` 累計約 800 萬列；
+> 現在兩場並行合計不到 200 萬列，且每 12 天整批歸檔一次。
+> 分割表的粒度也從「按週」簡化為「按賽季」——
+> 一場結束就 `DETACH PARTITION`，乾淨俐落。
+
+`events` 與 `battle_reports` 以 **`season_id` 做宣告式分割**，
+賽季結束時整批 `DETACH PARTITION` 歸檔，不影響另一場進行中的賽季。
 
 ## 9. 歸檔
 
