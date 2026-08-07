@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # build 與單元測試不需要真的連上資料庫；
+  # lib/db 是延遲連線的，只有實際查詢才會用到這個值。
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ruincity
+  AUTH_SECRET: ci-placeholder-secret-not-used-for-anything-real
+
+jobs:
+  check:
+    name: typecheck · lint · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Drizzle schema is in sync with migrations
+        run: |
+          pnpm db:generate
+          if ! git diff --quiet -- drizzle/; then
+            echo "::error::schema.ts 有改動但沒有重新產生 migration。請執行 pnpm db:generate 並提交。"
+            git diff --stat -- drizzle/
+            exit 1
+          fi
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm test:e2e

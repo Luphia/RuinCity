@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/**
+ * 廢土像素風調色盤（docs/09-art-ux.md §3）。
+ * 24 色，刻意受限。遺物金是整個遊戲最稀有的顏色 ——
+ * 玩家在地圖上看到金色，就知道那裡有重要的東西。
+ */
+@theme {
+  /* 地形 */
+  --color-sand: #b8a07e;
+  --color-sand-deep: #8c7758;
+  --color-moss: #6b7f4a;
+  --color-moss-deep: #47562f;
+  --color-ash: #9a958c;
+  --color-ash-deep: #6b6862;
+  --color-marsh: #5c6b4a;
+  --color-marsh-bright: #7d9159;
+  --color-water: #33454f;
+
+  /* 結構 */
+  --color-rust: #a35a3a;
+  --color-rust-deep: #6e3a26;
+  --color-metal: #7d8087;
+  --color-metal-bright: #a8aab0;
+  --color-timber: #7a5a3c;
+  --color-timber-deep: #4d3826;
+
+  /* 陰影與描邊 */
+  --color-ink: #1a1614;
+  --color-ink-soft: #2e2723;
+  --color-ink-mid: #4a413a;
+
+  /* UI 與強調 */
+  --color-parchment: #e8dcc0;
+  --color-alarm: #c4442f;
+  --color-relic: #d9a441;
+  --color-vital: #4a8fa8;
+
+  --font-pixel: "Zpix", "Silkscreen", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: var(--color-parchment);
+  /* 直式為主，單手可操作 */
+  overscroll-behavior: none;
+}
+
+/* 像素資產永遠不插值 */
+.pixelated {
+  image-rendering: pixelated;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

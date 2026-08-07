@@ -5,21 +5,32 @@
 
 ---
 
-## M0 · 專案骨架
+## M0 · 專案骨架 ✅
 
 **產出**：能跑起來的空殼 + CI
 
-- [ ] `create-next-app`（Next.js 15 / App Router / TypeScript strict / Tailwind v4）
-- [ ] Drizzle ORM + Neon Postgres 連線、migration 流程
-- [ ] Auth.js v5（Google OAuth + Email OTP，**不做訪客帳號**）
-- [ ] 專案結構依 `07-tech-architecture.md` §7 建立
-- [ ] `/lib/game/balance/` 數值表（從 `11-balance-tables.md` 轉為 TypeScript 常數）
-- [ ] **數值版本快照機制**：`seasons.balance_version`，進行中的賽季不受新版本影響（見 B16）
-- [ ] **遊戲曆法與四季**：真實時間 ↔ 遊戲曆轉換、季節係數查詢（純函式）
-- [ ] Vitest + Playwright 設定；GitHub Actions（typecheck / lint / test）
-- [ ] Vercel 部署 + preview environment
+- [x] `create-next-app`（**Next.js 16.3** / App Router / Turbopack / TS strict / Tailwind v4）
+- [x] Drizzle ORM + Neon Postgres 連線、migration 流程（28 張表、7 個 CHECK 約束）
+- [x] Auth.js v5（Google OAuth + Email OTP，**不做訪客帳號**）
+- [x] 專案結構依 `07-tech-architecture.md` §7 建立
+- [x] `/lib/game/balance/` 數值表（從 `11-balance-tables.md` 轉為 TypeScript 常數，10 個模組）
+- [x] **數值版本快照機制**：`seasons.balance_version`，進行中的賽季不受新版本影響（見 B16）
+- [x] **遊戲曆法與四季**：真實時間 ↔ 遊戲曆轉換、季節係數查詢（純函式，18 個單元測試）
+- [x] Vitest + Playwright 設定；GitHub Actions（typecheck / lint / test / build / e2e）
+- [x] CI 額外檢查 **schema.ts 與 migration 是否同步**
+- [ ] Vercel 部署 + preview environment（需要帳號與 Neon 連線，待人工設定）
 
-**驗收**：能註冊登入，看到一個寫著「RuinCity」的空白頁。
+**驗收**：✅ 首頁顯示「RuinCity」與當前廢曆日期（證明 `/lib/game` 純函式層是通的）；
+未登入時 `/base` 導向登入頁；`pnpm check` 與 3 個 E2E smoke test 全綠。
+
+### M0 實作中發現、值得記下的事
+
+| 發現 | 處置 |
+| --- | --- |
+| React Compiler 的 purity lint 擋下 render 中的 `Date.now()` | 這規則是對的，且與 P1「時間權威來自伺服器」一致。抽出 `lib/time.ts` 的 `serverNow()` / `withServerTime()` |
+| Neon 的 `neon-http` driver **不支援交易** | Auth 與唯讀查詢照用；M2 的結算路徑必須改用 `neon-serverless` 的 WebSocket pool。已記在 `07` §1 |
+| 遊戲曆用小數月份換算天數會有浮點誤差 | 剛好落在遊戲日邊界時會少算一天。改為全程整數毫秒運算 |
+| `CHECK (taken <= capacity)` 讓登記併發控制退化為一句原子 UPDATE | 已寫入 schema，不需要 advisory lock |
 
 ---
 

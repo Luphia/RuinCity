@@ -43,7 +43,7 @@
 | --- | --- |
 | 遊戲企劃 | ✅ 已完成（見 `docs/`） |
 | 技術選型 | ✅ 已確認 |
-| 專案骨架 | ⬜ 未開始 |
+| M0 專案骨架 | ✅ 完成 |
 | M1 地圖渲染 | ⬜ 未開始 |
 
 ## 企劃文件索引
@@ -75,7 +75,7 @@
 
 ## 技術棧（摘要）
 
-- **前端**：Next.js 15（App Router）+ React 19 + TypeScript + Tailwind CSS v4
+- **前端**：Next.js 16.3（App Router / Turbopack）+ React 19.2 + TypeScript strict + Tailwind CSS v4
 - **地圖渲染**：PixiJS v8（WebGL，tile atlas + viewport culling）
 - **後端**：Next.js Route Handlers + Server Actions
 - **資料庫**：PostgreSQL（Neon）+ Drizzle ORM

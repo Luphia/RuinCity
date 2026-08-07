@@ -1,0 +1,50 @@
+{
+  "name": "ruincity",
+  "version": "0.1.0",
+  "private": true,
+  "description": "像素風格・手機網頁・多人戰爭策略遊戲",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "dependencies": {
+    "@auth/drizzle-adapter": "1.11.3",
+    "@neondatabase/serverless": "1.1.0",
+    "@tanstack/react-query": "5.101.4",
+    "drizzle-orm": "0.45.2",
+    "next": "16.3.0",
+    "next-auth": "5.0.0-beta.32",
+    "nodemailer": "7.0.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3",
+    "zustand": "5.0.14"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.19.1",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.4",
+    "dotenv": "17.4.2",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.0",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.10",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

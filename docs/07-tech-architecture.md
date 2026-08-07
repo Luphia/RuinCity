@@ -4,13 +4,13 @@
 
 | 層 | 選擇 | 理由 |
 | --- | --- | --- |
-| 框架 | **Next.js 15**（App Router） | Server Components 減少 JS bundle；Route Handlers 直接當 API |
-| UI | **React 19** + TypeScript（strict） | React Compiler 自動 memo，減少手動優化 |
+| 框架 | **Next.js 16.3**（App Router、Turbopack） | Server Components 減少 JS bundle；Route Handlers 直接當 API |
+| UI | **React 19.2** + TypeScript（strict） | React Compiler 自動 memo；其 purity lint 會擋下 render 中的 `Date.now()`，正好與「時間權威來自伺服器」一致 |
 | 樣式 | **Tailwind CSS v4** | HUD／面板用；地圖不走 DOM |
 | 地圖渲染 | **PixiJS v8**（WebGL） | 批次渲染 + texture atlas，手機上 60fps 渲染數千 sprite |
 | 客戶端狀態 | **Zustand** | 輕量，適合遊戲狀態；避免 Redux 樣板 |
 | 伺服器狀態 | **TanStack Query v5** | 快取、背景重新驗證、樂觀更新 |
-| 資料庫 | **PostgreSQL**（Neon serverless） | 需要交易與 row lock 保證結算正確性 |
+| 資料庫 | **PostgreSQL**（Neon serverless） | 需要交易與 row lock 保證結算正確性。**注意**：Auth 與唯讀查詢用 `neon-http`，但結算路徑需交易，必須改用 `neon-serverless` 的 WebSocket pool |
 | ORM | **Drizzle ORM** | 型別安全、產生的 SQL 可預測、無執行期反射開銷 |
 | 快取／鎖 | **Redis**（Upstash） | 分散式鎖、rate limit、地圖動態層快取 |
 | 認證 | **Auth.js v5** | Google OAuth + Email OTP。**不做訪客帳號** |
@@ -238,23 +238,31 @@ GET /api/stream  (text/event-stream, 保持連線)
     alliance/               聯盟
     reports/                戰報
   /(marketing)/             首頁、賽季歸檔頁
+    signin/                 登入（Google OAuth + Email OTP，不做訪客）
   /api/
     map/route.ts
     map/overview/route.ts
     stream/route.ts
     cron/settle/route.ts
 /lib
+  env.ts                    環境變數（延遲驗證，build 不因缺 env 失敗）
+  time.ts                   ★ 時間權威：serverNow() / withServerTime()
   /game/                    ★ 純函式遊戲邏輯（無 I/O，可單元測試）
     combat.ts               戰鬥公式
     march.ts                行軍時間
     economy.ts              資源結算
     territory.ts            連通性檢查、佔領規則
     ruins.ts                遺跡進度
+    calendar.ts             遊戲曆法與四季係數
+    steward.ts              執政官決策
+    supply.ts               區域軍隊容量
     balance/                ★ 所有數值表（單一真相來源）
   /engine/
     settle.ts               結算引擎
     events.ts               事件排程
   /db/                      Drizzle schema 與 queries
+    schema.ts               遊戲表（24 張）
+    auth-schema.ts          Auth.js 表（4 張，與遊戲 users 表以 email 對應）
   /render/                  PixiJS 場景與圖層
 /scripts
   generate-map.ts           賽季地圖生成 CLI
