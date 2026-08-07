@@ -9,9 +9,8 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 
-import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import {
@@ -24,6 +23,7 @@ import {
 } from "@/lib/game/season";
 import { serverNow } from "@/lib/time";
 import { phaseOf, registerFor, scheduleOf } from "@/lib/server/season-ops";
+import { currentGameUserId as currentUserId } from "@/lib/server/account";
 
 export interface QuotaView {
   readonly faction: FactionId;
@@ -62,18 +62,6 @@ export interface SeasonBoard {
   readonly signedIn: boolean;
 }
 
-async function currentUserId(): Promise<number | null> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return null;
-
-  const { getDb } = await import("@/lib/db");
-  const [row] = await getDb()
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(eq(schema.users.email, email));
-  return row?.id ?? null;
-}
 
 /**
  * 最值得登記的那一場：優先還在收人的，其次是最近開的。
@@ -178,6 +166,42 @@ export async function loadSeasonBoard(): Promise<SeasonBoard | null> {
     lockedElsewhere,
     signedIn: userId !== null,
   };
+}
+
+export interface EntryPoint {
+  readonly signedIn: boolean;
+  /** 有沒有一個正在進行的據點可以走進去 */
+  readonly hasPlayer: boolean;
+}
+
+/**
+ * 這位訪客現在該被送去哪裡。
+ *
+ * ★ 首頁與登入頁都要問這一題。「已經登入了還顯示登入按鈕」是
+ *   同一類問題的另一面：**入口要反映狀態，不是永遠顯示同一組選項。**
+ *
+ * 只做一次 join，不跑結算 —— 首頁不該為了決定一個按鈕的文字
+ *   去讀 600 位玩家的經濟狀態。
+ */
+export async function loadEntryPoint(): Promise<EntryPoint> {
+  const userId = await currentUserId();
+  if (userId === null) return { signedIn: false, hasPlayer: false };
+
+  const { getDb } = await import("@/lib/db");
+  const [row] = await getDb()
+    .select({ id: schema.players.id })
+    .from(schema.players)
+    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
+    .where(
+      and(
+        eq(schema.players.userId, userId),
+        eq(schema.seasons.status, "RUNNING"),
+        isNull(schema.players.eliminatedAt),
+      ),
+    )
+    .limit(1);
+
+  return { signedIn: true, hasPlayer: Boolean(row) };
 }
 
 export interface RegisterResult {

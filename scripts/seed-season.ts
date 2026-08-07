@@ -43,6 +43,7 @@ import {
   scheduleOf,
   startSeason,
 } from "../lib/server/season-ops";
+import { ensureGameUser } from "../lib/server/account";
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -117,18 +118,7 @@ async function main() {
 
   // ── 把自己登記進去 ───────────────────────────────────────
   if (email) {
-    const userId = await withTransaction(async (tx) => {
-      const [existing] = await tx
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.email, email));
-      if (existing) return existing.id;
-      const [created] = await tx
-        .insert(schema.users)
-        .values({ email, provider: "email", displayName: email.split("@")[0]! })
-        .returning({ id: schema.users.id });
-      return created!.id;
-    });
+    const userId = await withTransaction((tx) => ensureGameUser(tx, email));
 
     // 登記期已經過了的話，用登記期中間的時刻送出 —— 走的仍是同一條驗證
     const at = phase === "REGISTRATION" ? now : opensAt + PHASE_DURATION.registrationMs / 2;

@@ -8,6 +8,8 @@ import {
   toGameDate,
 } from "@/lib/game/calendar";
 import { serverNow } from "@/lib/time";
+import { signOut } from "@/auth";
+import { loadEntryPoint } from "@/app/actions/season";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,14 @@ export default async function Home() {
   const startedAt = now - 4 * 24 * 60 * 60 * 1000;
   const date = toGameDate(startedAt, now);
   const mods = seasonModifiersAt(startedAt, now);
+
+  // 沒有資料庫的環境（E2E、預覽）不該讓首頁 500
+  let entry = { signedIn: false, hasPlayer: false };
+  try {
+    entry = await loadEntryPoint();
+  } catch {
+    // 保持未登入的樣子
+  }
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-8 px-6 py-16">
@@ -66,19 +76,65 @@ export default async function Home() {
         <Fact label="勝利條件" value="單一聯盟同時控制三座遺跡滿 6 小時" />
       </section>
 
+      {/**
+       * ★ 入口要反映狀態。已經登入了還顯示「登入」，或是已經有據點了
+       *   還要玩家自己想辦法找到 `/base`，都是同一個問題：
+       *   這一頁沒有在回答「我現在該按哪裡」。
+       */}
       <div className="flex flex-col gap-2">
-        <Link
-          href="/seasons"
-          className="bg-relic text-ink rounded px-5 py-3 text-center font-medium transition-opacity hover:opacity-90"
-        >
-          賽季登記
-        </Link>
-        <Link
-          href="/signin"
-          className="border-relic text-relic hover:bg-relic hover:text-ink rounded border px-5 py-3 text-center font-medium transition-colors"
-        >
-          登入
-        </Link>
+        {entry.hasPlayer ? (
+          <>
+            <Link
+              href="/base"
+              className="bg-relic text-ink rounded px-5 py-3 text-center font-medium transition-opacity hover:opacity-90"
+            >
+              進入遊戲
+            </Link>
+            <Link
+              href="/seasons"
+              className="border-relic text-relic hover:bg-relic hover:text-ink rounded border px-5 py-3 text-center font-medium transition-colors"
+            >
+              賽季資訊
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              href="/seasons"
+              className="bg-relic text-ink rounded px-5 py-3 text-center font-medium transition-opacity hover:opacity-90"
+            >
+              賽季登記
+            </Link>
+            {entry.signedIn ? null : (
+              <Link
+                href="/signin"
+                className="border-relic text-relic hover:bg-relic hover:text-ink rounded border px-5 py-3 text-center font-medium transition-colors"
+              >
+                登入
+              </Link>
+            )}
+          </>
+        )}
+
+        {/**
+         * ★ 登入之後如果沒有任何登出的出口，用錯帳號的人就出不來了。
+         *   這與「登入後還顯示登入按鈕」是同一個缺口的另一半。
+         */}
+        {entry.signedIn ? (
+          <form
+            action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/" });
+            }}
+          >
+            <button
+              type="submit"
+              className="text-ash-deep hover:text-ash w-full py-2 text-center text-sm"
+            >
+              登出
+            </button>
+          </form>
+        ) : null}
       </div>
 
       <footer className="text-ink-mid mt-auto font-mono text-[10px]">
