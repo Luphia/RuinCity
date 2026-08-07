@@ -12,16 +12,36 @@
 
 export const CITADEL = {
   maxLevel: 30,
+  /**
+   * ★ growth 1.28 → 1.36（鐵 1.30 → 1.38）。
+   *   賽季模擬顯示原曲線太淺：中位數玩家在遊戲月 6 就把主堡推到 26、
+   *   月 7 之後整個經濟完全飽和，賽季後半沒有任何經濟推進可言。
+   *   拉陡成長率會壓住中後期而幾乎不動早期，正好對上 `docs/03` §6 的目標曲線。
+   */
   cost: {
-    timber: { base: 120, growth: 1.28 },
-    stone: { base: 100, growth: 1.28 },
-    iron: { base: 40, growth: 1.3 },
+    timber: { base: 120, growth: 1.36 },
+    stone: { base: 100, growth: 1.36 },
+    iron: { base: 40, growth: 1.38 },
   },
-  /** 基準秒數，實際 = base × growth^(L-1) / TIME_SCALE */
-  time: { base: 300, growth: 1.26 },
+  /**
+   * 基準秒數，實際 = base × growth^(L-1) / TIME_SCALE。
+   *
+   * ★ base 780（原 300）：`docs/02` §1.1 與 `docs/11` §1 都寫「Lv1→Lv30
+   *   約 7 天純建造時間，佔滿這條佇列」，但 base 300 只給得出 2.7 天。
+   *   賽季模擬顯示核心佇列只有 18% 的時間在動工 ——「每一分鐘你在升主堡，
+   *   就是一分鐘你沒在升兵營」這個核心取捨因此根本不存在。780 讓
+   *   Lv1→Lv30 剛好是 7.05 真實天，與文件敘述一致。
+   */
+  time: { base: 780, growth: 1.26 },
 
-  /** 領土容量 = 4 × 主堡等級 */
-  territoryCapacityPerLevel: 4,
+  /**
+   * 領土容量 = 3 × 主堡等級。
+   *
+   * ★ 原為 4。模擬顯示拓荒永遠划算（一塊地的設施幾小時就回本），
+   *   所以玩家一定會把領土鋪到容量上限 —— 4/級 在主堡 26 給出 104 塊，
+   *   遠超 `docs/03` §6 的 70–85 目標。容量是天花板，不是建議值。
+   */
+  territoryCapacityPerLevel: 3,
   /** 人口天花板 = 60 × 主堡等級^1.15 */
   popCap: { coefficient: 60, exponent: 1.15 },
   /** 據點固有防禦 = 主堡等級 × 120（不需城牆，見 16 §4.1） */
@@ -127,19 +147,30 @@ export interface FacilitySpec {
   readonly yieldCoefficient: number;
 }
 
+/**
+ * ★ 產出係數下調（伐木場／採石場 10 → 7.5，鐵礦坑 7 → 5.25，農田 10 → 9.75）。
+ *
+ *   原值下四種資源全季長期頂在倉庫上限，`docs/03` §7.2 說的「五道閘門」
+ *   裡最重要的資源那一道形同虛設。
+ *
+ *   農田砍得比其他三者輕，是因為**糧食與建材餵的是不同的東西**：
+ *   建材餵主堡曲線，糧食餵軍隊規模。兩者同幅下調時，
+ *   主堡曲線與軍隊曲線會互相拉扯，永遠只能滿足其中一條。
+ *   分開調之後兩條才同時落在 `docs/03` §6 的目標區間內。
+ */
 export const FACILITY: Record<Facility, FacilitySpec> = {
-  FARM: { label: "農田", cost: { timber: 100 }, yields: "grain", yieldCoefficient: 10 },
-  SAWMILL: { label: "伐木場", cost: { timber: 80, stone: 40 }, yields: "timber", yieldCoefficient: 10 },
-  QUARRY: { label: "採石場", cost: { timber: 120 }, yields: "stone", yieldCoefficient: 10 },
-  MINE: { label: "鐵礦坑", cost: { timber: 150, stone: 100 }, yields: "iron", yieldCoefficient: 7 },
+  FARM: { label: "農田", cost: { timber: 100 }, yields: "grain", yieldCoefficient: 9.75 },
+  SAWMILL: { label: "伐木場", cost: { timber: 80, stone: 40 }, yields: "timber", yieldCoefficient: 7.5 },
+  QUARRY: { label: "採石場", cost: { timber: 120 }, yields: "stone", yieldCoefficient: 7.5 },
+  MINE: { label: "鐵礦坑", cost: { timber: 150, stone: 100 }, yields: "iron", yieldCoefficient: 5.25 },
   WATCHTOWER: { label: "哨塔", cost: { timber: 200, stone: 200 }, yields: null, yieldCoefficient: 0 },
   OUTPOST: { label: "前哨營", cost: { timber: 500, stone: 500, iron: 300 }, yields: null, yieldCoefficient: 0 },
   MARKET: { label: "集市", cost: { timber: 300, stone: 200 }, yields: null, yieldCoefficient: 0 },
 } as const;
 
 export const FACILITY_SCALING = {
-  /** 成本 = 基礎 × 1.32^(L-1) */
-  costGrowth: 1.32,
+  /** 成本 = 基礎 × 1.36^(L-1)（原 1.32，理由同主堡成本曲線） */
+  costGrowth: 1.36,
   /** 基準秒數 = 240 × 1.30^(L-1) */
   time: { base: 240, growth: 1.3 },
   /** 產出指數 */

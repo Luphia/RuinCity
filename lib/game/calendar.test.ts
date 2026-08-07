@@ -94,11 +94,21 @@ describe("season modifiers", () => {
     }
   });
 
-  it("冬季糧食收支必然惡化，但區域容量只小幅下修", () => {
+  it("入冬的糧食收支惡化幅度必須落在 1.8–2.4 倍之間", () => {
+    const a = SEASON_MODIFIERS.AUTUMN;
     const w = SEASON_MODIFIERS.WINTER;
-    // 產出腰斬、糧耗暴漲 → 養不起不打仗的軍隊
-    expect(w.production).toBeLessThan(0.6);
-    expect(w.upkeep).toBeGreaterThan(1.3);
+
+    // 真正決定冬天有多痛的不是任一個係數，而是秋→冬的**收支擺盪倍率**
+    const swing = (a.production / w.production) * (w.upkeep / a.upkeep);
+
+    // 下限：低於 1.8 就沒人需要為冬季屯糧，冬季只是產出少一點的秋季
+    expect(swing).toBeGreaterThan(1.8);
+    // 上限：賽季模擬顯示 3.05（舊值 0.55 / 1.4）會在入冬第一週餓掉
+    // 中位數玩家一半的部隊 ——「用兵在秋冬兩季達高峰」會退化成只有秋季
+    expect(swing).toBeLessThan(2.4);
+
+    expect(w.production).toBeLessThan(a.production);
+    expect(w.upkeep).toBeGreaterThan(a.upkeep);
     // 但你仍然打得動 —— 用兵高峰在秋冬，容量不能壓太緊
     expect(w.regionCapacity).toBeGreaterThanOrEqual(0.85);
   });

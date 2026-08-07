@@ -18,6 +18,11 @@
 - [x] **遊戲曆法與四季**：真實時間 ↔ 遊戲曆轉換、季節係數查詢（純函式，18 個單元測試）
 - [x] Vitest + Playwright 設定；GitHub Actions（typecheck / lint / test / build / e2e）
 - [x] CI 額外檢查 **schema.ts 與 migration 是否同步**
+- [x] `/lib/game/formulas.ts` 等級縮放與衍生值（TIME_SCALE 只在這一層套用）
+- [x] **戰鬥引擎** `/lib/game/combat.ts`（Lanchester 變體 + 完整戰報 breakdown，24 個單元測試）
+- [x] **行軍與預警** `/lib/game/march.ts`（地形取樣、8 小時上限、預警窗口，17 個單元測試）
+- [x] **賽季模擬** `scripts/simulate-season.ts`（600 人 × 12 遊戲月，21 項平衡驗證）
+- [x] 依模擬結果重新配平數值表 → `BALANCE_VERSION` `2026.08.07-b`（見 `11` §12）
 - [ ] Vercel 部署 + preview environment（需要帳號與 Neon 連線，待人工設定）
 
 **驗收**：✅ 首頁顯示「RuinCity」與當前廢曆日期（證明 `/lib/game` 純函式層是通的）；
@@ -31,6 +36,9 @@
 | Neon 的 `neon-http` driver **不支援交易** | Auth 與唯讀查詢照用；M2 的結算路徑必須改用 `neon-serverless` 的 WebSocket pool。已記在 `07` §1 |
 | 遊戲曆用小數月份換算天數會有浮點誤差 | 剛好落在遊戲日邊界時會少算一天。改為全程整數毫秒運算 |
 | `CHECK (taken <= capacity)` 讓登記併發控制退化為一句原子 UPDATE | 已寫入 schema，不需要 advisory lock |
+| `docs/16` §4.1 的固有防禦實例算錯了 | 例子說「Lv5 據點 100 駐軍能擊退 50 劍士，因為攻方士氣 0.6」——但防守方**人口比較多**，士氣是 1.0，根本不打折。實際上 45 名劍士會輸、46 名慘勝（存活 0.5%）。已改寫該節：早期固有防禦不是「擊退」，是**讓交換比貴到不值得** |
+| 最短行軍（180 s）時，哨塔預警的 300 s 下限會早於出發時間 | 真的會出現「敵人還沒出發，你已經看到來襲警報」。`warningWindow()` 加上 `Math.min(window, marchSeconds)` clamp，並寫成測試 |
+| 賽季模擬找出 4 個數值表錯誤與 1 個結構性失衡 | 主堡建造時間與文件敘述差 2.6 倍、儲存上限漏算前哨營導致主堡 Lv28–30 不可達、人口上限公式與表格不一致、領土容量超出目標；以及**經濟在遊戲月 6–7 就完全飽和**。全部已修，詳見 `11` §12 |
 
 ---
 
@@ -103,9 +111,9 @@
 
 - [ ] 兵種定義與招募（`TRAIN_DONE` 事件）
 - [ ] 人口上限、養兵糧耗、餓死機制
-- [ ] `marches` schema、行軍時間計算、地形取樣
+- [ ] `marches` schema（行軍時間計算與地形取樣已於 M0 完成，見 `/lib/game/march.ts`）
 - [ ] `MARCH_ARRIVE` 事件與 Cron 推播結算（軌道 B）
-- [ ] 戰鬥引擎 `/lib/game/combat.ts`（純函式，完整單元測試）
+- [x] 戰鬥引擎 `/lib/game/combat.ts`（純函式，完整單元測試）—— 已於 M0 提前完成
 - [ ] 突襲／攻擊／偵查／拓荒／增援／駐防 六種行軍類型
 - [ ] 掠奪、載重、重複劫掠遞減
 - [ ] 醫療帳傷兵回收
@@ -249,8 +257,9 @@
 - [ ] i18n：繁中 + English
 - [ ] 無障礙檢查（色盲模式、對比、觸控目標、reduced-motion）
 - [ ] 反作弊：rate limit、advisory lock、異常偵測
-- [ ] `scripts/simulate-season.ts` 平衡模擬，跑 10 次驗證勝利時間落在遊戲月 9–12（D8–D12），
-      且無任何一場在夏季（D6）前結束
+- [ ] `scripts/simulate-season.ts` **接上空間項目複驗**：M0 版只驗得到非空間的經濟與季節曲線，
+      勝利時間、遺跡清剿時點、掠奪、區域容量都要等 M1 的地圖生成器（見 `11` §12.5）。
+      補完後跑 10 次驗證勝利時間落在遊戲月 9–12（D8–D12），且無任何一場在夏季（D6）前結束
 - [ ] Sentry、日誌、管理後台（封禁、查帳、賽季控制）
 - [ ] 壓力測試：**兩場並行 × 600 人 = 1,200 併發**、單次 cron 結算 1,000 事件 < 10 秒
 

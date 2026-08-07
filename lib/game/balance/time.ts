@@ -104,11 +104,21 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
     regionCapacity: 1.3,
     vault: 1.0,
   },
+  /**
+   * ★ production 0.55 → 0.70、upkeep 1.4 → 1.25。
+   *
+   *   原本的組合讓收支在入冬瞬間惡化 3.05 倍（1.2/0.55 × 1.4），
+   *   賽季模擬顯示中位數玩家在入冬第一週就被餓掉一半的部隊 ——
+   *   「用兵在秋冬兩季達高峰」因此退化成「只有秋季有高峰」。
+   *
+   *   0.70 / 1.25 讓軍隊還能爬進冬季（月 10 觸及人口上限），
+   *   接著在月 11–12 被消耗回 2,000 上下：冬天依然很痛，但不是清空。
+   */
   WINTER: {
     label: "長夜",
     months: [10, 12],
-    production: 0.55,
-    upkeep: 1.4,
+    production: 0.7,
+    upkeep: 1.3,
     marchTime: 1.15,
     training: 1.0,
     regionCapacity: 0.9,
