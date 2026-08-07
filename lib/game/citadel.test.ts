@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { UNIT, UNITS } from "./balance";
 import {
   CAMPS,
+  CITADEL,
   citadelSceneSvg,
+  GRID,
+  INNER,
   garrisonGroups,
   groupOf,
   markCount,
@@ -11,7 +14,6 @@ import {
   renderCitadelScene,
   SCENE_SIZE,
   TROOP_GROUPS,
-  WALL,
   type SceneSlot,
 } from "./citadel";
 
@@ -29,18 +31,10 @@ const slots = (over: Partial<Record<"A" | "B" | "C" | "D", Partial<SceneSlot>>> 
  *   160×160。要比的是**內容**，所以逐格比。
  */
 const differs = (a: Uint8Array, b: Uint8Array) => !Buffer.from(a).equals(Buffer.from(b));
-const nonGround = (g: Uint8Array) => g.reduce((n, v) => n + (v !== 12 && v !== 13 ? 1 : 0), 0);
+const nonGround = (g: Uint8Array) =>
+  g.reduce((n, v) => n + (v !== 12 && v !== 13 && v !== 14 && v !== 15 ? 1 : 0), 0);
 
 describe("版面", () => {
-  it("四塊地都在城牆裡面", () => {
-    for (const p of PLOTS) {
-      expect(p.x).toBeGreaterThan(WALL.x);
-      expect(p.y).toBeGreaterThan(WALL.y);
-      expect(p.x + p.w).toBeLessThan(WALL.x + WALL.w);
-      expect(p.y + p.h).toBeLessThan(WALL.y + WALL.h);
-    }
-  });
-
   it("★ 四塊地彼此不重疊 —— 重疊代表點擊區會互相搶", () => {
     for (let i = 0; i < PLOTS.length; i++) {
       for (let j = i + 1; j < PLOTS.length; j++) {
@@ -53,21 +47,55 @@ describe("版面", () => {
     }
   });
 
-  it("★ 四支部隊都在城牆**外面**", () => {
-    for (const g of TROOP_GROUPS) {
-      const box = CAMPS[g];
-      expect(box.y, `${g} 應該在南牆下方`).toBeGreaterThanOrEqual(WALL.y + WALL.h);
-      expect(box.x + box.w).toBeLessThanOrEqual(SCENE_SIZE);
+  it("★ 主城是 50×50 裡的 10×10，而且置中", () => {
+    expect(GRID).toBe(50);
+    expect(CITADEL.w).toBe(10);
+    expect(CITADEL.h).toBe(10);
+    expect(CITADEL.x + CITADEL.w / 2).toBe(GRID / 2);
+    expect(CITADEL.y + CITADEL.h / 2).toBe(GRID / 2);
+  });
+
+  it("★ 可蓋的地是內部 8×8 —— 最外圈那一圈是牆", () => {
+    expect(INNER.w).toBe(8);
+    expect(INNER.h).toBe(8);
+    for (const p of PLOTS) {
+      expect(p.x, `${p.slot} 壓到西牆`).toBeGreaterThanOrEqual(INNER.x);
+      expect(p.y, `${p.slot} 壓到北牆`).toBeGreaterThanOrEqual(INNER.y);
+      expect(p.x + p.w, `${p.slot} 壓到東牆`).toBeLessThanOrEqual(INNER.x + INNER.w);
+      expect(p.y + p.h, `${p.slot} 壓到南牆`).toBeLessThanOrEqual(INNER.y + INNER.h);
     }
   });
 
-  it("營地彼此不重疊", () => {
+  it("★ 四支部隊都在城牆**外面**，而且圍著四面", () => {
+    for (const g of TROOP_GROUPS) {
+      const box = CAMPS[g];
+      const overlapsCity =
+        box.x < CITADEL.x + CITADEL.w &&
+        CITADEL.x < box.x + box.w &&
+        box.y < CITADEL.y + CITADEL.h &&
+        CITADEL.y < box.y + box.h;
+      expect(overlapsCity, `${g} 的營區疊到城裡`).toBe(false);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.w).toBeLessThanOrEqual(GRID);
+      expect(box.y + box.h).toBeLessThanOrEqual(GRID);
+    }
+    // 北、東、南、西各一支
+    expect(CAMPS.ARCHER.y + CAMPS.ARCHER.h).toBeLessThanOrEqual(CITADEL.y);
+    expect(CAMPS.INFANTRY.y).toBeGreaterThanOrEqual(CITADEL.y + CITADEL.h);
+    expect(CAMPS.CAVALRY.x + CAMPS.CAVALRY.w).toBeLessThanOrEqual(CITADEL.x);
+    expect(CAMPS.SIEGE.x).toBeGreaterThanOrEqual(CITADEL.x + CITADEL.w);
+  });
+
+  it("營區彼此不重疊", () => {
     const boxes = TROOP_GROUPS.map((g) => CAMPS[g]);
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
         const a = boxes[i]!;
         const b = boxes[j]!;
-        expect(a.x < b.x + b.w && b.x < a.x + a.w).toBe(false);
+        const overlap =
+          a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        expect(overlap).toBe(false);
       }
     }
   });
@@ -122,7 +150,8 @@ describe("markCount：畫幾個小人", () => {
     expect(markCount(1)).toBeGreaterThan(0);
     expect(markCount(10)).toBeGreaterThan(markCount(1));
     expect(markCount(1000)).toBeGreaterThan(markCount(10));
-    expect(markCount(100000)).toBeLessThanOrEqual(9);
+    // 上限是 markCount 的 max 參數（預設 14），營區才放得下
+    expect(markCount(100000)).toBeLessThanOrEqual(14);
   });
 
   it("單調不遞減", () => {

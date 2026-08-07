@@ -69,13 +69,20 @@ export function CitadelScene(props: CitadelSceneProps) {
             className="absolute flex items-end justify-center rounded-[2px] outline-offset-2 transition-colors hover:bg-[#d9a441]/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#d9a441] disabled:hover:bg-transparent"
           >
             {/**
-             * ★ 標籤放在**格子裡面**的下緣，不是外面。
-             *   放外面（負 margin）時，主堡的標籤會壓在下方的道路與 D 格上 ——
-             *   四塊地是貼著排的，任何往外溢出的東西都會撞到鄰居。
+             * ★ 圖上**不放建築名**，只放等級。
+             *   一塊地是 3×3 格 = 畫面寬的 6%，在手機上約 23 px ——
+             *   「兵營 12」放不下，硬放就變成「兵…」，那比不放更糟。
+             *   名字在圖下方的清單裡，而 `aria-label` 讓讀螢幕的人拿到完整資訊。
              */}
-            <span className="pointer-events-none mb-px max-w-full truncate rounded-[2px] bg-[#1a1614]/85 px-1 text-[9px] leading-[1.4] text-[#e8dcc0]">
-              {s?.building ? `${name} ${s.level}` : "空地"}
-            </span>
+            {s?.building ? (
+              <span className="pointer-events-none mb-px rounded-[2px] bg-[#1a1614]/80 px-0.5 text-[9px] leading-[1.4] font-bold text-[#e8dcc0] tabular-nums">
+                {s.level}
+              </span>
+            ) : (
+              <span className="pointer-events-none mb-px text-[10px] leading-none text-[#d9a441]">
+                ＋
+              </span>
+            )}
           </button>
         );
       })}
@@ -87,11 +94,16 @@ export function CitadelScene(props: CitadelSceneProps) {
           <div
             key={g.group}
             data-testid={`camp-${g.group}`}
-            style={{ left: pct(box.x), top: pct(box.y + box.h - 8), width: pct(box.w) }}
+            style={{
+              left: pct(box.x),
+              // 北面的營區標籤要放在**上方** —— 放下面會壓到北牆
+              top: g.group === "ARCHER" ? pct(box.y - 2) : pct(box.y + box.h),
+              width: pct(box.w),
+            }}
             className="pointer-events-none absolute text-center"
           >
             <span
-              className={`rounded bg-[#1a1614]/85 px-1 text-[10px] leading-tight ${
+              className={`rounded-[2px] bg-[#1a1614]/85 px-1 text-[9px] leading-[1.5] ${
                 g.total > 0 ? "text-[#e8dcc0]" : "text-[#6b6862]"
               }`}
             >
