@@ -335,14 +335,45 @@ CREATE TABLE alliances (
   season_id    INT  NOT NULL,
   name         TEXT NOT NULL,
   tag          VARCHAR(5) NOT NULL,
-  color        SMALLINT   NOT NULL,     -- 0–11，賽季內唯一
+  hex_code     CHAR(2)    NOT NULL,     -- '00'–'FF'，seed 洗牌後配發，不可更改
+  color        SMALLINT   NOT NULL,     -- 0–14（15 色），賽季內唯一
   recruit_mode TEXT NOT NULL DEFAULT 'APPLY', -- OPEN | APPLY | INVITE
   leader_id    BIGINT NOT NULL REFERENCES players(id),
+  leader_pending_id BIGINT REFERENCES players(id),  -- 轉讓中的新盟主
+  leader_transfer_at TIMESTAMPTZ,       -- 生效時間（宣告 + 30 分鐘）
+  status       TEXT NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE | FALLEN
+  fallen_at    TIMESTAMPTZ,
+  felled_by_alliance_id BIGINT REFERENCES alliances(id),
+  final_score  INT,                     -- 淪陷或賽季結束時定格
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (season_id, name),
   UNIQUE (season_id, tag),
+  UNIQUE (season_id, hex_code),
   UNIQUE (season_id, color)
 );
+
+-- 全場聯盟數上限 15：在建立交易中檢查
+--   SELECT count(*) FROM alliances WHERE season_id = $1 AND status = 'ACTIVE'
+-- 淪陷的聯盟不計入，因此會釋出名額。
+
+-- 斬首圍城
+CREATE TABLE sieges (
+  id                  BIGSERIAL PRIMARY KEY,
+  season_id           INT    NOT NULL,
+  target_alliance_id  BIGINT NOT NULL REFERENCES alliances(id),
+  attacker_alliance_id BIGINT NOT NULL REFERENCES alliances(id),
+  at_x                SMALLINT NOT NULL,   -- 盟主據點座標
+  at_y                SMALLINT NOT NULL,
+  garrison_id         BIGINT REFERENCES garrisons(id),  -- 圍城部隊
+  started_at          TIMESTAMPTZ NOT NULL,
+  resolves_at         TIMESTAMPTZ NOT NULL,             -- started_at + 2h
+  status              TEXT NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE | BROKEN | SUCCEEDED
+  event_id            BIGINT REFERENCES events(id)
+);
+
+CREATE INDEX sieges_active_idx ON sieges (resolves_at) WHERE status = 'ACTIVE';
+CREATE UNIQUE INDEX sieges_one_per_target
+  ON sieges (season_id, target_alliance_id) WHERE status = 'ACTIVE';
 
 CREATE TABLE alliance_members (
   alliance_id BIGINT NOT NULL REFERENCES alliances(id),
@@ -374,7 +405,10 @@ CREATE TABLE ruins (
   phase         TEXT     NOT NULL DEFAULT 'SEALED',  -- SEALED | DORMANT | AWAKENED |
                                                      -- CONTESTED | CONTROLLED
   unseals_at    TIMESTAMPTZ NOT NULL,      -- T + 3 天（夏季首日）
-  guard_units   JSONB    NOT NULL,       -- 剩餘 PvE 守衛
+  guard_units   JSONB    NOT NULL,         -- 軍團本體的兵種與數量
+  legion_base   NUMERIC(10,0) NOT NULL,    -- 基礎人口 8,000 / 10,000 / 12,000
+  legion_player_id BIGINT REFERENCES players(id),  -- 對應的系統 player
+  last_sortie_at TIMESTAMPTZ,              -- 上次出兵（見 17 §3）
   control_alliance_id BIGINT REFERENCES alliances(id),
   progress      NUMERIC(5,2) NOT NULL DEFAULT 0,     -- 0–100
   controlled_since TIMESTAMPTZ,
@@ -405,6 +439,10 @@ CREATE TYPE event_type AS ENUM (
   'SEASON_CHANGE',      -- 四季切換（每 3 真實日）與切換前 6 小時預警
   'REGION_ATTRITION',   -- 每小時：區域超限的損兵與糧耗懲罰（見 16 §2.2）
   'STARVATION',         -- 糧食歸零時的餓死結算
+  'LEGION_GROWTH',      -- 每遊戲月：遺跡軍團 ×1.15（見 17 §2）
+  'LEGION_SORTIE',      -- 秋每 6h / 冬每 4h：遺跡軍團出兵
+  'SIEGE_RESOLVE',      -- 斬首圍城滿 2 小時的判定（見 06 §4）
+  'LEADER_TRANSFER'     -- 盟主轉讓生效（宣告 + 30 分鐘）
   'AI_TICK',            -- 每遊戲月邊界的 AI 決策（見 15 §7.1）
   'AI_RETALIATE',       -- AI 反擊（被攻擊後 1–4 小時）
   'AI_TAKEOVER'         -- 離線真人轉 AI 託管

@@ -13,7 +13,7 @@
 | 資料庫 | **PostgreSQL**（Neon serverless） | 需要交易與 row lock 保證結算正確性 |
 | ORM | **Drizzle ORM** | 型別安全、產生的 SQL 可預測、無執行期反射開銷 |
 | 快取／鎖 | **Redis**（Upstash） | 分散式鎖、rate limit、地圖動態層快取 |
-| 認證 | **Auth.js v5** | Google OAuth + Email OTP + 訪客帳號可升級 |
+| 認證 | **Auth.js v5** | Google OAuth + Email OTP。**不做訪客帳號** |
 | 即時推播 | **SSE**（Server-Sent Events） | 單向推播就夠（戰報、聊天、警報）；比 WebSocket 省資源 |
 | 排程 | **Vercel Cron** + **Upstash QStash** | Cron 掃描到期事件；QStash 做精確時點觸發 |
 | 部署 | **Vercel** | Edge 靜態地形 + Node runtime 遊戲邏輯 |
