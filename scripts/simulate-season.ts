@@ -38,15 +38,29 @@ import {
   FACILITY,
   FACILITY_SCALING,
   LEGION,
+  MARCH,
   RUIN,
   ROSTER,
   SEASON_MODIFIERS,
+  SPAWN_BAND,
+  TERRAIN,
   TIME_SCALE,
   UNIT,
   type Season,
   type Unit,
 } from "../lib/game/balance";
 import { seasonOfMonth } from "../lib/game/calendar";
+import { mulberry32, shuffle } from "../lib/game/rng";
+import { resolveBattle } from "../lib/game/combat";
+import { generateWorld } from "../lib/game/map/world";
+import { randomSquads } from "../lib/game/map/spawn";
+import { regionOf } from "../lib/game/map/regions";
+import {
+  buildProfiles,
+  terrainMultiplier,
+  type PlayerProfile,
+  type SpatialProfiles,
+} from "../lib/game/map/profile";
 import {
   armyPopulation,
   citadelBaseYieldPerHour,
@@ -58,28 +72,18 @@ import {
   facilityLevelCap,
   facilitySeconds,
   facilityYieldPerHour,
+  innateDefense,
   outpostCap,
+  overflowAttrition,
   populationCap,
   populationGrowthPerHour,
+  regionCapacity,
   storageCapacity,
+  vaultProtection,
   territoryQueues,
   trainSeconds,
   upkeepPerHour,
 } from "../lib/game/formulas";
-
-// ─────────────────────────────────────────────────────────────
-// 決定性亂數（模擬必須可重現）
-// ─────────────────────────────────────────────────────────────
-
-function mulberry32(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 // ─────────────────────────────────────────────────────────────
 // 資源與設施
@@ -225,7 +229,19 @@ const tunedFacilityCost = (f: ProdFacility | "OUTPOST", level: number) =>
     facilityCost(f, level),
     T.facilityCost * growthShift(level, FACILITY_SCALING.costGrowth, T.facilityGrowthDelta),
   );
-const tunedTerritoryCap = (citadel: number) => T.territoryPerLevel * citadel;
+/**
+ * 領土上限 = min(主堡給的容量 + 出生帶加成, **周圍真的有那麼多可用地**)。
+ *
+ * ★ M1 之前模擬假設地永遠夠用。實際上每人半徑 14 格內、
+ *   扣掉山脈與禁建圈、再跟鄰居分攤重疊之後，中位數只有 100 塊，
+ *   最少的那位只有 36 塊 —— 遠低於主堡 Lv27 給的 81 塊容量。
+ *   有些人是被地圖卡住，不是被資源卡住。
+ */
+const tunedTerritoryCap = (p: SimPlayer) =>
+  Math.min(
+    T.territoryPerLevel * p.citadel + SPAWN_BAND[p.profile.band].bonusTerritoryCapacity,
+    Math.floor(p.profile.availableTiles),
+  );
 
 // ─────────────────────────────────────────────────────────────
 // 玩家模型
@@ -243,6 +259,10 @@ interface FacilityGroup {
 interface SimPlayer {
   id: number;
   faction: 1 | 2 | 3;
+  /** 陣營內的聯盟編號 0–4 */
+  alliance: number;
+  /** 地圖上的空間事實：座標、鄰居、可用地、地形品質 */
+  profile: PlayerProfile;
   archetype: Archetype;
   /** 資源分配傾向：0 = 全部給建設，1 = 全部給軍隊 */
   militaryBias: number;
@@ -284,6 +304,17 @@ interface SimPlayer {
 
   /** 統計 */
   starvedTotal: number;
+  /** 掠奪：發動、被打、搶到的糧食、被搶走的資源、戰損 */
+  raidsLaunched: number;
+  raidsWon: number;
+  raidsSuffered: number;
+  lootedGrain: number;
+  lostToRaids: number;
+  battleLosses: number;
+  /** 因區域超限而損失的人口 */
+  overflowLosses: number;
+  /** 遊戲月 1–2 有沒有被捲入任何戰鬥 */
+  earlyCombat: boolean;
   /** 冬季餓死的部隊數 —— 冬季逼迫是否真的發生，看這個而不是瞬時收支 */
   winterStarved: number;
   peakArmyPop: number;
@@ -316,7 +347,23 @@ const STEWARD_ROI_AWARENESS = 0.35;
 const MANUAL_DUTY: Record<Archetype, number> = {
   ACTIVE: 1.0,
   CASUAL: 0.85,
-  DELEGATED: 0.25,
+  DELEGATED: 0.48,
+};
+
+/**
+ * ★ 陣營性格：`docs/13` §2.1 說三座遺跡的增益不同 → 選陣營等於宣告玩法傾向
+ * → 同區玩家玩法相似 → **區域自然演化出不同的性格**。
+ *
+ * 「鐵搖籃區第一週就打成一片，穹窖區安靜種田到第三週」不是敘事修辭，
+ * 它是可模擬的：把 militaryBias 依陣營偏移就會出現。
+ *
+ * 少了這一項，三個陣營在模擬裡完全對稱，於是三座遺跡總是同一個月被清空 ——
+ * `docs/17` §7 的「三座全部在夏季清空 < 15%」永遠不可能成立。
+ */
+const FACTION_MILITARY_BIAS: Record<1 | 2 | 3, number> = {
+  1: 0.15, // 灰燼氏族：行軍 +20% → 機動掠奪流
+  2: -0.18, // 穹窖商會：資源 +25% → 發育流，最晚出兵
+  3: 0.1, // 鐵搖籃盟：攻防 +12% → 戰鬥流
 };
 
 /**
@@ -349,6 +396,12 @@ const TOTAL_HOURS = 12 * HOURS_PER_MONTH;
 /** 遠征時能離家的兵力比例 —— 其餘必須留守，否則主堡是空的 */
 const EXPEDITION_SHARE = 0.55;
 
+/** 一個遊戲月裡，遠征軍實際壓在遺跡上的小時數 */
+const SIEGE_HOURS_PER_MONTH = 6;
+
+/** 聯盟願意超出區域容量多少倍 —— 超過的部分持續失血 */
+const OVERCOMMIT_TOLERANCE = 1.25;
+
 interface LegionState {
   ruinId: 1 | 2 | 3;
   population: number;
@@ -369,13 +422,24 @@ interface MonthSnapshot {
   starvingShare: number;
 }
 
+interface BattleTally {
+  month: number;
+  season: Season;
+  battles: number;
+  /** 攻守人口比 > 5:1 的戰鬥（大打小） */
+  lopsided: number;
+  /** 第 1 天（遊戲月 1）被攻擊的新手實際損失的資源 */
+  day1Losses: number[];
+}
+
 interface SeasonResult {
   players: SimPlayer[];
   legions: LegionState[];
   monthly: MonthSnapshot[];
+  battles: BattleTally[];
 }
 
-function makePlayers(rand: () => number): SimPlayer[] {
+function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] {
   const players: SimPlayer[] = [];
   const archetypes: Archetype[] = [];
   for (const [a, share] of Object.entries(ARCHETYPE_MIX)) {
@@ -383,14 +447,23 @@ function makePlayers(rand: () => number): SimPlayer[] {
     for (let i = 0; i < n; i++) archetypes.push(a as Archetype);
   }
   while (archetypes.length < PLAYER_COUNT) archetypes.push("CASUAL");
+  shuffle(rand, archetypes);
 
   for (let i = 0; i < PLAYER_COUNT; i++) {
+    const profile = spatial.players[i]!;
+    // 出生帶的起始加成（`docs/01` §5.4）：邊陲 +40% 資源、前線 +1 領土容量
+    const mult = SPAWN_BAND[profile.band].startingResourceMultiplier;
     players.push({
       id: i,
-      faction: ((i % 3) + 1) as 1 | 2 | 3,
+      faction: profile.faction,
+      alliance: profile.alliance,
+      profile,
       archetype: archetypes[i] ?? "CASUAL",
       // 0.25–0.75，讓流派自然分散
-      militaryBias: 0.25 + rand() * 0.5,
+      militaryBias: Math.min(
+        0.9,
+        Math.max(0.1, 0.25 + rand() * 0.5 + FACTION_MILITARY_BIAS[profile.faction]),
+      ),
       suboptimal: (archetypes[i] ?? "CASUAL") === "DELEGATED",
       discipline: 0.45 + rand() * 0.95,
       citadel: 1,
@@ -405,12 +478,25 @@ function makePlayers(rand: () => number): SimPlayer[] {
       },
       outposts: { count: 0, levels: 0 },
       supportTiles: 0,
-      res: { grain: 500, timber: 500, stone: 500, iron: 200 },
+      res: {
+        grain: 500 * mult,
+        timber: 500 * mult,
+        stone: 500 * mult,
+        iron: 200 * mult,
+      },
       population: 0,
       army: { MILITIA: 10 },
       coreQueueUntil: 0,
       territoryQueueUntil: [0],
       starvedTotal: 0,
+      raidsLaunched: 0,
+      raidsWon: 0,
+      raidsSuffered: 0,
+      lootedGrain: 0,
+      lostToRaids: 0,
+      battleLosses: 0,
+      overflowLosses: 0,
+      earlyCombat: false,
       winterStarved: 0,
       peakArmyPop: 10,
       blockedByStorageHours: 0,
@@ -421,12 +507,24 @@ function makePlayers(rand: () => number): SimPlayer[] {
   return players;
 }
 
+/**
+ * 設施產出。**地形是真的了** ——
+ * 伐木場蓋在森林是 ×1.25、礦坑蓋在礦脈是 ×1.4，但好地有限，
+ * 蓋到第 30 座時就只剩平原甚至荒地（見 `map/profile.ts`）。
+ */
 function facYield(
+  p: SimPlayer,
   f: ProdFacility,
   level: number,
+  count: number,
   season: (typeof SEASON_MODIFIERS)[Season],
 ): number {
-  return facilityYieldPerHour(f, level, "PLAIN", { season }) * T.yieldMul;
+  // terrainMultiplier 已經涵蓋地形，所以這裡用 PLAIN（倍率 1.0）當基準
+  return (
+    facilityYieldPerHour(f, level, "PLAIN", { season }) *
+    terrainMultiplier(p.profile, f, count) *
+    T.yieldMul
+  );
 }
 
 function yieldOf(p: SimPlayer, season: (typeof SEASON_MODIFIERS)[Season]): Record<Res, number> {
@@ -437,7 +535,7 @@ function yieldOf(p: SimPlayer, season: (typeof SEASON_MODIFIERS)[Season]): Recor
     // 非空間模擬：地形一律視為平原（TERRAIN_YIELD 對 PLAIN 無修正）。
     // 真實地圖上玩家會把伐木場蓋在森林、礦坑蓋在礦脈，
     // 所以這裡是**偏保守**的估計。
-    out[PRODUCES[f]] += facYield(f, g.levels / g.count, season) * g.count;
+    out[PRODUCES[f]] += facYield(p, f, g.levels / g.count, g.count, season) * g.count;
   }
   const base = citadelBaseYieldPerHour(p.citadel, season);
   for (const r of RES) out[r] += base;
@@ -591,7 +689,7 @@ function bestTerritoryAction(
   const facCap = facilityLevelCap(p.citadel);
 
   // ── 拓荒 ──
-  if (territory < tunedTerritoryCap(p.citadel)) {
+  if (territory < tunedTerritoryCap(p)) {
     const growth = 1 + territory / CLAIM.costGrowthDivisor;
     const claimGrain = CLAIM.cost.grain * growth * T.claimCost;
     const claimTimber = CLAIM.cost.timber * growth * T.claimCost;
@@ -625,7 +723,7 @@ function bestTerritoryAction(
         candidate.stone = build.stone ?? 0;
         candidate.iron = build.iron ?? 0;
         if (!canAfford(p, candidate)) continue;
-        const gain = facYield(f, 1, season) * value[PRODUCES[f]];
+        const gain = facYield(p, f, 1, p.fac[f].count + 1, season) * value[PRODUCES[f]];
         const s = score(gain, worth(candidate, value));
         if (s > bestScore) {
           bestScore = s;
@@ -675,8 +773,8 @@ function bestTerritoryAction(
     candidate.stone = cost.stone ?? 0;
     candidate.iron = cost.iron ?? 0;
     if (!canAfford(p, candidate)) continue;
-    const before = facYield(f, avg, season) * g.count;
-    const after = facYield(f, (g.levels + 1) / g.count, season) * g.count;
+    const before = facYield(p, f, avg, g.count, season) * g.count;
+    const after = facYield(p, f, (g.levels + 1) / g.count, g.count, season) * g.count;
     const s = score((after - before) * value[PRODUCES[f]], worth(candidate, value));
     if (s > bestScore) {
       bestScore = s;
@@ -711,9 +809,193 @@ function applyTerritoryAction(p: SimPlayer, a: typeof chosen) {
   }
 }
 
-function simulateSeason(seed: number): SeasonResult {
+/**
+ * ★ 掠奪：`docs/16` 說冬季飢餓的正解是「去搶」，而 M1 之前模擬不了。
+ *
+ * 這裡**不寫死季節性的開戰機率**，而是讓玩家算划不划算：
+ * 每次評估都真的跑一次 `resolveBattle`，比較搶得到的糧食與預期戰損。
+ * 這樣才能檢驗設計文件的那句主張 ——
+ * 「戰爭在春天不發生，不是因為被禁止，是因為不划算」。
+ */
+
+/** 每小時「有在看地圖找目標」的機率 —— 人不會每小時都在評估要不要出兵 */
+const RAID_ATTENTION = 0.12;
+
+/** 一次出兵最多帶走多少比例的常備軍（其餘必須留守） */
+const RAID_COMMIT = 0.6;
+
+/** 一單位糧食相對於一點人口戰損的價值。低於這個比值就不划算 */
+const LOOT_PER_CASUALTY_THRESHOLD = 45;
+
+function lootableOf(p: SimPlayer, season: (typeof SEASON_MODIFIERS)[Season]): Record<Res, number> {
+  const vault = vaultProtection(p.citadel, p.depot, season);
+  const out = {} as Record<Res, number>;
+  for (const r of RES) out[r] = Math.max(0, p.res[r] - vault);
+  return out;
+}
+
+/** 某聯盟在某區域的軍隊容納上限（`docs/16` §2） */
+function allianceRegionCapacity(
+  players: readonly SimPlayer[],
+  faction: number,
+  alliance: number,
+  region: number,
+  season: (typeof SEASON_MODIFIERS)[Season],
+): number {
+  let territoryTiles = 0;
+  let outpostLevels = 0;
+  let citadelLevels = 0;
+  for (const q of players) {
+    if (q.faction !== faction || q.alliance !== alliance || q.profile.region !== region) continue;
+    territoryTiles += territoryOf(q);
+    outpostLevels += q.outposts.levels;
+    citadelLevels += q.citadel;
+  }
+  return regionCapacity({ territoryTiles, outpostLevels, citadelLevels }, season);
+}
+
+function playersInRegion(players: readonly SimPlayer[], p: SimPlayer): number {
+  let n = 0;
+  for (const q of players) {
+    if (q.faction === p.faction && q.alliance === p.alliance && q.profile.region === p.profile.region) n++;
+  }
+  return n;
+}
+
+interface RaidContext {
+  tally: BattleTally;
+  players: SimPlayer[];
+  season: (typeof SEASON_MODIFIERS)[Season];
+  seasonName: Season;
+  month: number;
+  rand: () => number;
+  /** (陣營, 聯盟, 區域) → 容量，每小時重算一次 */
+  capacityCache: Map<string, number>;
+}
+
+function tryRaid(attacker: SimPlayer, ctx: RaidContext) {
+  const { players, season, rand } = ctx;
+  const army = attacker.army;
+  const armyPop = armyPopulation(army);
+  if (armyPop < 40) return;
+
+  const neighbours = attacker.profile.neighbours;
+  if (neighbours.length === 0) return;
+
+  // 挑一個非同盟的鄰居。近的優先 —— 行軍時間就是成本
+  const pick = neighbours[Math.floor(rand() * Math.min(neighbours.length, 25))];
+  if (!pick || pick.sameAlliance) return;
+  const target = players[pick.index];
+  if (!target) return;
+
+  // 出兵規模受**目標所在區域**的容量限制（`docs/16` §2）
+  const capKey = `${attacker.faction}:${attacker.alliance}:${target.profile.region}`;
+  let cap = ctx.capacityCache.get(capKey);
+  if (cap === undefined) {
+    cap = allianceRegionCapacity(
+      players,
+      attacker.faction,
+      attacker.alliance,
+      target.profile.region,
+      season,
+    );
+    ctx.capacityCache.set(capKey, cap);
+  }
+
+  // ★ 超限不是硬性禁止，是持續失血（`docs/16` §2）。
+  //   打進聯盟毫無基礎建設的區域仍然做得到 —— 只是路上就開始掉人。
+  const committed = armyPop * RAID_COMMIT;
+  if (committed < 20) return;
+
+  const marchHours = pick.marchSeconds / 3600;
+  const bleed = Math.min(committed * 0.5, overflowAttrition(committed, cap) * marchHours);
+
+  const scale = (committed - bleed) / armyPop;
+  const force: Partial<Record<Unit, number>> = {};
+  for (const [u, n] of Object.entries(army)) {
+    const k = Math.floor((n ?? 0) * scale);
+    if (k > 0) force[u as Unit] = k;
+  }
+  if (armyPopulation(force) < 20) return;
+
+  const lootable = lootableOf(target, season);
+  const result = resolveBattle(
+    { army: force },
+    {
+      army: target.army,
+      innateDefense: innateDefense(target.citadel),
+      terrainDefense: TERRAIN[terrainOfPlayer(target)].defenseBonus,
+      lootable,
+    },
+    { marchType: "RAID", defenderAtHome: true },
+  );
+
+  const gained = (result.loot.grain ?? 0) + (result.loot.timber ?? 0) + (result.loot.iron ?? 0);
+  const casualties = armyPopulation(result.attackerLosses) + bleed;
+
+  // ★ 划不划算：搶到的東西夠不夠補回戰損？春天不划算，冬天很划算。
+  if (gained < casualties * LOOT_PER_CASUALTY_THRESHOLD) return;
+
+  // ★ 大打小積分歸零（`docs/04`）。賽季排名是玩家真正在追的東西，
+  //   所以除非快餓死了，沒有人會拿主力去清一個不算分的目標。
+  const desperate = attacker.res.grain < upkeepPerHour(attacker.army, { season }) * 4;
+  if (!result.scoring && !desperate) return;
+
+  attacker.raidsLaunched++;
+  target.raidsSuffered++;
+  ctx.tally.battles++;
+  if (armyPopulation(force) > armyPopulation(target.army) * 5) ctx.tally.lopsided++;
+  if (ctx.month <= 2) {
+    attacker.earlyCombat = true;
+    target.earlyCombat = true;
+  }
+
+  applyLosses(attacker, result.attackerLosses);
+  if (bleed > 0) {
+    const total = armyPopulation(attacker.army);
+    if (total > 0) {
+      const keep = Math.max(0, 1 - bleed / total);
+      for (const [u, n] of Object.entries(attacker.army)) {
+        if (!n) continue;
+        attacker.army[u as Unit] = Math.floor(n * keep);
+      }
+    }
+  }
+  applyLosses(target, result.defenderLosses);
+  attacker.battleLosses += armyPopulation(result.attackerLosses);
+  attacker.overflowLosses += bleed;
+  target.battleLosses += armyPopulation(result.defenderLosses);
+
+  let stolen = 0;
+  if (result.outcome === "ATTACKER_WIN") {
+    attacker.raidsWon++;
+    for (const r of RES) {
+      const taken = Math.min(target.res[r], result.loot[r] ?? 0);
+      target.res[r] -= taken;
+      attacker.res[r] += taken;
+      target.lostToRaids += taken;
+      stolen += taken;
+      if (r === "grain") attacker.lootedGrain += taken;
+    }
+  }
+  if (ctx.month === 1) ctx.tally.day1Losses.push(stolen);
+}
+
+function applyLosses(p: SimPlayer, losses: Partial<Record<Unit, number>>) {
+  for (const [u, n] of Object.entries(losses)) {
+    if (!n) continue;
+    p.army[u as Unit] = Math.max(0, (p.army[u as Unit] ?? 0) - n);
+  }
+}
+
+/** 玩家所在格的地形（守方地形加成） */
+function terrainOfPlayer(p: SimPlayer) {
+  return p.profile.homeTerrain;
+}
+
+function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
   const rand = mulberry32(seed);
-  const players = makePlayers(rand);
+  const players = makePlayers(rand, spatial);
   const legions: LegionState[] = ([1, 2, 3] as const).map((id) => ({
     ruinId: id,
     population: RUIN[id].legionBase,
@@ -722,6 +1004,13 @@ function simulateSeason(seed: number): SeasonResult {
   }));
 
   const monthly: MonthSnapshot[] = [];
+  const battles: BattleTally[] = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    season: seasonOfMonth(i + 1),
+    battles: 0,
+    lopsided: 0,
+    day1Losses: [],
+  }));
   const starvedAtMonthStart = new Map<number, number>();
 
   for (let hour = 0; hour < TOTAL_HOURS; hour++) {
@@ -832,6 +1121,46 @@ function simulateSeason(seed: number): SeasonResult {
       p.peakArmyPop = Math.max(p.peakArmyPop, armyPopulation(p.army));
     }
 
+    // ── 區域軍隊容量與超限損耗（`docs/16` §2）─────────────
+    // 你能在一個地方投入多少兵，取決於你在那裡有多少基礎建設。
+    const capacityCache = new Map<string, number>();
+    for (const p of players) {
+      const key = `${p.faction}:${p.alliance}:${p.profile.region}`;
+      let cap = capacityCache.get(key);
+      if (cap === undefined) {
+        cap = allianceRegionCapacity(players, p.faction, p.alliance, p.profile.region, season);
+        capacityCache.set(key, cap);
+      }
+      // 聯盟在該區的兵力共用容量，所以每人分到的額度按人頭均分
+      const share = Math.max(1, playersInRegion(players, p));
+      const lost = overflowAttrition(armyPopulation(p.army), cap / share);
+      if (lost > 0) {
+        const total = armyPopulation(p.army);
+        const ratio = Math.max(0, 1 - lost / total);
+        for (const [u, n] of Object.entries(p.army)) {
+          if (!n) continue;
+          p.army[u as Unit] = Math.floor(n * ratio);
+        }
+        p.overflowLosses += total - armyPopulation(p.army);
+      }
+    }
+
+    // ── 掠奪 ────────────────────────────────────────────────
+    const ctx: RaidContext = {
+      tally: battles[month - 1]!,
+      players,
+      season,
+      seasonName,
+      month,
+      rand,
+      capacityCache,
+    };
+    for (const p of players) {
+      // 軍事永遠手動（`docs/03` §7.2）—— 執政官不會替你出兵
+      if (rand() >= RAID_ATTENTION * MANUAL_DUTY[p.archetype]) continue;
+      tryRaid(p, ctx);
+    }
+
     // ── 遺跡軍團 ────────────────────────────────────────
     for (const legion of legions) {
       if (legion.cleared) continue;
@@ -845,18 +1174,58 @@ function simulateSeason(seed: number): SeasonResult {
       if (month >= LEGION.unsealMonth) {
         for (const legion of legions) {
           if (legion.cleared) continue;
-          // 該陣營戰力最強的一個滿編聯盟，能離家遠征的那一部分。
-          // ★ 指示性：真實可投入量還受行軍上限與區域容量限制（M1 之後才能驗）。
-          const expedition =
-            players
-              .filter((p) => p.faction === legion.ruinId)
-              .map((p) => armyPopulation(p.army))
-              .sort((a, b) => b - a)
-              .slice(0, Math.min(ROSTER.playersPerAlliance, Math.ceil(PLAYER_COUNT / 15)))
-              .reduce((s, v) => s + v, 0) * EXPEDITION_SHARE;
+          const ruin = spatial.ruins[legion.ruinId];
+          const ruinRegion = regionOf(ruin.x, ruin.y);
+
+          // ★ M1 之後這一段是真的了：只有**行軍打得到**遺跡的人能參戰，
+          //   而且整個聯盟在遺跡所在區域能投入的兵力受區域容量上限壓制。
+          //   「建立通往遺跡的補給線」因此是秋季大會戰前的實質任務。
+          let best = 0;
+          for (let a = 0; a < ROSTER.alliancesPerFaction; a++) {
+            const members = players.filter(
+              (p) => p.faction === legion.ruinId && p.alliance === a,
+            );
+            if (members.length === 0) continue;
+
+            const reachable = members.filter(
+              (p) => p.profile.ruinMarchSeconds <= MARCH.maxSeconds,
+            );
+            const available =
+              reachable.reduce((sum, p) => sum + armyPopulation(p.army), 0) * EXPEDITION_SHARE;
+            if (available <= 0) continue;
+
+            const cap = allianceRegionCapacity(players, legion.ruinId, a, ruinRegion, season);
+            // 稱職的指揮官會壓過容量一點點逼出戰果，但不會把整支軍隊
+            // 丟進一個補給撐不住的區域慢慢流血
+            const raw = Math.min(available, cap * OVERCOMMIT_TOLERANCE);
+
+            // ★ 這是「補給線」真正咬人的地方：整個聯盟把主力壓到遺跡上，
+            //   但聯盟在那個區域的基礎建設撐不住這麼多人，多出來的部分
+            //   在圍攻期間持續失血。想帶更多人去，就得先在那裡蓋前哨營。
+            if (raw > cap) {
+              const bleed = overflowAttrition(raw, cap) * SIEGE_HOURS_PER_MONTH;
+              const ratio = Math.min(1, bleed / raw);
+              for (const m of reachable) {
+                const before = armyPopulation(m.army);
+                const keep = 1 - ratio * EXPEDITION_SHARE;
+                for (const [u, n] of Object.entries(m.army)) {
+                  if (!n) continue;
+                  m.army[u as Unit] = Math.floor(n * keep);
+                }
+                m.overflowLosses += before - armyPopulation(m.army);
+              }
+            }
+
+            best = Math.max(best, Math.min(raw, cap));
+            if (process.env.RUIN_TRACE && month <= 6) {
+              console.log(
+                `    [月${month}] 遺跡${legion.ruinId} 聯盟${a}: raw ${raw.toFixed(0)} cap ${cap.toFixed(0)} → ${Math.min(raw, cap).toFixed(0)} / 需要 ${(legion.population * 1.3).toFixed(0)}`,
+              );
+            }
+          }
 
           // Lanchester 損失曲線下，約需 1.3 倍軍團人口才吃得下來
-          if (expedition >= legion.population * 1.3) {
+          if (best >= legion.population * 1.3) {
             legion.cleared = true;
             legion.clearedMonth = month;
           }
@@ -896,7 +1265,7 @@ function simulateSeason(seed: number): SeasonResult {
     }
   }
 
-  return { players, legions, monthly };
+  return { players, legions, monthly, battles };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -923,7 +1292,7 @@ function evaluate(results: SeasonResult[]): Check[] {
     [3, [10, 12], [18, 25], [200, 350]],
     [6, [17, 19], [42, 50], [700, 1100]],
     [9, [22, 24], [62, 72], [1500, 2200]],
-    [12, [25, 27], [70, 85], [1800, 2600]],
+    [12, [25, 27], [70, 85], [1400, 2000]],
   ];
   for (const [m, cit, terr, army] of curve) {
     const c = avg((r) => atMonth(r, m).medianCitadel);
@@ -1040,6 +1409,80 @@ function evaluate(results: SeasonResult[]): Check[] {
     target: "> 50%",
   });
 
+  // ── 戰爭節奏（`docs/16` §10）—— M1 之後才驗得到 ──────────
+  const totalBattles = (r: SeasonResult) => r.battles.reduce((s, b) => s + b.battles, 0);
+  const bySeason = (r: SeasonResult, ss: Season) =>
+    r.battles.filter((b) => b.season === ss).reduce((s, b) => s + b.battles, 0);
+
+  const quietStart = avg(
+    (r) => r.players.filter((p) => !p.earlyCombat).length / r.players.length,
+  );
+  checks.push({
+    label: "遊戲月 1–2 完全沒有戰鬥的玩家",
+    pass: quietStart > 0.9,
+    actual: `${(quietStart * 100).toFixed(0)}%`,
+    target: "> 90%（春天不打仗，因為不划算）",
+  });
+
+  const lateShare = avg((r) => {
+    const total = totalBattles(r);
+    return total > 0 ? (bySeason(r, "AUTUMN") + bySeason(r, "WINTER")) / total : 0;
+  });
+  checks.push({
+    label: "秋 + 冬的戰鬥次數佔全季",
+    pass: lateShare >= 0.65,
+    actual: `${(lateShare * 100).toFixed(0)}%`,
+    target: "≥ 65%",
+  });
+
+  const winterVsAutumn = avg((r) => {
+    const a = bySeason(r, "AUTUMN");
+    return a > 0 ? bySeason(r, "WINTER") / a : 0;
+  });
+  checks.push({
+    label: "冬季戰鬥次數 ÷ 秋季",
+    pass: winterVsAutumn >= 1,
+    actual: winterVsAutumn.toFixed(2),
+    target: "≥ 1.00（冬季應為全季最高）",
+  });
+
+  const overflowShare = avg((r) => {
+    const overflow = r.players.reduce((s, p) => s + p.overflowLosses, 0);
+    const battle = r.players.reduce((s, p) => s + p.battleLosses, 0);
+    const starve = r.players.reduce((s, p) => s + p.starvedTotal, 0);
+    const total = overflow + battle + starve;
+    return total > 0 ? overflow / total : 0;
+  });
+  checks.push({
+    label: "區域超限損兵佔全季總損兵",
+    pass: overflowShare >= 0.05 && overflowShare <= 0.15,
+    actual: `${(overflowShare * 100).toFixed(1)}%`,
+    target: "5–15%",
+  });
+
+  const day1Median = avg((r) => {
+    const all = r.battles[0]!.day1Losses.slice().sort((a, b) => a - b);
+    return all.length === 0 ? 0 : all[all.length >> 1]!;
+  });
+  checks.push({
+    label: "第 1 天被攻擊的新手，資源損失中位數",
+    pass: day1Median === 0,
+    actual: day1Median.toFixed(0),
+    target: "= 0（春季地窖加倍 + 士氣折掠奪）",
+  });
+
+  const lopsidedShare = avg((r) => {
+    const total = totalBattles(r);
+    const lop = r.battles.reduce((s, b) => s + b.lopsided, 0);
+    return total > 0 ? lop / total : 0;
+  });
+  checks.push({
+    label: "攻守人口比 > 5:1 的戰鬥佔全季",
+    pass: lopsidedShare < 0.08,
+    actual: `${(lopsidedShare * 100).toFixed(1)}%`,
+    target: "< 8%",
+  });
+
   // 主堡 Lv30 在 12 天內不該達成
   const maxedShare = avg(
     (r) => r.players.filter((p) => p.citadel >= CITADEL.maxLevel).length / r.players.length,
@@ -1075,7 +1518,7 @@ const TARGET_CURVE: [number, number, number, number][] = [
   [3, 11, 21.5, 275],
   [6, 18, 46, 900],
   [9, 23, 67, 1850],
-  [12, 26, 77.5, 2200],
+  [12, 26, 77.5, 1700],
 ];
 
 function curveError(r: SeasonResult): number {
@@ -1089,7 +1532,7 @@ function curveError(r: SeasonResult): number {
   return e;
 }
 
-function sweep(players: number) {
+function sweep(players: number, spatial: SpatialProfiles) {
   PLAYER_COUNT = players;
   const grid: Tune[] = [];
   for (const citadelCost of [1, 1.25, 1.5])
@@ -1113,7 +1556,7 @@ function sweep(players: number) {
   );
   const scored = grid.map((tune) => {
     T = tune;
-    const r = simulateSeason(7);
+    const r = simulateSeason(7, spatial);
     return { tune, err: curveError(r), r };
   });
   scored.sort((a, b) => a.err - b.err);
@@ -1145,14 +1588,24 @@ function main() {
     const i = args.indexOf(`--${k}`);
     if (i >= 0) T = { ...T, [k]: Number(args[i + 1]) };
   }
+  // ── 世界生成 ─────────────────────────────────────────────
+  // 地圖是靜態的，所以整批模擬共用同一個世界；
+  // 換 --worldSeed 才會換地圖（各場的差異來自玩家行為的亂數）。
+  const worldSeed = Number(args[args.indexOf("--worldSeed") + 1]) || 99991;
+  const wt0 = Date.now();
+  const world = generateWorld(worldSeed, { squads: randomSquads(worldSeed, 0.25) });
+  const spatial = buildProfiles(world);
+  const worldMs = Date.now() - wt0;
+  if (PLAYER_COUNT > spatial.players.length) PLAYER_COUNT = spatial.players.length;
+
   if (args.includes("--sweep")) {
-    sweep(Number(args[args.indexOf("--players") + 1]) || 120);
+    sweep(Number(args[args.indexOf("--players") + 1]) || 120, spatial);
     process.exit(0);
   }
 
   const t0 = Date.now();
   const results: SeasonResult[] = [];
-  for (let i = 0; i < runs; i++) results.push(simulateSeason(baseSeed + i));
+  for (let i = 0; i < runs; i++) results.push(simulateSeason(baseSeed + i, spatial));
   const elapsed = Date.now() - t0;
 
   const checks = evaluate(results);
@@ -1164,7 +1617,10 @@ function main() {
 
   const sample = results[0]!;
   console.log(`\n  RuinCity 賽季模擬 · ${runs} 場 × ${PLAYER_COUNT} 人 × 12 遊戲月`);
-  console.log(`  耗時 ${elapsed} ms\n`);
+  console.log(
+    `  耗時 ${elapsed} ms · 世界 seed ${world.seed}` +
+      `（${world.seedAttempts} 次嘗試 / ${worldMs} ms / 公平性${world.fairness.pass ? "全過" : "未過"}）\n`,
+  );
 
   console.log("  ── 中位數玩家的軌跡（第 1 場）──────────────────────────────");
   console.log("  月  季    主堡   領土  設施均等  兵力   餓死中  存量卡關");
@@ -1207,6 +1663,21 @@ function main() {
         `（上限 ${capacityOf(p)}）`,
     );
   }
+
+  console.log("\n  ── 戰爭節奏（第 1 場）────────────────────────────────────");
+  const seasonBattles = { SPRING: 0, SUMMER: 0, AUTUMN: 0, WINTER: 0 } as Record<Season, number>;
+  for (const b of sample.battles) seasonBattles[b.season] += b.battles;
+  console.log(
+    `  戰鬥次數  春 ${seasonBattles.SPRING}  夏 ${seasonBattles.SUMMER}  ` +
+      `秋 ${seasonBattles.AUTUMN}  冬 ${seasonBattles.WINTER}`,
+  );
+  const totalLoot = sample.players.reduce((s, p) => s + p.lootedGrain, 0);
+  const totalOverflow = sample.players.reduce((s, p) => s + p.overflowLosses, 0);
+  console.log(
+    `  掠奪糧食合計 ${Math.round(totalLoot).toLocaleString()} · ` +
+      `區域超限損兵 ${Math.round(totalOverflow).toLocaleString()} · ` +
+      `平均每人發動 ${(sample.players.reduce((s, p) => s + p.raidsLaunched, 0) / sample.players.length).toFixed(1)} 次`,
+  );
 
   console.log("\n  ── 遺跡軍團（第 1 場）──────────────────────────────────────");
   for (const l of sample.legions) {

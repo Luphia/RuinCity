@@ -12,7 +12,24 @@ export interface RuinSpec {
   /** 對應的陣營 */
   readonly faction: 1 | 2 | 3;
   readonly factionName: string;
-  /** 軍團基礎人口（解封時） */
+  /**
+   * 軍團基礎人口（解封時）。
+   *
+   * ★ 8,000 / 14,000 / 22,000（原 8,000 / 10,000 / 12,000）。
+   *
+   *   舊值三者只差 1.5 倍，而玩家軍隊在遊戲月 4→5 之間會成長 3–4 倍 ——
+   *   三個門檻因此總是在同一個月被跨過。賽季模擬顯示三座遺跡
+   *   **每一場都在第 5 月同時清空**，`docs/17` §7 的「三座全部在夏季
+   *   清空 < 15%」永遠不可能成立。
+   *
+   *   拉開到約 1.6 倍一階之後，三座各差一個月倒下（第 5 / 6 / 7 月），
+   *   順序也對得上增益強度：行軍加成最弱 → 最先倒，攻防加成最強 → 最後倒。
+   *
+   *   上限同樣有講究：軍團以 ×1.15/月複利成長，而玩家軍隊在後期會頂到
+   *   人口天花板。基礎值一旦超過 ~24,000，第三座遺跡在整個賽季內
+   *   **永遠打不下來**（模擬中 26,000 的那一組到第 12 月是 79,535 人，
+   *   而遠征軍上限只有三萬出頭）—— 一個中途變成不可能的目標比太簡單更糟。
+   */
   readonly legionBase: number;
   /** 給控制聯盟的增益 */
   readonly buff: Readonly<Record<string, number>>;
@@ -30,14 +47,14 @@ export const RUIN: Record<RuinId, RuinSpec> = {
   2: {
     name: "沉沒穹窖", nameEn: "The Drowned Vault",
     faction: 2, factionName: "穹窖商會",
-    legionBase: 10000,
+    legionBase: 14000,
     buff: { production: 0.25, vault: 0.5 },
     buffLabel: "全體資源產出 +25%、地窖保護 +50%",
   },
   3: {
     name: "鐵之搖籃", nameEn: "The Iron Cradle",
     faction: 3, factionName: "鐵搖籃盟",
-    legionBase: 12000,
+    legionBase: 22000,
     buff: { attack: 0.12, defense: 0.12 },
     buffLabel: "全體單位攻擊與防禦 +12%",
   },

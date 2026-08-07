@@ -52,17 +52,24 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 
 ## 目前進度
 
-見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。M0 已完成，下一步是 M1（地圖）與 M2（經濟）。
+見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。M0 與 **M1a（地圖生成器）** 已完成，
+下一步是 M1b（PixiJS 渲染）與 M2（經濟）。
 
 戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過一輪
 （`BALANCE_VERSION` = `2026.08.07-b`，理由見 [`docs/11`](docs/11-balance-tables.md) §12）。
 
 ```bash
-pnpm tsx scripts/simulate-season.ts --runs 5          # 21 項平衡驗證
+pnpm tsx scripts/generate-map.ts --seed 99991         # 地圖 + 五項公平性驗證
+pnpm tsx scripts/generate-map.ts --seed 99991 --out public/terrain/s1
+pnpm tsx scripts/simulate-season.ts --runs 5          # 27 項平衡驗證（含空間項）
 pnpm tsx scripts/simulate-season.ts --runs 1 --trace  # 看一位玩家的完整狀態
 pnpm tsx scripts/simulate-season.ts --sweep           # 網格搜尋數值組合
 ```
 
-**改數值之前先跑模擬。** 目前還有兩件事沒解決，都寫在 `docs/11` §12.4：
-遊戲月 3–6 的中位數跑在目標曲線前面；以及「軍隊規模」與「冬季飢餓比例」
-是同一條軸上的兩個點 —— 後者要等 M1 把掠奪補進模擬才有解。
+模擬現在跑在**真實地圖**上：真實地形產出、地理領土上限、鄰居與掠奪、
+區域容量與超限損耗、遺跡遠征的行軍限制。世界生成約 7–20 秒，
+之後每場賽季約 8 秒。
+
+**改數值之前先跑模擬。** 目前唯一還沒解決的是遊戲月 3–6 的中位數
+跑在目標曲線前面（`docs/11` §13.4 ①）—— 診斷是「天花板太低、
+後期沒東西可推」，解法要往上抬上限而不是繼續壓早期。
