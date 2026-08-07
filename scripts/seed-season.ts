@@ -72,7 +72,21 @@ const log = (m: string) => console.log(`  · ${m}`);
 
 async function main() {
   if (!process.env.DATABASE_URL) {
-    console.error("需要 DATABASE_URL —— 先 cp .env.example .env.local 並填好");
+    /**
+     * ★ 不要只說「去複製 .env.example」—— 那個檔案曾經被 `.gitignore`
+     *   的 `.env*` 吃掉，剛 clone 下來的人根本沒有它。訊息要能自己站得住。
+     */
+    console.error(
+      [
+        "需要 DATABASE_URL。這支腳本只要這一個變數。",
+        "",
+        "  cp .env.example .env.local     # 沒有這個檔案的話直接建 .env.local",
+        "  # 填入 Neon 的連線字串：",
+        '  DATABASE_URL="postgresql://user:pass@host.neon.tech/db?sslmode=require"',
+        "",
+        "資料表還沒建的話：pnpm db:migrate",
+      ].join("\n"),
+    );
     process.exit(1);
   }
 

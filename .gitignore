@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ★ 但範本要進版控 —— 少了它，`cp .env.example .env.local`（README、CLAUDE.md
+#   與 lib/env.ts 的錯誤訊息都這樣寫）在剛 clone 下來的機器上會直接失敗。
+!.env.example
 
 # vercel
 .vercel

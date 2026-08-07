@@ -11,7 +11,7 @@ const serverSchema = z.object({
   AUTH_SECRET: z.string().min(1),
   AUTH_GOOGLE_ID: z.string().optional(),
   AUTH_GOOGLE_SECRET: z.string().optional(),
-  AUTH_RESEND_KEY: z.string().optional(),
+  EMAIL_SERVER: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
   CRON_SECRET: z.string().optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
