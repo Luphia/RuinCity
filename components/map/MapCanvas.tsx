@@ -36,7 +36,7 @@ const TAP_SLOP_PX = 8;
 const DOUBLE_TAP_MS = 280;
 
 export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
 
@@ -56,9 +56,35 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
   // ── 場景建立 ────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    const canvas = canvasRef.current;
+    const host = hostRef.current;
     const wrap = wrapRef.current;
-    if (!canvas || !wrap) return;
+    if (!host || !wrap) return;
+
+    /**
+     * ★ 每一次 effect 都用**自己新建的 canvas**，不共用一個 ref。
+     *
+     *   PixiJS 的 `app.destroy(true, …)` 會連 WebGL context 一起銷毀，
+     *   而 context 是綁在那個 `<canvas>` 元素上的。
+     *
+     *   React 19 的 StrictMode 在開發模式會把 effect 跑兩次
+     *   （mount → cleanup → mount）。共用同一個 canvas 時的順序是：
+     *
+     *     1. effect#1 開始建立場景（非同步）
+     *     2. cleanup#1 執行，但此時場景還沒建好，`sceneRef` 是 null
+     *     3. effect#2 開始在**同一個 canvas** 上建立第二個場景
+     *     4. 場景#1 建好了，發現 cancelled → destroy → **context 沒了**
+     *     5. 場景#2 拿到一個已死的 context
+     *
+     *   症狀就是 `Could not retrieve shader source (WebGL context may be
+     *   lost)` 加上一串 `Attribute aPosition is not present in the shader`
+     *   —— 看起來像 PixiJS 壞了，其實是兩個 Application 搶同一個畫布。
+     *
+     *   各自持有一個 canvas 之後，#1 銷毀的是自己的那一塊，#2 全新。
+     *   這同時也修好「離開地圖頁再回來」的情況，那條路在正式環境也會走到。
+     */
+    const canvas = document.createElement("canvas");
+    canvas.className = "block h-full w-full";
+    host.replaceChildren(canvas);
 
     const width = wrap.clientWidth || 360;
     const height = wrap.clientHeight || 640;
@@ -79,27 +105,36 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
      *   畫面就停在「載入中…」——**沒有錯誤、沒有提示、沒有重試**。
      *   使用者看到的是「地圖打不開」，而 console 以外沒有任何線索。
      */
-    void (async () => {
-      try {
-        const { MapScene } = await import("@/lib/render/scene");
-        const scene = await MapScene.create(canvas, width, height);
+    const pending = (async () => {
+      const { MapScene } = await import("@/lib/render/scene");
+      return MapScene.create(canvas, width, height);
+    })();
+
+    void pending
+      .then((scene) => {
         if (cancelled) {
           scene.destroy();
           return;
         }
         sceneRef.current = scene;
         setReady(true);
-      } catch (e) {
+      })
+      .catch((e: unknown) => {
         if (cancelled) return;
         console.error("[map] 場景建立失敗", e);
         setSceneError(e instanceof Error ? e.message : String(e));
-      }
-    })();
+      });
 
     return () => {
       cancelled = true;
-      sceneRef.current?.destroy();
       sceneRef.current = null;
+      /**
+       * ★ 要等**建立中**的那個 promise 收斂再銷毀。
+       *   直接讀 `sceneRef.current` 的話，在還沒建好時它是 null ——
+       *   於是那個場景永遠不會被銷毀，WebGL context 就漏掉了。
+       */
+      void pending.then((scene) => scene.destroy()).catch(() => undefined);
+      canvas.remove();
     };
   }, []);
 
@@ -264,17 +299,22 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-[#1a1614]">
-      <canvas
-        ref={canvasRef}
-        data-testid="map-canvas"
-        className="block h-full w-full touch-none select-none"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onWheel={onWheel}
-      />
+    /**
+     * ★ 手勢掛在**外層 div** 而不是 canvas 上：canvas 現在是 effect
+     *   自己建的，每次重掛都會換一個元素，React 的事件綁不上去。
+     *   外層的 bounding box 與 canvas 完全重合，座標換算不受影響。
+     */
+    <div
+      ref={wrapRef}
+      data-testid="map-canvas"
+      className="relative h-full w-full touch-none select-none overflow-hidden bg-[#1a1614]"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onWheel={onWheel}
+    >
+      <div ref={hostRef} className="absolute inset-0" />
       <div
         data-testid="zoom-label"
         className="pointer-events-none absolute right-2 top-2 rounded border border-[#4a413a] bg-[#2e2723]/80 px-2 py-1 text-xs text-[#e8dcc0]"

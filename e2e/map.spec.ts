@@ -95,6 +95,38 @@ test.describe("地圖", () => {
     for (let i = 0; i < 12; i++) await page.mouse.wheel(0, -400);
     await expect(label).toHaveText("局部");
   });
+
+  /**
+   * ★ 離開地圖頁再回來。
+   *
+   * PixiJS 的 `app.destroy(true, …)` 會連 WebGL context 一起銷毀，而
+   * context 綁在那個 `<canvas>` 元素上。只要「銷毀舊場景」與「建立新場景」
+   * 碰到同一個 canvas，第二個場景拿到的就是一個已死的 context ——
+   * 症狀是 `Could not retrieve shader source (WebGL context may be lost)`
+   * 加上一串 `Attribute aPosition is not present in the shader`。
+   *
+   * 這個 case 走的是使用者每天都會走的路（切到別的分頁再切回來），
+   * 而它會在 console 留下那組錯誤 —— 所以這裡連 console 一起看。
+   */
+  test("★ 離開再回來，畫布還是活的（WebGL context 沒被前一個場景帶走）", async ({ page }) => {
+    const shaderErrors: string[] = [];
+    page.on("console", (m) => {
+      const t = m.text();
+      if (/shader|context may be lost|not present in the shader/i.test(t)) shaderErrors.push(t);
+    });
+
+    for (let round = 0; round < 3; round++) {
+      await page.goto("/map");
+      await expect(page.getByTestId("sprite-count")).toContainText("chunk", { timeout: 15_000 });
+      // 場景起不來時會出現這一格，而不是無限「載入中…」
+      await expect(page.getByTestId("map-scene-error")).toHaveCount(0);
+      // 每次掛載只會有一塊畫布 —— 多出來的代表舊的沒清掉
+      expect(await page.locator("canvas").count()).toBe(1);
+      await page.goto("/");
+    }
+
+    expect(shaderErrors, shaderErrors.join("\n")).toEqual([]);
+  });
 });
 
 test("總覽 API 回傳三座遺跡與 600 個出生點", async ({ request }) => {
