@@ -1,0 +1,5486 @@
+{
+  "seed": 99991,
+  "width": 500,
+  "height": 500,
+  "chunk": 64,
+  "chunksPerRow": 8,
+  "chunksPerCol": 8,
+  "terrainCodes": {
+    "PLAIN": 0,
+    "RUBBLE": 1,
+    "FOREST": 2,
+    "WASTE": 3,
+    "LODE": 4,
+    "MARSH": 5,
+    "MOUNTAIN": 6
+  },
+  "ruins": [
+    {
+      "id": 1,
+      "name": "灰燼尖塔",
+      "x": 138,
+      "y": 217
+    },
+    {
+      "id": 2,
+      "name": "沉沒穹窖",
+      "x": 282,
+      "y": 379
+    },
+    {
+      "id": 3,
+      "name": "鐵之搖籃",
+      "x": 311,
+      "y": 207
+    }
+  ],
+  "areas": {
+    "1": 83316,
+    "2": 80121,
+    "3": 81872
+  },
+  "fairness": [
+    {
+      "key": "a",
+      "label": "15 格內可建設格數的標準差",
+      "pass": true,
+      "actual": 0.013047211412535153,
+      "threshold": 0.08,
+      "format": "percent"
+    },
+    {
+      "key": "b",
+      "label": "同環帶在三陣營間的平均遺跡距離差",
+      "pass": true,
+      "actual": 2.2734029403877045,
+      "threshold": 5,
+      "format": "cells"
+    },
+    {
+      "key": "c",
+      "label": "30 格內鄰居數的標準差",
+      "pass": true,
+      "actual": 0.4645473286416791,
+      "threshold": 0.5,
+      "format": "percent"
+    },
+    {
+      "key": "d",
+      "label": "20 格內高價值地形格數的標準差",
+      "pass": true,
+      "actual": 0.0861648839298392,
+      "threshold": 0.12,
+      "format": "percent"
+    },
+    {
+      "key": "e",
+      "label": "三陣營可用面積差異",
+      "pass": true,
+      "actual": 0.03834797637908685,
+      "threshold": 0.05,
+      "format": "percent"
+    }
+  ],
+  "spawns": [
+    {
+      "x": 150,
+      "y": 193,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 26.832815729997478,
+      "region": 33,
+      "squad": 1
+    },
+    {
+      "x": 150,
+      "y": 180,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 38.89730067755345,
+      "region": 33,
+      "squad": 1
+    },
+    {
+      "x": 151,
+      "y": 184,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 35.4682957019364,
+      "region": 33,
+      "squad": 1
+    },
+    {
+      "x": 152,
+      "y": 179,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 40.496913462633174,
+      "region": 33,
+      "squad": 1
+    },
+    {
+      "x": 149,
+      "y": 185,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 33.83784863137726,
+      "region": 32,
+      "squad": 1
+    },
+    {
+      "x": 151,
+      "y": 182,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 37.33630940518894,
+      "region": 33,
+      "squad": 1
+    },
+    {
+      "x": 149,
+      "y": 183,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 35.73513677041127,
+      "region": 32,
+      "squad": 1
+    },
+    {
+      "x": 106,
+      "y": 234,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 36.235341863986875,
+      "region": 42,
+      "squad": 2
+    },
+    {
+      "x": 106,
+      "y": 244,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 41.86884283091664,
+      "region": 42,
+      "squad": 2
+    },
+    {
+      "x": 102,
+      "y": 221,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 36.22154055254967,
+      "region": 42,
+      "squad": 2
+    },
+    {
+      "x": 149,
+      "y": 197,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 22.825424421026653,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 122,
+      "y": 234,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 23.3452350598575,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 120,
+      "y": 232,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 23.430749027719965,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 119,
+      "y": 224,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 20.248456731316587,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 119,
+      "y": 229,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 22.47220505424423,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 146,
+      "y": 198,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 20.6155281280883,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 121,
+      "y": 236,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 25.495097567963924,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 121,
+      "y": 239,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 27.80287754891569,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 150,
+      "y": 194,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 25.942243542145697,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 152,
+      "y": 192,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 28.65309756378881,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 125,
+      "y": 243,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 29.068883707497267,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 122,
+      "y": 242,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 29.68164415931166,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 126,
+      "y": 249,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 34.17601498127012,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 123,
+      "y": 244,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 30.886890422961002,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 105,
+      "y": 227,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 34.48187929913333,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 107,
+      "y": 230,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 33.61547262794323,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 172,
+      "y": 214,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 34.132096331752024,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 151,
+      "y": 185,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 34.539832078341085,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 100,
+      "y": 216,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 38.01315561749642,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 131,
+      "y": 255,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 38.63935817272331,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 174,
+      "y": 215,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 36.05551275463989,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 99,
+      "y": 211,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 39.45883931389771,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 176,
+      "y": 211,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 38.470768123342694,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 108,
+      "y": 236,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 35.51056180912941,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 134,
+      "y": 260,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 43.18564576337837,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 178,
+      "y": 209,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 40.79215610874228,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 96,
+      "y": 204,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 43.965895873961216,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 106,
+      "y": 242,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 40.607881008493905,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 181,
+      "y": 223,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 43.41658669218482,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 106,
+      "y": 245,
+      "faction": 1,
+      "band": "VANGUARD",
+      "ruinDistance": 42.5205832509386,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 153,
+      "y": 172,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.434164902525694,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 157,
+      "y": 165,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.362442142665635,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 159,
+      "y": 161,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 59.80802621722271,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 143,
+      "y": 161,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.222771187482394,
+      "region": 32,
+      "squad": 3
+    },
+    {
+      "x": 158,
+      "y": 163,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.58472019555187,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 159,
+      "y": 159,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.68468205316454,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 158,
+      "y": 161,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 59.464274989274024,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 157,
+      "y": 164,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.302753041036986,
+      "region": 33,
+      "squad": 3
+    },
+    {
+      "x": 192,
+      "y": 197,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.58472019555187,
+      "region": 33,
+      "squad": 4
+    },
+    {
+      "x": 195,
+      "y": 189,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.50590523722971,
+      "region": 33,
+      "squad": 4
+    },
+    {
+      "x": 185,
+      "y": 204,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.76474136094644,
+      "region": 43,
+      "squad": 4
+    },
+    {
+      "x": 196,
+      "y": 184,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.7308024828115,
+      "region": 33,
+      "squad": 4
+    },
+    {
+      "x": 182,
+      "y": 206,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.35416188179427,
+      "region": 43,
+      "squad": 4
+    },
+    {
+      "x": 134,
+      "y": 283,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.12110101926615,
+      "region": 52,
+      "squad": 5
+    },
+    {
+      "x": 137,
+      "y": 275,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.008620049092706,
+      "region": 52,
+      "squad": 5
+    },
+    {
+      "x": 131,
+      "y": 292,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.32595834106594,
+      "region": 52,
+      "squad": 5
+    },
+    {
+      "x": 137,
+      "y": 269,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.009614495783374,
+      "region": 52,
+      "squad": 5
+    },
+    {
+      "x": 137,
+      "y": 272,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.00909015790027,
+      "region": 52,
+      "squad": 5
+    },
+    {
+      "x": 130,
+      "y": 294,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.41446893184761,
+      "region": 52,
+      "squad": 5
+    },
+    {
+      "x": 209,
+      "y": 239,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 74.33034373659252,
+      "region": 44,
+      "squad": 6
+    },
+    {
+      "x": 203,
+      "y": 233,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.94027188471824,
+      "region": 44,
+      "squad": 6
+    },
+    {
+      "x": 200,
+      "y": 230,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.34824385884742,
+      "region": 44,
+      "squad": 6
+    },
+    {
+      "x": 197,
+      "y": 230,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.415229867972855,
+      "region": 43,
+      "squad": 6
+    },
+    {
+      "x": 200,
+      "y": 233,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.03124237432849,
+      "region": 44,
+      "squad": 6
+    },
+    {
+      "x": 202,
+      "y": 235,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.48308055437865,
+      "region": 44,
+      "squad": 6
+    },
+    {
+      "x": 92,
+      "y": 196,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.566787519082126,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 183,
+      "y": 224,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.541190146942796,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 105,
+      "y": 248,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.27692569068709,
+      "region": 42,
+      "squad": null
+    },
+    {
+      "x": 102,
+      "y": 253,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.91168824543143,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 94,
+      "y": 199,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.53945729601885,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 135,
+      "y": 262,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.09988913511873,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 95,
+      "y": 202,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.541190146942796,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 187,
+      "y": 203,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.96076922496363,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 155,
+      "y": 169,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.921508225896055,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 137,
+      "y": 267,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.00999900019995,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 184,
+      "y": 204,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.801673610868484,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 153,
+      "y": 174,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.541190146942796,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 185,
+      "y": 225,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.67598976424087,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 188,
+      "y": 226,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.80354318352215,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 103,
+      "y": 250,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.10405388322277,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 192,
+      "y": 198,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.24508712544685,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 195,
+      "y": 228,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.05170109479997,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 189,
+      "y": 201,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 53.450912059571074,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 140,
+      "y": 159,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.034472514187634,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 156,
+      "y": 166,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.083269131959845,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 90,
+      "y": 195,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.80151512977635,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 98,
+      "y": 256,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.86591089385369,
+      "region": 51,
+      "squad": null
+    },
+    {
+      "x": 190,
+      "y": 226,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.77309920783504,
+      "region": 43,
+      "squad": null
+    },
+    {
+      "x": 86,
+      "y": 194,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.85947590331799,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 137,
+      "y": 271,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.009258465563114,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 137,
+      "y": 159,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.008620049092706,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 100,
+      "y": 254,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 53.03772242470447,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 190,
+      "y": 199,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.02726596879042,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 136,
+      "y": 275,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.034472514187634,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 155,
+      "y": 168,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.86520991955977,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 143,
+      "y": 155,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.20128616033594,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 132,
+      "y": 154,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.28506932918695,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 181,
+      "y": 260,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.81118318204309,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 93,
+      "y": 260,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.24146527838174,
+      "region": 51,
+      "squad": null
+    },
+    {
+      "x": 137,
+      "y": 153,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.00781202322104,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 135,
+      "y": 278,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.07372593840988,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 135,
+      "y": 281,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.07027391856539,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 140,
+      "y": 153,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.03124237432849,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 134,
+      "y": 155,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.12889826803627,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 175,
+      "y": 268,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.00793600809345,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 159,
+      "y": 156,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.51356446515724,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 138,
+      "y": 155,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 62,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 200,
+      "y": 231,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.56099432828281,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 143,
+      "y": 159,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.21511831131153,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 184,
+      "y": 260,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.96824596572467,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 130,
+      "y": 149,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.46897107449476,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 196,
+      "y": 183,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.23094525588644,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 184,
+      "y": 268,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.6804193347711,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 77,
+      "y": 194,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.19202405202648,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 181,
+      "y": 270,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.24954212300622,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 71,
+      "y": 194,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.83784299369935,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 203,
+      "y": 235,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.446274915669,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 186,
+      "y": 266,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.59300255857006,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 137,
+      "y": 151,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.007575322837,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 77,
+      "y": 191,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.30987860040162,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 188,
+      "y": 265,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.31089380465383,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 131,
+      "y": 151,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.37017402418046,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 140,
+      "y": 152,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.03076195155643,
+      "region": 32,
+      "squad": null
+    },
+    {
+      "x": 206,
+      "y": 237,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.88018058667741,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 133,
+      "y": 283,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.18912297349165,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 68,
+      "y": 197,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.80109889280519,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 195,
+      "y": 173,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.00694410957877,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 131,
+      "y": 142,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.32595834106594,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 207,
+      "y": 237,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.84010022264724,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 212,
+      "y": 241,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.7946013551069,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 62,
+      "y": 207,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 76.6550715869472,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 148,
+      "y": 144,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.68174807915459,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 132,
+      "y": 290,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.24616030891995,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 195,
+      "y": 168,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.16648189186454,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 128,
+      "y": 144,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.68174807915459,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 145,
+      "y": 145,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.33947746562731,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 70,
+      "y": 195,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.47027354082255,
+      "region": 31,
+      "squad": null
+    },
+    {
+      "x": 64,
+      "y": 201,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.70997292299079,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 147,
+      "y": 146,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.56814934033156,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 156,
+      "y": 143,
+      "faction": 1,
+      "band": "HEARTLAND",
+      "ruinDistance": 76.15773105863909,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 176,
+      "y": 288,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 80.52949770115296,
+      "region": 53,
+      "squad": 7
+    },
+    {
+      "x": 169,
+      "y": 292,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 81.15417426109391,
+      "region": 53,
+      "squad": 7
+    },
+    {
+      "x": 173,
+      "y": 299,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 89.15716460273958,
+      "region": 53,
+      "squad": 7
+    },
+    {
+      "x": 127,
+      "y": 303,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 86.70063436907482,
+      "region": 62,
+      "squad": 8
+    },
+    {
+      "x": 123,
+      "y": 315,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 99.14131328563283,
+      "region": 62,
+      "squad": 8
+    },
+    {
+      "x": 169,
+      "y": 130,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 92.35799911215054,
+      "region": 23,
+      "squad": 9
+    },
+    {
+      "x": 161,
+      "y": 130,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 89.98888820293315,
+      "region": 23,
+      "squad": 9
+    },
+    {
+      "x": 176,
+      "y": 121,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 103.24727599312246,
+      "region": 23,
+      "squad": 9
+    },
+    {
+      "x": 224,
+      "y": 175,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 95.70788891204319,
+      "region": 34,
+      "squad": 10
+    },
+    {
+      "x": 217,
+      "y": 183,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 86.00581375697807,
+      "region": 34,
+      "squad": 10
+    },
+    {
+      "x": 216,
+      "y": 187,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 83.57032966310472,
+      "region": 34,
+      "squad": 10
+    },
+    {
+      "x": 218,
+      "y": 181,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 87.72684879784524,
+      "region": 34,
+      "squad": 10
+    },
+    {
+      "x": 209,
+      "y": 145,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 101.11874208078343,
+      "region": 24,
+      "squad": 11
+    },
+    {
+      "x": 196,
+      "y": 151,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 87.8635305459552,
+      "region": 33,
+      "squad": 11
+    },
+    {
+      "x": 201,
+      "y": 148,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 93.43446901438462,
+      "region": 24,
+      "squad": 11
+    },
+    {
+      "x": 155,
+      "y": 137,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 81.78630692236935,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 195,
+      "y": 163,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 78.5175139698144,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 169,
+      "y": 290,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 79.3095202355934,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 196,
+      "y": 160,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 81.3203541556479,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 58,
+      "y": 215,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 80.02499609497023,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 138,
+      "y": 139,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 78,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 141,
+      "y": 137,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 80.05623023850174,
+      "region": 22,
+      "squad": null
+    },
+    {
+      "x": 130,
+      "y": 296,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 79.40403012442125,
+      "region": 52,
+      "squad": null
+    },
+    {
+      "x": 174,
+      "y": 288,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 79.60527620704546,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 159,
+      "y": 131,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 88.52683209061533,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 175,
+      "y": 293,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 84.52810183601665,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 52,
+      "y": 221,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 86.09297300012355,
+      "region": 41,
+      "squad": null
+    },
+    {
+      "x": 163,
+      "y": 300,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 86.68333173107735,
+      "region": 63,
+      "squad": null
+    },
+    {
+      "x": 196,
+      "y": 154,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 85.63293758829018,
+      "region": 33,
+      "squad": null
+    },
+    {
+      "x": 155,
+      "y": 131,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 87.66413177577247,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 219,
+      "y": 181,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 88.63972021616495,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 166,
+      "y": 296,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 83.81527307120105,
+      "region": 53,
+      "squad": null
+    },
+    {
+      "x": 218,
+      "y": 243,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 84.11896337925236,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 165,
+      "y": 131,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 90.13878188659972,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 221,
+      "y": 178,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 91.706052144883,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 169,
+      "y": 131,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 91.4166286842826,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 165,
+      "y": 303,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 90.13878188659972,
+      "region": 63,
+      "squad": null
+    },
+    {
+      "x": 168,
+      "y": 303,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 91.08238029388559,
+      "region": 63,
+      "squad": null
+    },
+    {
+      "x": 46,
+      "y": 220,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 92.04890004774636,
+      "region": 40,
+      "squad": null
+    },
+    {
+      "x": 156,
+      "y": 130,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 88.84255736976507,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 162,
+      "y": 131,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 89.28605714219886,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 69,
+      "y": 273,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 88.86506625215559,
+      "region": 51,
+      "squad": null
+    },
+    {
+      "x": 44,
+      "y": 223,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 94.19129471453293,
+      "region": 40,
+      "squad": null
+    },
+    {
+      "x": 42,
+      "y": 220,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 96.04686356149273,
+      "region": 40,
+      "squad": null
+    },
+    {
+      "x": 123,
+      "y": 313,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 97.16480844420988,
+      "region": 62,
+      "squad": null
+    },
+    {
+      "x": 65,
+      "y": 278,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 95.13148795220224,
+      "region": 51,
+      "squad": null
+    },
+    {
+      "x": 176,
+      "y": 128,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 96.77293009927932,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 203,
+      "y": 147,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 95.524865872714,
+      "region": 24,
+      "squad": null
+    },
+    {
+      "x": 39,
+      "y": 220,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 99.04544411531506,
+      "region": 40,
+      "squad": null
+    },
+    {
+      "x": 225,
+      "y": 173,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 97.49358953285082,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 174,
+      "y": 130,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 94.15412895885129,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 208,
+      "y": 144,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 101.13851887386922,
+      "region": 24,
+      "squad": null
+    },
+    {
+      "x": 176,
+      "y": 123,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 101.3903348450926,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 37,
+      "y": 220,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 101.04454463255303,
+      "region": 40,
+      "squad": null
+    },
+    {
+      "x": 212,
+      "y": 143,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 104.65180361560904,
+      "region": 24,
+      "squad": null
+    },
+    {
+      "x": 61,
+      "y": 287,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 104.06248123122953,
+      "region": 51,
+      "squad": null
+    },
+    {
+      "x": 123,
+      "y": 316,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 100.12991560967183,
+      "region": 62,
+      "squad": null
+    },
+    {
+      "x": 177,
+      "y": 120,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 104.546640309481,
+      "region": 23,
+      "squad": null
+    },
+    {
+      "x": 61,
+      "y": 284,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 102.06860437960343,
+      "region": 51,
+      "squad": null
+    },
+    {
+      "x": 122,
+      "y": 320,
+      "faction": 1,
+      "band": "FRONTIER",
+      "ruinDistance": 104.23531071570709,
+      "region": 62,
+      "squad": null
+    },
+    {
+      "x": 254,
+      "y": 369,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 29.732137494637012,
+      "region": 75,
+      "squad": 12
+    },
+    {
+      "x": 259,
+      "y": 377,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 23.086792761230395,
+      "region": 75,
+      "squad": 12
+    },
+    {
+      "x": 246,
+      "y": 367,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 37.94733192202055,
+      "region": 74,
+      "squad": 12
+    },
+    {
+      "x": 254,
+      "y": 361,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 33.28663395418648,
+      "region": 75,
+      "squad": 12
+    },
+    {
+      "x": 256,
+      "y": 356,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 34.713109915419565,
+      "region": 75,
+      "squad": 12
+    },
+    {
+      "x": 242,
+      "y": 372,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 40.607881008493905,
+      "region": 74,
+      "squad": 12
+    },
+    {
+      "x": 261,
+      "y": 382,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 21.213203435596427,
+      "region": 75,
+      "squad": 12
+    },
+    {
+      "x": 254,
+      "y": 354,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 37.53664875824692,
+      "region": 75,
+      "squad": 12
+    },
+    {
+      "x": 262,
+      "y": 350,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 35.22782990761707,
+      "region": 75,
+      "squad": 13
+    },
+    {
+      "x": 270,
+      "y": 345,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 36.0555127546399,
+      "region": 65,
+      "squad": 13
+    },
+    {
+      "x": 262,
+      "y": 384,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 20.615528128088304,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 265,
+      "y": 390,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 20.248456731316587,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 266,
+      "y": 397,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 24.08318915758459,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 261,
+      "y": 381,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 21.095023109728984,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 259,
+      "y": 376,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 23.194827009486403,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 266,
+      "y": 394,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 21.93171219946131,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 267,
+      "y": 404,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 29.1547594742265,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 256,
+      "y": 372,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 26.92582403567252,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 255,
+      "y": 369,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 28.792360097775934,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 255,
+      "y": 366,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 29.966648127543394,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 267,
+      "y": 400,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 25.80697580112788,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 257,
+      "y": 375,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 25.317977802344327,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 253,
+      "y": 363,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 33.12099032335839,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 255,
+      "y": 359,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 33.60059523282288,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 268,
+      "y": 410,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 34.014702703389894,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 287,
+      "y": 345,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 34.36568055487917,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 251,
+      "y": 366,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 33.61547262794323,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 259,
+      "y": 353,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 34.713109915419565,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 276,
+      "y": 344,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 35.510561809129406,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 294,
+      "y": 346,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 35.11409973215888,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 267,
+      "y": 415,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 39,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 261,
+      "y": 349,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 36.61966684720111,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 247,
+      "y": 367,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 37,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 272,
+      "y": 345,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 35.440090293338706,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 251,
+      "y": 353,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 40.459856648287825,
+      "region": 75,
+      "squad": null
+    },
+    {
+      "x": 243,
+      "y": 369,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 40.2616442783948,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 269,
+      "y": 421,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 43.965895873961216,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 240,
+      "y": 374,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 42.29657196511321,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 305,
+      "y": 343,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 42.720018726587654,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 249,
+      "y": 351,
+      "faction": 2,
+      "band": "VANGUARD",
+      "ruinDistance": 43.278170016764804,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 244,
+      "y": 347,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 49.678969393496885,
+      "region": 64,
+      "squad": 14
+    },
+    {
+      "x": 233,
+      "y": 343,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.80296045424104,
+      "region": 64,
+      "squad": 14
+    },
+    {
+      "x": 237,
+      "y": 342,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.25804665451803,
+      "region": 64,
+      "squad": 14
+    },
+    {
+      "x": 316,
+      "y": 334,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.4003546088143,
+      "region": 66,
+      "squad": 15
+    },
+    {
+      "x": 326,
+      "y": 327,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.11754546370561,
+      "region": 66,
+      "squad": 15
+    },
+    {
+      "x": 309,
+      "y": 341,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 46.61544808322666,
+      "region": 66,
+      "squad": 15
+    },
+    {
+      "x": 323,
+      "y": 330,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.89053137985315,
+      "region": 66,
+      "squad": 15
+    },
+    {
+      "x": 329,
+      "y": 327,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.09279563550022,
+      "region": 66,
+      "squad": 15
+    },
+    {
+      "x": 325,
+      "y": 329,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.94694837519019,
+      "region": 66,
+      "squad": 15
+    },
+    {
+      "x": 230,
+      "y": 343,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.245553203367585,
+      "region": 64,
+      "squad": 16
+    },
+    {
+      "x": 238,
+      "y": 342,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.48912940721924,
+      "region": 64,
+      "squad": 16
+    },
+    {
+      "x": 222,
+      "y": 376,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.07495318350236,
+      "region": 74,
+      "squad": 17
+    },
+    {
+      "x": 235,
+      "y": 375,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.16990566028302,
+      "region": 74,
+      "squad": 17
+    },
+    {
+      "x": 213,
+      "y": 364,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.61161377563892,
+      "region": 74,
+      "squad": 17
+    },
+    {
+      "x": 217,
+      "y": 369,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.76473218982952,
+      "region": 74,
+      "squad": 17
+    },
+    {
+      "x": 306,
+      "y": 317,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.48308055437865,
+      "region": 66,
+      "squad": 18
+    },
+    {
+      "x": 299,
+      "y": 324,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.56735185849702,
+      "region": 65,
+      "squad": 18
+    },
+    {
+      "x": 294,
+      "y": 326,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.3415126767741,
+      "region": 65,
+      "squad": 18
+    },
+    {
+      "x": 314,
+      "y": 311,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.15317691222374,
+      "region": 66,
+      "squad": 18
+    },
+    {
+      "x": 297,
+      "y": 327,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.12023651093923,
+      "region": 65,
+      "squad": 18
+    },
+    {
+      "x": 296,
+      "y": 324,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.753854494650845,
+      "region": 65,
+      "squad": 18
+    },
+    {
+      "x": 316,
+      "y": 309,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.82030583337487,
+      "region": 66,
+      "squad": 18
+    },
+    {
+      "x": 261,
+      "y": 304,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.88452991448302,
+      "region": 65,
+      "squad": 19
+    },
+    {
+      "x": 265,
+      "y": 312,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.12307863514182,
+      "region": 65,
+      "squad": 19
+    },
+    {
+      "x": 267,
+      "y": 317,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.78871373526825,
+      "region": 65,
+      "squad": 19
+    },
+    {
+      "x": 269,
+      "y": 423,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.880278987817846,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 235,
+      "y": 374,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.265209192385896,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 280,
+      "y": 328,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.03920062069938,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 237,
+      "y": 376,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.09988913511873,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 231,
+      "y": 377,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.03920062069938,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 286,
+      "y": 328,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.15662224971466,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 244,
+      "y": 349,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.414873747640826,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 248,
+      "y": 349,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.34313619501853,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 283,
+      "y": 328,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.0098029794274,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 289,
+      "y": 329,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.48762224545735,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 311,
+      "y": 338,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.219518117958884,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 234,
+      "y": 377,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.041648597857254,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 243,
+      "y": 346,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.088159097779204,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 309,
+      "y": 340,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.43416490252569,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 269,
+      "y": 429,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.66236541235796,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 297,
+      "y": 326,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.08175741568164,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 285,
+      "y": 325,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.08326913195984,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 238,
+      "y": 343,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.85068161420759,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 271,
+      "y": 436,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.05170109479997,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 274,
+      "y": 325,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.589376255824725,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 290,
+      "y": 325,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.589376255824725,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 230,
+      "y": 376,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.086466572421664,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 241,
+      "y": 345,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 53.2634959423431,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 272,
+      "y": 322,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.87054518492115,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 295,
+      "y": 324,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.51548460377916,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 229,
+      "y": 378,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 53.009433122794285,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 224,
+      "y": 376,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.07753438292642,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 236,
+      "y": 344,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.80138406647371,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 279,
+      "y": 327,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.086466572421664,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 226,
+      "y": 374,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.222771187482394,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 305,
+      "y": 322,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.465437442517235,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 266,
+      "y": 319,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.0966987850401,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 302,
+      "y": 320,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.297672508690084,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 219,
+      "y": 372,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.387695966961914,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 320,
+      "y": 331,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.220911460055866,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 232,
+      "y": 341,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.80127387243033,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 270,
+      "y": 436,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.249463516842795,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 318,
+      "y": 332,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 59.20304046246274,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 267,
+      "y": 316,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.76109943476871,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 322,
+      "y": 330,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.25345840347387,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 236,
+      "y": 343,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.41232746604094,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 272,
+      "y": 443,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.77653896280658,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 229,
+      "y": 343,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.07027391856538,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 222,
+      "y": 375,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.13318551349164,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 270,
+      "y": 322,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.249463516842795,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 309,
+      "y": 317,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.62396025078685,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 228,
+      "y": 342,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.45991139621258,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 214,
+      "y": 360,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.60453243241543,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 306,
+      "y": 318,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.55150646628955,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 328,
+      "y": 328,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.6804193347711,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 215,
+      "y": 369,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.7421582177598,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 222,
+      "y": 343,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.9714227381436,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 329,
+      "y": 425,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.76473218982953,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 224,
+      "y": 341,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.33974329343886,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 271,
+      "y": 444,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.92419889539804,
+      "region": 85,
+      "squad": null
+    },
+    {
+      "x": 326,
+      "y": 432,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.8839603971781,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 224,
+      "y": 344,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.74215821775978,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 331,
+      "y": 424,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.52818951391959,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 327,
+      "y": 428,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.52818951391959,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 264,
+      "y": 312,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.3757882838098,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 215,
+      "y": 354,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.51223671512449,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 326,
+      "y": 438,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.60027173862879,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 340,
+      "y": 422,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.20110802473879,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 343,
+      "y": 422,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 74.63243262818116,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 271,
+      "y": 451,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.83543093852057,
+      "region": 95,
+      "squad": null
+    },
+    {
+      "x": 214,
+      "y": 357,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.47027354082255,
+      "region": 74,
+      "squad": null
+    },
+    {
+      "x": 260,
+      "y": 305,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.20103626247513,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 312,
+      "y": 313,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.49827584156742,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 217,
+      "y": 349,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.58910531638176,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 334,
+      "y": 324,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.69015788066504,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 335,
+      "y": 326,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 74.95331880577405,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 324,
+      "y": 444,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.3886296557834,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 331,
+      "y": 327,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.44928271158501,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 273,
+      "y": 453,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 74.54528824815154,
+      "region": 95,
+      "squad": null
+    },
+    {
+      "x": 348,
+      "y": 420,
+      "faction": 2,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.69813382572325,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 350,
+      "y": 331,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 83.23460818673925,
+      "region": 67,
+      "squad": 20
+    },
+    {
+      "x": 340,
+      "y": 324,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 79.93122043357026,
+      "region": 66,
+      "squad": 20
+    },
+    {
+      "x": 354,
+      "y": 340,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 81.88406438373708,
+      "region": 67,
+      "squad": 20
+    },
+    {
+      "x": 278,
+      "y": 468,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 89.08984229416954,
+      "region": 95,
+      "squad": 21
+    },
+    {
+      "x": 273,
+      "y": 457,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 78.5175139698144,
+      "region": 95,
+      "squad": 21
+    },
+    {
+      "x": 289,
+      "y": 475,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 96.25487000666513,
+      "region": 95,
+      "squad": 21
+    },
+    {
+      "x": 285,
+      "y": 472,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 93.04837451562493,
+      "region": 95,
+      "squad": 21
+    },
+    {
+      "x": 275,
+      "y": 460,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 81.30190649671138,
+      "region": 95,
+      "squad": 21
+    },
+    {
+      "x": 287,
+      "y": 473,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 94.13288479590966,
+      "region": 95,
+      "squad": 21
+    },
+    {
+      "x": 216,
+      "y": 298,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 104.484448603608,
+      "region": 54,
+      "squad": 22
+    },
+    {
+      "x": 212,
+      "y": 310,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 98.29038610159185,
+      "region": 64,
+      "squad": 22
+    },
+    {
+      "x": 214,
+      "y": 306,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 99.76472322419383,
+      "region": 64,
+      "squad": 22
+    },
+    {
+      "x": 213,
+      "y": 308,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 99.00505037623081,
+      "region": 64,
+      "squad": 22
+    },
+    {
+      "x": 211,
+      "y": 312,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 97.62171889492623,
+      "region": 64,
+      "squad": 22
+    },
+    {
+      "x": 214,
+      "y": 309,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 97.59098319004681,
+      "region": 64,
+      "squad": 22
+    },
+    {
+      "x": 322,
+      "y": 449,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 80.62257748298549,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 261,
+      "y": 302,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 79.81227975693965,
+      "region": 65,
+      "squad": null
+    },
+    {
+      "x": 347,
+      "y": 327,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 83.24061508662703,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 262,
+      "y": 299,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 82.46211251235322,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 349,
+      "y": 330,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 83.00602387778854,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 317,
+      "y": 308,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 79.1580697086532,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 324,
+      "y": 445,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 78.23042886243178,
+      "region": 86,
+      "squad": null
+    },
+    {
+      "x": 341,
+      "y": 326,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 79.30952023559341,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 274,
+      "y": 459,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 80.39900496896712,
+      "region": 95,
+      "squad": null
+    },
+    {
+      "x": 326,
+      "y": 307,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 84.38009243891595,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 361,
+      "y": 416,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 87.23531395025755,
+      "region": 87,
+      "squad": null
+    },
+    {
+      "x": 261,
+      "y": 298,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 83.67795408588812,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 263,
+      "y": 296,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 85.146931829632,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 332,
+      "y": 311,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 84.40379138403677,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 361,
+      "y": 350,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 84.154619599877,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 362,
+      "y": 354,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 83.81527307120106,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 335,
+      "y": 311,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 86.21484790916237,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 366,
+      "y": 360,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 86.12200647918044,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 317,
+      "y": 462,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 90.07774419910837,
+      "region": 96,
+      "squad": null
+    },
+    {
+      "x": 190,
+      "y": 363,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 93.38094023943002,
+      "region": 73,
+      "squad": null
+    },
+    {
+      "x": 367,
+      "y": 415,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 92.30926280715279,
+      "region": 87,
+      "squad": null
+    },
+    {
+      "x": 312,
+      "y": 468,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 93.92017887546851,
+      "region": 96,
+      "squad": null
+    },
+    {
+      "x": 372,
+      "y": 362,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 91.59148432032313,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 192,
+      "y": 361,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 91.78235124467014,
+      "region": 73,
+      "squad": null
+    },
+    {
+      "x": 202,
+      "y": 335,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 91.30169768410661,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 281,
+      "y": 469,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 90.00555538409836,
+      "region": 95,
+      "squad": null
+    },
+    {
+      "x": 364,
+      "y": 416,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 89.96110270555825,
+      "region": 87,
+      "squad": null
+    },
+    {
+      "x": 213,
+      "y": 310,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 97.58073580374356,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 345,
+      "y": 308,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 94.92101980067429,
+      "region": 66,
+      "squad": null
+    },
+    {
+      "x": 306,
+      "y": 473,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 97.01546268507924,
+      "region": 96,
+      "squad": null
+    },
+    {
+      "x": 311,
+      "y": 469,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 94.5568612000208,
+      "region": 96,
+      "squad": null
+    },
+    {
+      "x": 309,
+      "y": 471,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 95.88013350011566,
+      "region": 96,
+      "squad": null
+    },
+    {
+      "x": 202,
+      "y": 328,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 94.87360012142472,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 186,
+      "y": 366,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 96.87620966986684,
+      "region": 73,
+      "squad": null
+    },
+    {
+      "x": 376,
+      "y": 361,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 95.70788891204319,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 295,
+      "y": 475,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 96.87620966986684,
+      "region": 95,
+      "squad": null
+    },
+    {
+      "x": 214,
+      "y": 304,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 101.23734488813899,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 383,
+      "y": 356,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 103.58571330062847,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 379,
+      "y": 340,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 104.546640309481,
+      "region": 67,
+      "squad": null
+    },
+    {
+      "x": 216,
+      "y": 300,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 102.9417310909429,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 375,
+      "y": 416,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 100.08995953640904,
+      "region": 87,
+      "squad": null
+    },
+    {
+      "x": 178,
+      "y": 371,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 104.30723848324239,
+      "region": 73,
+      "squad": null
+    },
+    {
+      "x": 213,
+      "y": 307,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 99.72462083156798,
+      "region": 64,
+      "squad": null
+    },
+    {
+      "x": 380,
+      "y": 358,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 100.22474744293446,
+      "region": 77,
+      "squad": null
+    },
+    {
+      "x": 182,
+      "y": 369,
+      "faction": 2,
+      "band": "FRONTIER",
+      "ruinDistance": 100.4987562112089,
+      "region": 73,
+      "squad": null
+    },
+    {
+      "x": 286,
+      "y": 187,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 32.01562118716424,
+      "region": 35,
+      "squad": 23
+    },
+    {
+      "x": 282,
+      "y": 179,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 40.31128874149275,
+      "region": 35,
+      "squad": 23
+    },
+    {
+      "x": 286,
+      "y": 199,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 26.248809496813376,
+      "region": 35,
+      "squad": 23
+    },
+    {
+      "x": 288,
+      "y": 195,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 25.942243542145697,
+      "region": 35,
+      "squad": 23
+    },
+    {
+      "x": 282,
+      "y": 175,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 43.18564576337837,
+      "region": 35,
+      "squad": 23
+    },
+    {
+      "x": 286,
+      "y": 202,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 25.495097567963924,
+      "region": 45,
+      "squad": 23
+    },
+    {
+      "x": 348,
+      "y": 199,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 37.85498646149539,
+      "region": 36,
+      "squad": 24
+    },
+    {
+      "x": 346,
+      "y": 207,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 35,
+      "region": 46,
+      "squad": 24
+    },
+    {
+      "x": 345,
+      "y": 211,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 34.23448553724738,
+      "region": 46,
+      "squad": 24
+    },
+    {
+      "x": 351,
+      "y": 191,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 43.08131845707604,
+      "region": 37,
+      "squad": 24
+    },
+    {
+      "x": 286,
+      "y": 197,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 26.925824035672523,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 286,
+      "y": 194,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 28.178005607210743,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 284,
+      "y": 207,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 27,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 287,
+      "y": 200,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 25,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 285,
+      "y": 202,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 26.476404589747453,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 283,
+      "y": 209,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 28.0713376952364,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 286,
+      "y": 191,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 29.68164415931166,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 281,
+      "y": 208,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 30.01666203960727,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 282,
+      "y": 205,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 29.068883707497264,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 287,
+      "y": 186,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 31.89043743820395,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 280,
+      "y": 213,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 31.57530680769389,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 287,
+      "y": 189,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 30,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 334,
+      "y": 233,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 34.713109915419565,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 329,
+      "y": 239,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 36.71511950137164,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 342,
+      "y": 225,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 35.84689665786985,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 278,
+      "y": 213,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 33.54101966249684,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 285,
+      "y": 184,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 34.713109915419565,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 346,
+      "y": 202,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 35.35533905932738,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 325,
+      "y": 245,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 40.496913462633174,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 282,
+      "y": 180,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 39.623225512317894,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 275,
+      "y": 218,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 37.64306044943742,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 327,
+      "y": 243,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 39.395431207184416,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 330,
+      "y": 242,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 39.824615503479755,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 349,
+      "y": 195,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 39.84971769034255,
+      "region": 36,
+      "squad": null
+    },
+    {
+      "x": 324,
+      "y": 247,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 42.05948168962618,
+      "region": 46,
+      "squad": null
+    },
+    {
+      "x": 282,
+      "y": 178,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 41.01219330881976,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 282,
+      "y": 174,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 43.9317652729776,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 350,
+      "y": 193,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 41.43669871020133,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 189,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 44.77722635447623,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 322,
+      "y": 250,
+      "faction": 3,
+      "band": "VANGUARD",
+      "ruinDistance": 44.384682042344295,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 326,
+      "y": 250,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.541190146942796,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 319,
+      "y": 255,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.66210024238575,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 314,
+      "y": 259,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.086466572421664,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 317,
+      "y": 259,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.3450093132096,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 317,
+      "y": 256,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 49.36598018878994,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 319,
+      "y": 257,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.635955604688654,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 320,
+      "y": 256,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 49.81967482832461,
+      "region": 56,
+      "squad": 25
+    },
+    {
+      "x": 315,
+      "y": 261,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.147945482723536,
+      "region": 56,
+      "squad": 26
+    },
+    {
+      "x": 322,
+      "y": 253,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.29693436154187,
+      "region": 56,
+      "squad": 26
+    },
+    {
+      "x": 304,
+      "y": 264,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.42821606144492,
+      "region": 56,
+      "squad": 26
+    },
+    {
+      "x": 308,
+      "y": 265,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.07753438292642,
+      "region": 56,
+      "squad": 26
+    },
+    {
+      "x": 325,
+      "y": 250,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.221676218380054,
+      "region": 56,
+      "squad": 26
+    },
+    {
+      "x": 253,
+      "y": 228,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.68468205316454,
+      "region": 45,
+      "squad": 27
+    },
+    {
+      "x": 243,
+      "y": 225,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.3420215802759,
+      "region": 44,
+      "squad": 27
+    },
+    {
+      "x": 264,
+      "y": 226,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.6951674225463,
+      "region": 45,
+      "squad": 27
+    },
+    {
+      "x": 266,
+      "y": 222,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.434164902525694,
+      "region": 45,
+      "squad": 27
+    },
+    {
+      "x": 239,
+      "y": 224,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.97972695272672,
+      "region": 44,
+      "squad": 27
+    },
+    {
+      "x": 300,
+      "y": 139,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 68.88396039717809,
+      "region": 26,
+      "squad": 28
+    },
+    {
+      "x": 291,
+      "y": 138,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.84010022264724,
+      "region": 25,
+      "squad": 28
+    },
+    {
+      "x": 286,
+      "y": 138,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.38937252763509,
+      "region": 25,
+      "squad": 28
+    },
+    {
+      "x": 312,
+      "y": 130,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.00649323271382,
+      "region": 26,
+      "squad": 28
+    },
+    {
+      "x": 309,
+      "y": 133,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 74.027022093287,
+      "region": 26,
+      "squad": 28
+    },
+    {
+      "x": 352,
+      "y": 147,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.67048919609665,
+      "region": 27,
+      "squad": 29
+    },
+    {
+      "x": 351,
+      "y": 160,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.71709649683789,
+      "region": 37,
+      "squad": 29
+    },
+    {
+      "x": 321,
+      "y": 253,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.07440918375928,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 177,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.80354318352216,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 317,
+      "y": 258,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 51.35172830587107,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 266,
+      "y": 221,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.12748667179271,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 282,
+      "y": 169,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.80167361086848,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 318,
+      "y": 256,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 49.49747468305833,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 281,
+      "y": 166,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.80354318352216,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 267,
+      "y": 225,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 47.53945729601885,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 263,
+      "y": 224,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 50.921508225896055,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 264,
+      "y": 222,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 49.33558553417604,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 322,
+      "y": 251,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.35416188179427,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 182,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.02082881417187,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 268,
+      "y": 222,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 45.541190146942796,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 354,
+      "y": 184,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.76474136094643,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 280,
+      "y": 170,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 48.270073544588676,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 281,
+      "y": 159,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.60388679233962,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 173,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 53.2634959423431,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 350,
+      "y": 170,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 53.75872022286245,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 309,
+      "y": 265,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.034472514187634,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 260,
+      "y": 226,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 54.42425929675111,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 258,
+      "y": 228,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.0087712549569,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 262,
+      "y": 227,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.92447448959697,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 281,
+      "y": 164,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.43090691567331,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 311,
+      "y": 264,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 57,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 349,
+      "y": 164,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 57.384666941614284,
+      "region": 36,
+      "squad": null
+    },
+    {
+      "x": 315,
+      "y": 259,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 52.15361924162119,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 353,
+      "y": 171,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.31726674375732,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 307,
+      "y": 263,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.1426753904728,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 313,
+      "y": 263,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 56.03570290448759,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 169,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 55.90169943749474,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 301,
+      "y": 267,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.82762530298219,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 349,
+      "y": 158,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.008063991709975,
+      "region": 36,
+      "squad": null
+    },
+    {
+      "x": 278,
+      "y": 152,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.1404708432983,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 278,
+      "y": 155,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 61.587336360651285,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 350,
+      "y": 156,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.20280367709807,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 350,
+      "y": 161,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 60.307545133258415,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 252,
+      "y": 227,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 62.297672508690084,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 281,
+      "y": 157,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.309518948453,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 250,
+      "y": 226,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.89053137985315,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 305,
+      "y": 265,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.309518948453,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 275,
+      "y": 155,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.245553203367585,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 251,
+      "y": 229,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.90618123468183,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 256,
+      "y": 228,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.8727441181401,
+      "region": 45,
+      "squad": null
+    },
+    {
+      "x": 299,
+      "y": 269,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 63.15061361538778,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 165,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 58.69412236331676,
+      "region": 37,
+      "squad": null
+    },
+    {
+      "x": 308,
+      "y": 266,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 59.076221950967714,
+      "region": 56,
+      "squad": null
+    },
+    {
+      "x": 277,
+      "y": 149,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.23094525588644,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 349,
+      "y": 147,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.02112361825883,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 292,
+      "y": 272,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 67.72001181334805,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 349,
+      "y": 154,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.21502894272147,
+      "region": 36,
+      "squad": null
+    },
+    {
+      "x": 276,
+      "y": 151,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 66.03786792439622,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 299,
+      "y": 137,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.02112361825881,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 296,
+      "y": 271,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 65.73431371817918,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 290,
+      "y": 275,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.16881339463234,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 305,
+      "y": 137,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 70.25667228100119,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 302,
+      "y": 138,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.58448102845921,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 308,
+      "y": 136,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.06335201775948,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 244,
+      "y": 227,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 69.92138442565334,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 275,
+      "y": 153,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 64.89992295835181,
+      "region": 35,
+      "squad": null
+    },
+    {
+      "x": 351,
+      "y": 148,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.28113354878694,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 287,
+      "y": 140,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.16881339463234,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 284,
+      "y": 279,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 76.89603370785777,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 284,
+      "y": 138,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 74.09453421137081,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 288,
+      "y": 276,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.73238618387273,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 287,
+      "y": 138,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.05477397131553,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 309,
+      "y": 135,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.02777242147643,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 313,
+      "y": 130,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 77.02596964660685,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 275,
+      "y": 144,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.56031973468694,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 279,
+      "y": 143,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.55417527999327,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 242,
+      "y": 226,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.56814934033154,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 286,
+      "y": 140,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.51223671512449,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 351,
+      "y": 147,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 72.11102550927978,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 292,
+      "y": 138,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 71.56814934033154,
+      "region": 25,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 143,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 76.00657866263946,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 240,
+      "y": 225,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 73.24616030891995,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 237,
+      "y": 224,
+      "faction": 3,
+      "band": "HEARTLAND",
+      "ruinDistance": 75.92759709091287,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 278,
+      "y": 281,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 81.0246875958186,
+      "region": 55,
+      "squad": 30
+    },
+    {
+      "x": 269,
+      "y": 286,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 89.47066558375433,
+      "region": 55,
+      "squad": 30
+    },
+    {
+      "x": 267,
+      "y": 288,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 92.17917335276988,
+      "region": 55,
+      "squad": 30
+    },
+    {
+      "x": 271,
+      "y": 285,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 87.6584280032445,
+      "region": 55,
+      "squad": 30
+    },
+    {
+      "x": 396,
+      "y": 233,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.88756943465154,
+      "region": 47,
+      "squad": 31
+    },
+    {
+      "x": 393,
+      "y": 242,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 89.15716460273958,
+      "region": 47,
+      "squad": 31
+    },
+    {
+      "x": 391,
+      "y": 247,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 89.44271909999159,
+      "region": 47,
+      "squad": 31
+    },
+    {
+      "x": 401,
+      "y": 225,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 91.78235124467014,
+      "region": 48,
+      "squad": 31
+    },
+    {
+      "x": 405,
+      "y": 222,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 95.18928511129812,
+      "region": 48,
+      "squad": 31
+    },
+    {
+      "x": 236,
+      "y": 134,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 104.66135867644755,
+      "region": 24,
+      "squad": 32
+    },
+    {
+      "x": 241,
+      "y": 142,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 95.524865872714,
+      "region": 24,
+      "squad": 32
+    },
+    {
+      "x": 244,
+      "y": 145,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 91.28526715741155,
+      "region": 24,
+      "squad": 32
+    },
+    {
+      "x": 243,
+      "y": 143,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 93.38094023943,
+      "region": 24,
+      "squad": 32
+    },
+    {
+      "x": 245,
+      "y": 146,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 89.87213138676526,
+      "region": 24,
+      "squad": 32
+    },
+    {
+      "x": 240,
+      "y": 141,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 96.93812459502195,
+      "region": 24,
+      "squad": 32
+    },
+    {
+      "x": 243,
+      "y": 164,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 80.45495634204272,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 234,
+      "y": 222,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 78.44743462982076,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 238,
+      "y": 167,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 83.24061508662703,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 246,
+      "y": 161,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 79.63039620647382,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 229,
+      "y": 219,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 82.87339742040264,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 247,
+      "y": 154,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 83.09632964216891,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 352,
+      "y": 139,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 79.40403012442127,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 247,
+      "y": 159,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 80,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 232,
+      "y": 221,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 80.23091673413684,
+      "region": 44,
+      "squad": null
+    },
+    {
+      "x": 366,
+      "y": 274,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 86.68333173107735,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 363,
+      "y": 278,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.0056816347672,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 365,
+      "y": 277,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.40814442120138,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 273,
+      "y": 285,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 86.76404785393545,
+      "region": 55,
+      "squad": null
+    },
+    {
+      "x": 378,
+      "y": 265,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.6171540955813,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 386,
+      "y": 254,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.50988645343524,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 231,
+      "y": 170,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.14193099768124,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 327,
+      "y": 120,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.45903006477066,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 394,
+      "y": 238,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.60022573334676,
+      "region": 47,
+      "squad": null
+    },
+    {
+      "x": 232,
+      "y": 254,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 91.92388155425118,
+      "region": 54,
+      "squad": null
+    },
+    {
+      "x": 354,
+      "y": 124,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 93.47726996441435,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 226,
+      "y": 172,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 91.92388155425118,
+      "region": 34,
+      "squad": null
+    },
+    {
+      "x": 390,
+      "y": 249,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 89.47066558375433,
+      "region": 47,
+      "squad": null
+    },
+    {
+      "x": 230,
+      "y": 251,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 92.17917335276988,
+      "region": 54,
+      "squad": null
+    },
+    {
+      "x": 396,
+      "y": 235,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 89.49301648732153,
+      "region": 47,
+      "squad": null
+    },
+    {
+      "x": 394,
+      "y": 239,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 88.95504482602433,
+      "region": 47,
+      "squad": null
+    },
+    {
+      "x": 403,
+      "y": 222,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 93.2148056909416,
+      "region": 48,
+      "squad": null
+    },
+    {
+      "x": 243,
+      "y": 144,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 92.69843580125826,
+      "region": 24,
+      "squad": null
+    },
+    {
+      "x": 359,
+      "y": 288,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 94.15412895885129,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 361,
+      "y": 287,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 94.33981132056603,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 335,
+      "y": 111,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 98.95453501482385,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 236,
+      "y": 269,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 97.30878685915266,
+      "region": 54,
+      "squad": null
+    },
+    {
+      "x": 239,
+      "y": 140,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 98.35141076771599,
+      "region": 24,
+      "squad": null
+    },
+    {
+      "x": 235,
+      "y": 266,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 96.21330469326995,
+      "region": 54,
+      "squad": null
+    },
+    {
+      "x": 359,
+      "y": 293,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 98.48857801796105,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 361,
+      "y": 290,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 96.89685237405807,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 355,
+      "y": 118,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 99.28242543370907,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 235,
+      "y": 273,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 100.65783625729296,
+      "region": 54,
+      "squad": null
+    },
+    {
+      "x": 411,
+      "y": 213,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 100.17983829094554,
+      "region": 48,
+      "squad": null
+    },
+    {
+      "x": 354,
+      "y": 116,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 100.64790112068904,
+      "region": 27,
+      "squad": null
+    },
+    {
+      "x": 415,
+      "y": 213,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 104.17293314484333,
+      "region": 48,
+      "squad": null
+    },
+    {
+      "x": 234,
+      "y": 271,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 100.12492197250393,
+      "region": 54,
+      "squad": null
+    },
+    {
+      "x": 339,
+      "y": 106,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 104.80935072788114,
+      "region": 26,
+      "squad": null
+    },
+    {
+      "x": 237,
+      "y": 137,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 101.86265262597475,
+      "region": 24,
+      "squad": null
+    },
+    {
+      "x": 358,
+      "y": 297,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 101.5332457867865,
+      "region": 57,
+      "squad": null
+    },
+    {
+      "x": 360,
+      "y": 295,
+      "faction": 3,
+      "band": "FRONTIER",
+      "ruinDistance": 100.72239075796404,
+      "region": 57,
+      "squad": null
+    }
+  ]
+}
