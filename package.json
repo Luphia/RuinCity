@@ -17,6 +17,7 @@
     "db:studio": "drizzle-kit studio",
     "map:generate": "tsx scripts/generate-map.ts --seed 99991 --out public/terrain/s0",
     "sim": "tsx scripts/simulate-season.ts",
+    "seed:season": "tsx --tsconfig tsconfig.scripts.json scripts/seed-season.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {

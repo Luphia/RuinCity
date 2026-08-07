@@ -66,7 +66,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b、M3、M5b 都已完成**，
 下一步是 M3b（區域容量與超限損耗）與 M4（聯盟）。
 
-**現在可以真的玩了**：`pnpm tsx scripts/seed-season.ts --me you@example.com`
+**現在可以真的玩了**：`pnpm seed:season you@example.com`
 會開一場賽季、AI 補足到 600、跑封盤、在 T=0 寫入所有人的初始狀態。
 
 戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過四輪
@@ -101,8 +101,8 @@ pnpm tsx scripts/generate-map.ts --seed 99991 --out public/terrain/s1
 pnpm tsx scripts/simulate-season.ts --runs 5          # 27 項平衡驗證（含空間項）
 pnpm tsx scripts/simulate-season.ts --runs 1 --trace  # 看一位玩家的完整狀態
 pnpm tsx scripts/simulate-season.ts --sweep           # 網格搜尋數值組合
-pnpm tsx scripts/seed-season.ts --me you@example.com  # 開一場能真的走進去玩的賽季
-pnpm tsx scripts/seed-season.ts --phase REGISTRATION  # 只開登記，讓 cron 自己推進
+pnpm seed:season you@example.com                      # 開一場能真的走進去玩的賽季
+pnpm seed:season --phase REGISTRATION                 # 只開登記，讓 cron 自己推進
 ```
 
 模擬現在跑在**真實地圖**上：真實地形產出、地理領土上限、鄰居與掠奪、

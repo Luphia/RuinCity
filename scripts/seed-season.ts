@@ -1,11 +1,16 @@
 /**
  * 一鍵開一場可以真的走進去玩的賽季。
  *
- *   pnpm tsx scripts/seed-season.ts                       # 立刻開賽（T = 0 就是現在）
- *   pnpm tsx scripts/seed-season.ts --seed 99991
- *   pnpm tsx scripts/seed-season.ts --me you@example.com  # 順便把自己放進去
- *   pnpm tsx scripts/seed-season.ts --faction 2 --band FRONTIER
- *   pnpm tsx scripts/seed-season.ts --phase REGISTRATION  # 只開登記，不封盤
+ *   pnpm seed:season                            # 立刻開賽（T = 0 就是現在）
+ *   pnpm seed:season you@example.com            # 順便把自己放進去
+ *   pnpm seed:season --seed 99991
+ *   pnpm seed:season --me you@example.com --faction 2 --band FRONTIER
+ *   pnpm seed:season --phase REGISTRATION       # 只開登記，不封盤
+ *
+ * ★ 要走 `pnpm seed:season`，不是 `pnpm tsx scripts/seed-season.ts`。
+ *   這支腳本會 import `lib/server/*`，而那裡的 `import "server-only"`
+ *   在 Node 底下解不開（Next 是用內建 alias 解掉的）。
+ *   `pnpm seed:season` 帶了 `--tsconfig tsconfig.scripts.json`，把它指到替身。
  *
  * ## ★ 為什麼需要這支腳本
  *
@@ -20,7 +25,17 @@
  * ★ I/O 與 `process.env` 都留在這一層。
  */
 
+import { config } from "dotenv";
 import { and, eq } from "drizzle-orm";
+
+/**
+ * ★ 要在 import `lib/db` **之前**載入。
+ *   `next dev` 會自動讀 `.env.local`，但 tsx 不會 —— 少了這兩行，
+ *   明明填好了 `DATABASE_URL` 的人還是會看到「需要 DATABASE_URL」。
+ *   順序與 `drizzle.config.ts` 一致：`.env.local` 優先於 `.env`。
+ */
+config({ path: ".env.local", quiet: true });
+config({ path: ".env", quiet: true });
 
 import { hashSeed } from "../lib/game/rng";
 import { formatFairness } from "../lib/game/map/fairness";
@@ -40,6 +55,19 @@ function arg(name: string, fallback?: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
+/**
+ * `--me you@example.com`，或直接把 email 丟在後面。
+ *
+ * ★ 位置參數看起來是多餘的貼心，但它擋掉一個很難察覺的失敗：
+ *   忘了打 `--me` 時，腳本會**成功**開出一場沒有你的賽季 ——
+ *   沒有錯誤訊息，只是打開 `/base` 之後說「你還沒有進行中的賽季」。
+ */
+function emailArg(): string | undefined {
+  const flagged = arg("me");
+  if (flagged) return flagged;
+  return process.argv.slice(2).find((a) => !a.startsWith("--") && a.includes("@"));
+}
+
 const log = (m: string) => console.log(`  · ${m}`);
 
 async function main() {
@@ -51,7 +79,7 @@ async function main() {
   const rawSeed = arg("seed", String(Date.now() % 2 ** 31))!;
   const seed = /^\d+$/.test(rawSeed) ? Number(rawSeed) : hashSeed(rawSeed);
   const phase = (arg("phase", "RUNNING") ?? "RUNNING").toUpperCase();
-  const email = arg("me");
+  const email = emailArg();
   const faction = Number(arg("faction", "1")) as FactionId;
   const band = (arg("band", "HEARTLAND") ?? "HEARTLAND").toUpperCase();
 
@@ -161,7 +189,20 @@ async function main() {
 main().then(
   () => process.exit(0),
   (e) => {
-    console.error(e);
+    /**
+     * ★ Neon 的 WebSocket pool 連不上時丟的是一個 `ErrorEvent`，
+     *   而它 `console.error` 出來只有 `{ type: 'error', timeStamp: 832 }` ——
+     *   沒有訊息、沒有堆疊，看起來像程式壞了而不是連線壞了。
+     */
+    if (e && typeof e === "object" && !(e instanceof Error) && "type" in e) {
+      console.error(
+        "\n連不上資料庫。檢查 .env.local 的 DATABASE_URL —— " +
+          "要是 Neon 的連線字串（`postgresql://…@…neon.tech/…?sslmode=require`）。",
+      );
+      console.error(e);
+    } else {
+      console.error(e);
+    }
     process.exit(1);
   },
 );

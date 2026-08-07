@@ -1,0 +1,20 @@
+{
+  "//": [
+    "★ 給 tsx 跑 /scripts 用的 tsconfig。",
+    "",
+    "`lib/server/*` 每個檔案開頭都有 `import \"server-only\"` —— 那是 Next.js 的",
+    "建置期哨兵，讓「伺服器模組被 client component import 了」變成編譯錯誤。",
+    "但那個套件在 Node 底下根本不存在（Next 是用內建 alias 解掉它的），",
+    "所以 `pnpm tsx scripts/seed-season.ts` 會在載入階段就 MODULE_NOT_FOUND。",
+    "",
+    "這裡把它指到與 Vitest 相同的替身。哨兵在 `next build` 時仍然完整生效 ——",
+    "被放寬的只有「用 tsx 直接跑腳本」這一條路徑。"
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "server-only": ["./test/server-only-stub.ts"]
+    }
+  }
+}
