@@ -27,7 +27,12 @@ export default async function Home() {
   const mods = seasonModifiersAt(startedAt, now);
 
   // 沒有資料庫的環境（E2E、預覽）不該讓首頁 500
-  let entry = { signedIn: false, hasPlayer: false };
+  let entry: Awaited<ReturnType<typeof loadEntryPoint>> = {
+    signedIn: false,
+    hasPlayer: false,
+    email: null,
+    registered: false,
+  };
   try {
     entry = await loadEntryPoint();
   } catch {
@@ -99,6 +104,19 @@ export default async function Home() {
           </>
         ) : (
           <>
+            {/**
+             * ★ 「登入了卻沒有進入遊戲的按鈕」是一個看起來很像故障的正常狀態。
+             *   要說出是**哪一個帳號**沒有據點 —— 最常見的原因就是登錯帳號，
+             *   而那件事只有把 email 印出來才看得見。
+             */}
+            {entry.signedIn ? (
+              <p className="border-ink-mid bg-ink-soft text-ash rounded border p-4 text-sm leading-relaxed">
+                你以 <b className="text-parchment">{entry.email}</b> 登入
+                {entry.registered
+                  ? "，已完成登記 —— 賽季開打時據點就會出現。"
+                  : "，但這個帳號在進行中的賽季裡沒有據點。去登記下一場，或換一個帳號登入。"}
+              </p>
+            ) : null}
             <Link
               href="/seasons"
               className="bg-relic text-ink rounded px-5 py-3 text-center font-medium transition-opacity hover:opacity-90"

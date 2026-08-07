@@ -9,6 +9,8 @@
  */
 
 import { revalidatePath } from "next/cache";
+
+import { auth } from "@/auth";
 import { and, desc, eq, isNull, ne } from "drizzle-orm";
 
 import { schema } from "@/lib/db";
@@ -172,6 +174,10 @@ export interface EntryPoint {
   readonly signedIn: boolean;
   /** 有沒有一個正在進行的據點可以走進去 */
   readonly hasPlayer: boolean;
+  /** 目前是以哪個身分登入的。★ 「沒有據點」最常見的原因就是登錯帳號 */
+  readonly email: string | null;
+  /** 已經登記、但賽季還沒開打 */
+  readonly registered: boolean;
 }
 
 /**
@@ -184,11 +190,18 @@ export interface EntryPoint {
  *   去讀 600 位玩家的經濟狀態。
  */
 export async function loadEntryPoint(): Promise<EntryPoint> {
+  const session = await auth();
+  const email = session?.user?.email ?? null;
+
   const userId = await currentUserId();
-  if (userId === null) return { signedIn: false, hasPlayer: false };
+  if (userId === null) {
+    return { signedIn: false, hasPlayer: false, email, registered: false };
+  }
 
   const { getDb } = await import("@/lib/db");
-  const [row] = await getDb()
+  const db = getDb();
+
+  const [player] = await db
     .select({ id: schema.players.id })
     .from(schema.players)
     .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
@@ -201,7 +214,28 @@ export async function loadEntryPoint(): Promise<EntryPoint> {
     )
     .limit(1);
 
-  return { signedIn: true, hasPlayer: Boolean(row) };
+  if (player) {
+    return { signedIn: true, hasPlayer: true, email, registered: true };
+  }
+
+  /**
+   * ★ 沒有據點時要分辨兩種完全不同的處境：
+   *   「已登記，賽季還沒開打」 vs 「這個帳號根本不在任何一場裡」。
+   *   前者只要等，後者要去登記 —— 或者，登錯帳號了。
+   */
+  const [reg] = await db
+    .select({ id: schema.seasonRegistrations.id })
+    .from(schema.seasonRegistrations)
+    .innerJoin(schema.seasons, eq(schema.seasonRegistrations.seasonId, schema.seasons.id))
+    .where(
+      and(
+        eq(schema.seasonRegistrations.userId, userId),
+        ne(schema.seasons.status, "ARCHIVED"),
+      ),
+    )
+    .limit(1);
+
+  return { signedIn: true, hasPlayer: false, email, registered: Boolean(reg) };
 }
 
 export interface RegisterResult {
