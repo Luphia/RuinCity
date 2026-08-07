@@ -8,14 +8,79 @@ PostgreSQL + Drizzle ORM。以下為概念 schema，實作時以 `/lib/db/schema
 -- 賽季：所有遊戲資料都掛在賽季下，賽季結束後整批歸檔
 CREATE TABLE seasons (
   id            SERIAL PRIMARY KEY,
-  seed          BIGINT      NOT NULL,       -- 地圖生成種子
-  status        TEXT        NOT NULL,       -- PREPARING | RUNNING | ENDING | ARCHIVED
-  started_at    TIMESTAMPTZ,
+  seed          BIGINT      NOT NULL,       -- 地圖生成種子（可能在封盤期被換掉多次）
+  status        TEXT        NOT NULL,       -- REGISTRATION | SEALED | RUNNING |
+                                            -- ENDING | ARCHIVED
+  registration_opens_at  TIMESTAMPTZ,       -- 登記期開始（開賽前 8 天）
+  registration_closes_at TIMESTAMPTZ,       -- 封盤（開賽前 24 小時）
+  started_at    TIMESTAMPTZ,                -- T = 0，全員同時進入
+  join_closes_at TIMESTAMPTZ,               -- T + 14 天，關閉中途加入
   ends_at       TIMESTAMPTZ,                -- 保底 8 週
+  registered_count INT NOT NULL DEFAULT 0,
+  ruin_positions JSONB,                     -- 封盤期產生
+  fairness_report JSONB,                    -- 五項驗證的實際數值（公開給玩家）
   victory_alliance_id BIGINT,
   victory_countdown_started_at TIMESTAMPTZ, -- 三遺跡同控起始時間
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 賽季登記：在 players 之前存在，封盤期才轉換為 players
+CREATE TABLE season_registrations (
+  id           BIGSERIAL PRIMARY KEY,
+  season_id    INT    NOT NULL REFERENCES seasons(id),
+  user_id      BIGINT NOT NULL REFERENCES users(id),
+  faction      SMALLINT NOT NULL,           -- 1 | 2 | 3，對應三座遺跡
+  spawn_band   TEXT     NOT NULL,           -- VANGUARD | HEARTLAND | FRONTIER
+  squad_code   VARCHAR(12),                 -- 同行小隊代碼，最多 8 人共用
+  assigned_x   SMALLINT,                    -- 封盤期分配後寫入
+  assigned_y   SMALLINT,
+  player_id    BIGINT REFERENCES players(id),  -- T=0 建立 player 後回填
+  joined_late  BOOLEAN NOT NULL DEFAULT false,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (season_id, user_id)
+);
+
+-- 名額控制：容量是「隨總登記數動態成長」的計算值，不是固定欄位。
+-- 只存已用計數，容量在登記交易中即時計算並檢查（見 13 §2.1）。
+CREATE TABLE season_quotas (
+  season_id  INT      NOT NULL REFERENCES seasons(id),
+  faction    SMALLINT NOT NULL,
+  spawn_band TEXT     NOT NULL,
+  taken      INT      NOT NULL DEFAULT 0 CHECK (taken >= 0),
+  PRIMARY KEY (season_id, faction, spawn_band)
+);
+
+CREATE INDEX reg_squad_idx ON season_registrations (season_id, squad_code)
+  WHERE squad_code IS NOT NULL;
+```
+
+### 登記的併發控制
+
+名額容量是總登記數的函式，所以每次登記都會改變**所有陣營**的容量。
+必須在單一交易內序列化：
+
+```sql
+BEGIN;
+  -- 用賽季層級的 advisory lock 序列化整個登記操作。
+  -- 登記期 7 天處理 1,500 筆，序列化完全不是效能瓶頸。
+  SELECT pg_advisory_xact_lock('season_reg'::regclass::int, $seasonId);
+
+  SELECT registered_count FROM seasons WHERE id = $seasonId;
+  -- capacity = max(20, ceil((registered_count + 1) * 1.08 / 3))
+  -- bandCapacity = max(6, ceil(factionTaken * ratio * 1.15))
+
+  SELECT taken FROM season_quotas
+   WHERE season_id = $seasonId AND faction = $f AND spawn_band = $b;
+  -- 超出容量 → ROLLBACK 並回傳「名額已滿」
+
+  INSERT INTO season_registrations (...) VALUES (...);
+  UPDATE season_quotas SET taken = taken + 1 WHERE ...;
+  UPDATE seasons SET registered_count = registered_count + 1 WHERE id = $seasonId;
+COMMIT;
+```
+
+> 容量隨總數成長，代表**一次登記可能同時解鎖其他陣營的名額**。
+> 前端需在提交失敗時重新拉取即時名額，而不是用快取值判斷可否登記。
 
 CREATE TABLE users (
   id            BIGSERIAL PRIMARY KEY,

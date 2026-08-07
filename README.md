@@ -7,6 +7,9 @@
 向外蠶食領土、建立軍隊、與其他玩家結盟或開戰。
 地圖上散落著 **三座古老遺跡**——同時控制它們，就是這個賽季的終局。
 
+賽季採 **事先登記、全員同時開賽**。你的核心只有 4 格、建造佇列永遠只有 1 條，
+想要的永遠比負擔得起的多——**選擇本身就是玩法**。
+
 ---
 
 ## 專案狀態
@@ -35,6 +38,7 @@
 | [`docs/10-roadmap.md`](docs/10-roadmap.md) | 開發里程碑 M0–M7 |
 | [`docs/11-balance-tables.md`](docs/11-balance-tables.md) | 數值表（建築、兵種、成本、時間） |
 | [`docs/12-open-questions.md`](docs/12-open-questions.md) | 待決議事項與已定案紀錄 |
+| [`docs/13-season-registration.md`](docs/13-season-registration.md) | 賽季登記制、三分天下陣營、出生點批次分配與公平性驗證 |
 
 ## 技術棧（摘要）
 
