@@ -17,6 +17,13 @@ test.describe("M0 smoke", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("登入");
   });
 
+  test("M2 的三條遊戲路由都在登入牆後面", async ({ page }) => {
+    for (const path of ["/territory", "/market"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/signin$/);
+    }
+  });
+
   test("cron 端點在沒有 secret 的環境回應 ok", async ({ request }) => {
     const res = await request.get("/api/cron/settle");
     expect(res.status()).toBe(200);

@@ -49,14 +49,25 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 時間係數 | 數值表的時間是「48 天賽季」基準，實際值要 ÷ `TIME_SCALE`(4)；速率 × 4；單位速度 × `MARCH_SCALE`(2)。成本與戰鬥數值不套用任何係數 |
 | React Compiler | render 中不可呼叫 `Date.now()` 等不純函式。這規則與 P1 一致，別繞過它 |
 | Migration | 改 `schema.ts` 後務必 `pnpm db:generate`，CI 會擋下不同步的提交 |
+| 倒數計時器 | 客戶端一律用 `components/use-server-clock.ts` 的 `useServerClock(serverTime)`，只取客戶端時鐘的**間隔**，不取它的絕對值 |
+| 事件 | 新增事件類型時，`lib/game/events.ts` 的 `parsePayload` 與 `resolveEvent` 都要跟上。認不出來的 payload 回 `null` 被跳過 —— 不會炸掉結算，但效果也不會發生 |
 
 ## 目前進度
 
-見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。M0 與 **M1a（地圖生成器）** 已完成，
-下一步是 M1b（PixiJS 渲染）與 M2（經濟）。
+見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2 都已完成**，
+下一步是 M2b（執政官）與 M3（軍隊、行軍、戰鬥）。
 
-戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過一輪
-（`BALANCE_VERSION` = `2026.08.07-b`，理由見 [`docs/11`](docs/11-balance-tables.md) §12）。
+戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過四輪
+（`BALANCE_VERSION` = `2026.08.07-e`，理由見
+[`docs/11`](docs/11-balance-tables.md) §12–§15）。
+
+M2 把 §1–§11 的數值表接上了資料庫，**沒有改任何數值** ——
+但過程中補上了幾個文件沒說到的規則，見 `docs/11` §16。
+其中兩個值得先知道：
+
+- **事件必須真的改變速率**。`ctx.apply` 是分段積分存在的唯一理由；
+  寫成恆等函式的話玩家會花掉資源卻換不到東西（`lib/game/events.ts`）
+- **佇列不另存一張表**，它是 `events` 的一個 view（`deriveQueues()`）
 
 ```bash
 pnpm tsx scripts/generate-map.ts --seed 99991         # 地圖 + 五項公平性驗證

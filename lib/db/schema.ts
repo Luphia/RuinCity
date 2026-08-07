@@ -67,6 +67,25 @@ export const tileStateEnum = pgEnum("tile_state", [
   "CLAIMING",
 ]);
 
+/**
+ * 地形。真相在地圖靜態檔（`public/terrain/s{seasonId}`），
+ * 這裡是**佔領時抄下來的一份**。
+ *
+ * ★ 為什麼要反正規化：結算路徑要算設施產出，而產出乘地形修正
+ *   （`TERRAIN_YIELD`）。如果不存在這裡，每次結算都得去讀 chunk 檔 ——
+ *   而 `/lib/game` 不准有 I/O，那些讀取只能發生在結算的熱路徑上。
+ *   一格的地形整季不會變，抄一次就好。
+ */
+export const terrainEnum = pgEnum("terrain", [
+  "PLAIN",
+  "RUBBLE",
+  "FOREST",
+  "WASTE",
+  "LODE",
+  "MARSH",
+  "MOUNTAIN",
+]);
+
 export const marchTypeEnum = pgEnum("march_type", [
   "RAID",
   "ATTACK",
@@ -94,6 +113,7 @@ export const eventTypeEnum = pgEnum("event_type", [
   "TRAIN_DONE",
   "MARCH_ARRIVE",
   "CLAIM_DONE",
+  "MARKET_DELIVERY",
   "ISOLATION_EXPIRE",
   "CONTEST_EXPIRE",
   "RUIN_TICK",
@@ -361,6 +381,8 @@ export const tiles = pgTable(
     allianceId: bigint("alliance_id", { mode: "number" }),
     facility: text("facility"),
     facilityLevel: smallint("facility_level").notNull().default(0),
+    /** 佔領時從地圖靜態檔抄下來，整季不變 */
+    terrain: terrainEnum("terrain").notNull().default("PLAIN"),
     state: tileStateEnum("state").notNull().default("NORMAL"),
     stateUntil: timestamp("state_until", { withTimezone: true }),
   },
@@ -652,6 +674,67 @@ export const events = pgTable(
     index("events_pending_idx").on(t.resolveAt, t.seq, t.id).where(sql`resolved_at IS NULL`),
     index("events_actor_idx").on(t.actorId, t.resolveAt).where(sql`resolved_at IS NULL`),
   ],
+);
+
+// ─────────────────────────────────────────────────────────────
+// 集市
+// ─────────────────────────────────────────────────────────────
+
+export const listingStatusEnum = pgEnum("listing_status", ["OPEN", "TAKEN", "CANCELLED"]);
+
+/**
+ * 交易掛單。**只有同一聯盟的人看得到、接得到**（`docs/03` §5）。
+ *
+ * 掛單的當下賣方就被扣款，資源進入託管 ——
+ * 否則掛十張單再把資源花光，承接的人會全部撲空。
+ */
+export const marketListings = pgTable(
+  "market_listings",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    seasonId: integer("season_id").notNull().references(() => seasons.id),
+    sellerId: bigint("seller_id", { mode: "number" }).notNull().references(() => players.id),
+    /** 反正規化：掛單當下的聯盟。查詢時仍要驗賣方**現在**還在不在這個聯盟 */
+    allianceId: bigint("alliance_id", { mode: "number" }).notNull(),
+
+    offerResource: text("offer_resource").notNull(),
+    offerAmount: numeric("offer_amount", { precision: 14, scale: 3 }).notNull(),
+    wantResource: text("want_resource").notNull(),
+    wantAmount: numeric("want_amount", { precision: 14, scale: 3 }).notNull(),
+
+    status: listingStatusEnum("status").notNull().default("OPEN"),
+    buyerId: bigint("buyer_id", { mode: "number" }).references(() => players.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("listings_alliance_idx").on(t.seasonId, t.allianceId).where(sql`status = 'OPEN'`),
+    index("listings_seller_idx").on(t.sellerId).where(sql`status = 'OPEN'`),
+    check("listing_amounts_positive", sql`${t.offerAmount} > 0 AND ${t.wantAmount} > 0`),
+    check("listing_distinct_resources", sql`${t.offerResource} <> ${t.wantResource}`),
+  ],
+);
+
+/**
+ * 每位玩家每個遊戲日的資源轉移量，用來套 `500 × 主堡等級` 的日上限。
+ *
+ * ★ 「一日」= 一個**遊戲月**，不是遊戲日。一個真實日等於一個遊戲月
+ *   （`docs/00` 的賽季設定），而遊戲日只有 48 分鐘 ——
+ *   照遊戲日重置的話上限會一天放行 30 次，等於沒有上限。
+ *
+ * ★ 為什麼是一張表而不是一個欄位：存 `(玩家, 遊戲月)` 就**不需要任何
+ *   重置排程**。換月自動換一列，沒有「誰負責在午夜歸零」這個問題，
+ *   也不會有排程掛掉導致上限永遠不重置的故障模式。
+ */
+export const marketTransfers = pgTable(
+  "market_transfers",
+  {
+    playerId: bigint("player_id", { mode: "number" }).notNull().references(() => players.id),
+    /** 遊戲月 1–12，等於賽季的第幾個真實日 */
+    gameMonth: smallint("game_month").notNull(),
+    amount: numeric("amount", { precision: 14, scale: 3 }).notNull().default("0"),
+  },
+  (t) => [primaryKey({ columns: [t.playerId, t.gameMonth] })],
 );
 
 // ─────────────────────────────────────────────────────────────

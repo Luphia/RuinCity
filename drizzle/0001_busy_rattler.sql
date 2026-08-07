@@ -1,0 +1,2 @@
+CREATE TYPE "public"."terrain" AS ENUM('PLAIN', 'RUBBLE', 'FOREST', 'WASTE', 'LODE', 'MARSH', 'MOUNTAIN');--> statement-breakpoint
+ALTER TABLE "tiles" ADD COLUMN "terrain" "terrain" DEFAULT 'PLAIN' NOT NULL;
