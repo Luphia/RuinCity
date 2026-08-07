@@ -19,19 +19,16 @@ import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import {
   checkBuild,
-  freeTerritoryQueue,
   planCoreBuild,
   planCoreConstruct,
   planDemolish,
-  planFacility,
   type CoreSlot,
 } from "@/lib/game/build";
-import { territoryCapacity } from "@/lib/game/formulas";
-import { ISOLATION_GRACE_MS, planClaim, recomputeIsolation } from "@/lib/game/territory";
+import { ISOLATION_GRACE_MS, recomputeIsolation } from "@/lib/game/territory";
 import { serverNow } from "@/lib/time";
 import { scheduleEvent, settleWithin, spendAmounts } from "@/lib/server/player-state";
-import { loadTerrainAround, terrainDirFor } from "@/lib/server/terrain";
 import { buildTerritoryBoard, type TerritoryBoard } from "@/lib/server/territory-board";
+import { buildFacilityFor, claimTileFor } from "@/lib/server/base-ops";
 
 export interface ActionResult {
   readonly ok: boolean;
@@ -165,82 +162,22 @@ export async function demolishCore(slot: CoreSlot): Promise<ActionResult> {
   });
 }
 
-/** 佔領一塊領土 */
+/**
+ * 佔領一塊領土。
+ *
+ * ★ 驗證在 `lib/server/base-ops.ts`，執政官走的是**同一個函式**
+ *   （`docs/18` §11.2）。這裡只負責「我是誰」。
+ */
 export async function claimTile(x: number, y: number): Promise<ActionResult> {
   const playerId = await currentPlayerId();
   const now = await serverNow();
 
-  return withTransaction(async (tx) => {
-    const state = await settleWithin(tx, playerId);
-
-    /**
-     * ★ 同時拓荒上限 = 領土佇列數（`docs/10` M2）。
-     *   少了這一檢查，玩家可以一次下二十張拓荒單 ——
-     *   「拓荒要排隊」這件事就完全失效了。
-     */
-    const queueIndex = freeTerritoryQueue(state.build, now);
-    if (queueIndex < 0) return { ok: false, reason: "NO_FREE_QUEUE" };
-
-    // 地形決定拓荒耗時與之後的設施產出，一律從地圖靜態檔查，不信任呼叫端
-    const terrainMap = await loadTerrainAround(terrainDirFor(state.seasonId), [{ x, y }]);
-    if (!terrainMap.loaded) return { ok: false, reason: "TERRAIN_UNAVAILABLE" };
-
-    const occupied = await tx
-      .select({ playerId: schema.tiles.playerId })
-      .from(schema.tiles)
-      .where(and(eq(schema.tiles.seasonId, state.seasonId), eq(schema.tiles.x, x), eq(schema.tiles.y, y)))
-      .limit(1);
-
-    const plan = planClaim(
-      {
-        baseX: state.baseX,
-        baseY: state.baseY,
-        owned: state.tiles,
-        territoryCapacity: territoryCapacity(state.build.citadel),
-        terrainAt: terrainMap.at,
-        isBlocked: () => occupied[0]?.playerId != null && occupied[0].playerId !== playerId,
-      },
-      x,
-      y,
-    );
-    if ("reason" in plan) return { ok: false, reason: plan.reason };
-
-    const r = state.economy.resources;
-    if (r.grain < plan.cost.grain || r.timber < plan.cost.timber) {
-      return { ok: false, reason: "INSUFFICIENT_RESOURCES" };
-    }
-
-    // 拓荒隊要帶民兵出去，人口不夠就派不出去（`docs/02` §2.2 的第二重遞增）
-    const freePop = state.economy.population.cap - state.economy.population.used;
-    if (freePop < plan.militia) return { ok: false, reason: "INSUFFICIENT_POPULATION" };
-
-    await tx
-      .update(schema.playerResources)
-      .set({
-        grain: String(r.grain - plan.cost.grain),
-        timber: String(r.timber - plan.cost.timber),
-      })
-      .where(eq(schema.playerResources.playerId, playerId));
-
-    const doneAt = now + plan.seconds * 1000;
-    await scheduleEvent(tx, {
-      seasonId: state.seasonId,
-      type: "CLAIM_DONE",
-      actorId: playerId,
-      payload: {
-        kind: "CLAIM",
-        x,
-        y,
-        militia: plan.militia,
-        terrain: terrainMap.at(x, y),
-        queueIndex,
-      },
-      resolveAt: doneAt,
-    });
-
+  const result = await withTransaction((tx) => claimTileFor(tx, playerId, x, y, now));
+  if (result.ok) {
     revalidatePath("/base");
-    return { ok: true, doneAt };
-  });
+    revalidatePath("/territory");
+  }
+  return result;
 }
 
 /** 在自己的領土格上蓋／升設施 */
@@ -252,72 +189,14 @@ export async function buildFacility(
   const playerId = await currentPlayerId();
   const now = await serverNow();
 
-  return withTransaction(async (tx) => {
-    const state = await settleWithin(tx, playerId);
-    const tile = state.tiles.find((t) => t.x === x && t.y === y);
-    if (!tile) return { ok: false, reason: "NOT_OWNED" };
-
-    /**
-     * 一格上只能有一種設施 —— 想換種類要先放棄這塊地再重拓。
-     * 少了這一檢查，「農田升級」可以在最後一刻變成「哨塔升級」，
-     * 而成本是照農田算的。
-     */
-    if (tile.facility && tile.facility !== facility) {
-      return { ok: false, reason: "FACILITY_MISMATCH" };
-    }
-
-    // 集市每位玩家上限 1 座（`docs/02` §3）
-    if (
-      facility === "MARKET" &&
-      !tile.facility &&
-      state.tiles.some((t) => t.facility === "MARKET")
-    ) {
-      return { ok: false, reason: "MARKET_LIMIT" };
-    }
-
-    const plan = planFacility(state.build, facility, tile.facilityLevel, now);
-    if ("reason" in plan) return { ok: false, reason: plan.reason };
-
-    const check = checkBuild(state.build, state.economy.resources, state.economy.capacity, {
-      target: "CITADEL",
-      building: null,
-      fromLevel: plan.fromLevel,
-      toLevel: plan.toLevel,
-      cost: plan.cost,
-      seconds: plan.seconds,
-    });
-    if (!check.ok) return { ok: false, reason: check.reason };
-
-    const next = spendAmounts(state.economy.resources, plan.cost);
-    await tx
-      .update(schema.playerResources)
-      .set({
-        grain: String(next.grain),
-        timber: String(next.timber),
-        stone: String(next.stone),
-        iron: String(next.iron),
-      })
-      .where(eq(schema.playerResources.playerId, playerId));
-
-    const doneAt = now + plan.seconds * 1000;
-    await scheduleEvent(tx, {
-      seasonId: state.seasonId,
-      type: "BUILD_DONE",
-      actorId: playerId,
-      payload: {
-        kind: "FACILITY",
-        x,
-        y,
-        facility,
-        toLevel: plan.toLevel,
-        queueIndex: plan.queueIndex,
-      },
-      resolveAt: doneAt,
-    });
-
+  const result = await withTransaction((tx) =>
+    buildFacilityFor(tx, playerId, x, y, facility, now),
+  );
+  if (result.ok) {
     revalidatePath("/base");
-    return { ok: true, doneAt };
-  });
+    revalidatePath("/territory");
+  }
+  return result;
 }
 
 /** 領土畫面的資料 */

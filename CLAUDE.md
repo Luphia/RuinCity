@@ -51,11 +51,12 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | Migration | 改 `schema.ts` 後務必 `pnpm db:generate`，CI 會擋下不同步的提交 |
 | 倒數計時器 | 客戶端一律用 `components/use-server-clock.ts` 的 `useServerClock(serverTime)`，只取客戶端時鐘的**間隔**，不取它的絕對值 |
 | 事件 | 新增事件類型時，`lib/game/events.ts` 的 `parsePayload` 與 `resolveEvent` 都要跟上。認不出來的 payload 回 `null` 被跳過 —— 不會炸掉結算，但效果也不會發生 |
+| 執政官 | 只在**伺服器端**觸發（結算迴圈 + 2h 安全網），不接在頁面載入上 —— 否則它會搶走玩家正要用的佇列。禁區（核心佇列、軍事、拆除、交易）在回傳型別上就不存在，別加回來 |
 
 ## 目前進度
 
-見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2 都已完成**，
-下一步是 M2b（執政官）與 M3（軍隊、行軍、戰鬥）。
+見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b 都已完成**，
+下一步是 M3（軍隊、行軍、戰鬥）。
 
 戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過四輪
 （`BALANCE_VERSION` = `2026.08.07-e`，理由見
@@ -68,6 +69,10 @@ M2 把 §1–§11 的數值表接上了資料庫，**沒有改任何數值** —
 - **事件必須真的改變速率**。`ctx.apply` 是分段積分存在的唯一理由；
   寫成恆等函式的話玩家會花掉資源卻換不到東西（`lib/game/events.ts`）
 - **佇列不另存一張表**，它是 `events` 的一個 view（`deriveQueues()`）
+
+M2b 的執政官走**與玩家完全相同的驗證路徑**（`lib/server/base-ops.ts`）——
+Server Action 與執政官的差別只在「誰解析出 playerId」。
+AI 玩家與遺跡軍團之後也接在這裡。理由見 `docs/11` §17.3。
 
 ```bash
 pnpm tsx scripts/generate-map.ts --seed 99991         # 地圖 + 五項公平性驗證

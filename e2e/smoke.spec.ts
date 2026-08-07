@@ -17,8 +17,8 @@ test.describe("M0 smoke", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("登入");
   });
 
-  test("M2 的三條遊戲路由都在登入牆後面", async ({ page }) => {
-    for (const path of ["/territory", "/market"]) {
+  test("M2 的遊戲路由都在登入牆後面", async ({ page }) => {
+    for (const path of ["/territory", "/market", "/steward"]) {
       await page.goto(path);
       await expect(page).toHaveURL(/\/signin$/);
     }

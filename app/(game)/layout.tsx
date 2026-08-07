@@ -13,6 +13,7 @@ const TABS = [
   { href: "/base", label: "據點" },
   { href: "/territory", label: "領土" },
   { href: "/market", label: "集市" },
+  { href: "/steward", label: "執政官" },
   { href: "/map", label: "地圖" },
 ] as const;
 

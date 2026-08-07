@@ -89,3 +89,33 @@ export async function loadTerrainAround(
 
   return { at, loaded };
 }
+
+/**
+ * 這一季三座遺跡的座標。
+ *
+ * 真相同樣在地圖靜態檔的 `meta.json`（`generate-map.ts` 寫出來的），
+ * 整季不變，所以讀一次就快取起來。
+ */
+const ruinCache = new Map<string, readonly { x: number; y: number }[]>();
+
+export async function loadRuins(
+  seasonDir: string,
+): Promise<readonly { x: number; y: number }[]> {
+  const hit = ruinCache.get(seasonDir);
+  if (hit) return hit;
+
+  try {
+    const raw = await readFile(
+      join(process.cwd(), "public", "terrain", seasonDir, "meta.json"),
+      "utf8",
+    );
+    const meta = JSON.parse(raw) as { ruins?: { x?: unknown; y?: unknown }[] };
+    const ruins = (meta.ruins ?? []).flatMap((r) =>
+      typeof r.x === "number" && typeof r.y === "number" ? [{ x: r.x, y: r.y }] : [],
+    );
+    ruinCache.set(seasonDir, ruins);
+    return ruins;
+  } catch {
+    return [];
+  }
+}

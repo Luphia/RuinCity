@@ -3,10 +3,17 @@ import { SEASON_LABEL } from "@/lib/game/calendar";
 import { planCoreBuild, type CoreSlot } from "@/lib/game/build";
 import { deriveRates, outpostUpkeep } from "@/lib/game/economy-state";
 import { BaseView, type CoreSlotView } from "@/components/base/BaseView";
+import { BriefingCard } from "@/components/steward/BriefingCard";
 import { constructCore, upgradeCore } from "@/app/actions/base";
+import {
+  acknowledgeBriefing,
+  loadStewardBriefing,
+} from "@/app/actions/steward";
 import { loadAndSettle } from "@/lib/server/player-state";
 import { zeroAmounts } from "@/lib/game/settle";
+import { formatGameDateWithSeason, toGameDate } from "@/lib/game/calendar";
 import { serverNow } from "@/lib/time";
+import type { Briefing } from "@/lib/server/steward";
 
 export const metadata = { title: "據點 · RuinCity" };
 export const dynamic = "force-dynamic";
@@ -21,9 +28,12 @@ export default async function BasePage() {
   let state: Awaited<ReturnType<typeof loadAndSettle>> | null = null;
   let error: string | null = null;
 
+  let briefing: Briefing | null = null;
+
   try {
-    // M2b 之前還沒有賽季登記流程，所以這裡可能找不到玩家
+    // 賽季登記流程在 M5，所以這裡可能找不到玩家
     state = await loadAndSettle(await currentPlayerId());
+    briefing = await loadStewardBriefing();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -33,17 +43,20 @@ export default async function BasePage() {
       <main className="mx-auto max-w-md px-6 py-16 text-[#e8dcc0]">
         <h1 className="text-2xl font-bold">據點</h1>
         <p className="mt-3 text-sm leading-relaxed opacity-80">
-          你還沒有進行中的賽季。賽季登記與開局配置在 M5 實作
-          （見 <code>docs/13-season-registration.md</code>）。
+          你還沒有進行中的賽季。賽季登記與開局配置在 M5 實作 （見{" "}
+          <code>docs/13-season-registration.md</code>）。
         </p>
-        <p className="mt-4 rounded bg-[#2e2723] p-3 text-xs opacity-70">{error}</p>
+        <p className="mt-4 rounded bg-[#2e2723] p-3 text-xs opacity-70">
+          {error}
+        </p>
       </main>
     );
   }
 
   const derived = deriveRates({
     citadel: state.build.citadel,
-    depotLevel: state.build.slots.D.building === "DEPOT" ? state.build.slots.D.level : 0,
+    depotLevel:
+      state.build.slots.D.building === "DEPOT" ? state.build.slots.D.level : 0,
     tiles: state.tiles,
   });
   const season = SEASON_MODIFIERS[state.season];
@@ -73,33 +86,46 @@ export default async function BasePage() {
   ];
 
   return (
-    <BaseView
-      citadel={state.build.citadel}
-      resources={state.economy.resources}
-      perHour={perHour}
-      capacity={derived.capacity}
-      population={{
-        amount: state.economy.population.amount,
-        cap: derived.populationCap,
-        used: state.economy.population.used,
-        rate: derived.populationRate,
-      }}
-      territory={{
-        used: state.tiles.length,
-        cap: derived.territoryCapacity,
-        isolated: state.tiles.filter((t) => t.state === "ISOLATED").length,
-      }}
-      slots={slotViews}
-      coreQueue={{ label: "", doneAt: state.build.coreQueue?.doneAt ?? null }}
-      territoryQueues={state.build.territoryQueue.map((q) => ({
-        label: "",
-        doneAt: q?.doneAt ?? null,
-      }))}
-      seasonLabel={SEASON_LABEL[state.season]}
-      serverTime={now}
-      onUpgrade={upgradeCore}
-      onConstruct={constructCore}
-    />
+    <>
+      {briefing ? (
+        <div className="mx-auto max-w-md px-4 pt-4">
+          <BriefingCard
+            briefing={briefing}
+            gameDate={formatGameDateWithSeason(
+              toGameDate(state.seasonStartedAt, now),
+            )}
+            onAcknowledge={acknowledgeBriefing}
+          />
+        </div>
+      ) : null}
+      <BaseView
+        citadel={state.build.citadel}
+        resources={state.economy.resources}
+        perHour={perHour}
+        capacity={derived.capacity}
+        population={{
+          amount: state.economy.population.amount,
+          cap: derived.populationCap,
+          used: state.economy.population.used,
+          rate: derived.populationRate,
+        }}
+        territory={{
+          used: state.tiles.length,
+          cap: derived.territoryCapacity,
+          isolated: state.tiles.filter((t) => t.state === "ISOLATED").length,
+        }}
+        slots={slotViews}
+        coreQueue={{ label: "", doneAt: state.build.coreQueue?.doneAt ?? null }}
+        territoryQueues={state.build.territoryQueue.map((q) => ({
+          label: "",
+          doneAt: q?.doneAt ?? null,
+        }))}
+        seasonLabel={SEASON_LABEL[state.season]}
+        serverTime={now}
+        onUpgrade={upgradeCore}
+        onConstruct={constructCore}
+      />
+    </>
   );
 }
 
@@ -109,7 +135,8 @@ function planFor(
   now: number,
 ): CoreSlotView["next"] {
   const plan = planCoreBuild(state.build, target, now);
-  if ("reason" in plan) return { cost: zeroAmounts(), seconds: 0, blocked: plan.reason };
+  if ("reason" in plan)
+    return { cost: zeroAmounts(), seconds: 0, blocked: plan.reason };
   if (target === "CITADEL" && state.build.citadel >= CITADEL.maxLevel) {
     return { cost: zeroAmounts(), seconds: 0, blocked: "CITADEL_MAXED" };
   }
@@ -130,7 +157,9 @@ async function currentPlayerId(): Promise<number> {
     .from(schema.players)
     .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
     .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")))
+    .where(
+      and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")),
+    )
     .limit(1);
 
   if (!row) throw new Error("找不到進行中的賽季角色");

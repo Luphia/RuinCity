@@ -12,12 +12,12 @@ import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
 
 import { TERRAIN, type Terrain } from "@/lib/game/balance";
 import { freeTerritoryQueue } from "@/lib/game/build";
-import { territoryCapacity } from "@/lib/game/formulas";
+import { territoryCapacity, territoryQueues } from "@/lib/game/formulas";
 import { claimCost, claimMilitia, claimSeconds, coreTiles } from "@/lib/game/territory";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import type { settleWithin } from "@/lib/server/player-state";
-import { loadTerrainAround, terrainDirFor } from "@/lib/server/terrain";
+import { loadRuins, loadTerrainAround, terrainDirFor } from "@/lib/server/terrain";
 
 export interface OwnedTileView {
   readonly x: number;
@@ -37,6 +37,14 @@ export interface ClaimCandidate {
   readonly cost: { readonly grain: number; readonly timber: number };
   readonly militia: number;
   readonly seconds: number;
+  /**
+   * ★ 以下三項是給執政官用的地理事實。
+   *   執政官與玩家看**同一份候選清單** —— 兩份清單遲早會有一份先過期，
+   *   而「按了才說不行」是最糟的手感。
+   */
+  readonly distanceToBase: number;
+  readonly distanceToRuin: number;
+  readonly hostileNeighbours: number;
 }
 
 export interface TerritoryBoard {
@@ -44,6 +52,8 @@ export interface TerritoryBoard {
   readonly candidates: readonly ClaimCandidate[];
   readonly capacity: number;
   readonly queuesFree: boolean;
+  /** 閒置的領土佇列數。執政官用它決定這一輪能排幾件事 */
+  readonly queuesFreeCount: number;
   readonly baseX: number;
   readonly baseY: number;
 }
@@ -57,6 +67,20 @@ const N4 = [
 
 /** 一次列出的候選格上限。地圖上相鄰的空地可能很多，UI 不需要全部 */
 const MAX_CANDIDATES = 40;
+
+/** 幾條領土佇列是閒著的 */
+function countFreeQueues(
+  state: Awaited<ReturnType<typeof settleWithin>>,
+  now: number,
+): number {
+  const total = territoryQueues(state.build.citadel);
+  let free = 0;
+  for (let i = 0; i < total; i++) {
+    const q = state.build.territoryQueue[i];
+    if (!q || q.doneAt <= now) free++;
+  }
+  return free;
+}
 
 export async function buildTerritoryBoard(
   tx: TxDb,
@@ -114,12 +138,25 @@ export async function buildTerritoryBoard(
     for (const r of rows) takenKeys.add(key(r.x, r.y));
   }
 
+  const ruins = await loadRuins(terrainDirFor(state.seasonId));
+  const distanceToRuin = (x: number, y: number) =>
+    ruins.length === 0
+      ? Infinity
+      : Math.min(...ruins.map((r) => Math.abs(r.x - x) + Math.abs(r.y - y)));
+
   const ownedCount = state.tiles.length;
   const candidates: ClaimCandidate[] = [];
   for (const p of points) {
     if (takenKeys.has(key(p.x, p.y))) continue;
     const terrain = terrainMap.at(p.x, p.y);
     if (TERRAIN[terrain].marchFactor === null) continue;
+
+    // 相鄰有幾格是**別人的**。takenKeys 已經排除了自己的地
+    let hostile = 0;
+    for (const [dx, dy] of N4) {
+      if (takenKeys.has(key(p.x + dx, p.y + dy))) hostile++;
+    }
+
     candidates.push({
       x: p.x,
       y: p.y,
@@ -128,6 +165,9 @@ export async function buildTerritoryBoard(
       cost: claimCost(ownedCount),
       militia: claimMilitia(ownedCount),
       seconds: claimSeconds(ownedCount, terrain),
+      distanceToBase: Math.abs(p.x - state.baseX) + Math.abs(p.y - state.baseY),
+      distanceToRuin: distanceToRuin(p.x, p.y),
+      hostileNeighbours: hostile,
     });
   }
 
@@ -147,6 +187,7 @@ export async function buildTerritoryBoard(
     candidates: candidates.slice(0, MAX_CANDIDATES),
     capacity: territoryCapacity(state.build.citadel),
     queuesFree: freeTerritoryQueue(state.build, now) >= 0,
+    queuesFreeCount: countFreeQueues(state, now),
     baseX: state.baseX,
     baseY: state.baseY,
   };

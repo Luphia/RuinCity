@@ -40,6 +40,8 @@ export interface LoadedPlayer {
   readonly seasonStartedAt: number;
   readonly baseX: number;
   readonly baseY: number;
+  /** 上次登入。執政官用它判斷是否進入全權代理（`docs/18` §8） */
+  readonly lastSeenAt: number | null;
   readonly economy: PlayerEconomy;
   readonly build: BuildState;
   readonly tiles: readonly TileWithFacility[];
@@ -272,6 +274,7 @@ export async function settleWithin(tx: TxDb, playerId: number): Promise<LoadedPl
     seasonStartedAt,
     baseX: player.baseX,
     baseY: player.baseY,
+    lastSeenAt: player.lastSeenAt?.getTime() ?? null,
     economy: result.economy,
     build: buildState,
     tiles: world.tiles,

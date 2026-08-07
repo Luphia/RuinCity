@@ -336,6 +336,17 @@ interface SimPlayer {
 
   /** 統計 */
   starvedTotal: number;
+  /**
+   * ★ 佇列閒置時數。這是 `docs/18` §12 唯一驗得到「執政官沒越界」的指標。
+   *
+   * 執政官補的是**領土**佇列，核心佇列它碰都不碰 ——
+   * 所以完全委託的玩家，核心佇列的閒置率必須**比積極玩家高**。
+   * 一旦這個數字掉下來，就代表某處的自動化偷偷伸手進了核心佇列，
+   * 而核心佇列是整套取捨系統的命脈。
+   */
+  coreIdleHours: number;
+  territoryIdleSlotHours: number;
+  territorySlotHours: number;
   /** 掠奪：發動、被打、搶到的糧食、被搶走的資源、戰損 */
   raidsLaunched: number;
   raidsWon: number;
@@ -582,6 +593,9 @@ function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] 
       coreQueueUntil: 0,
       territoryQueueUntil: [0],
       starvedTotal: 0,
+      coreIdleHours: 0,
+      territoryIdleSlotHours: 0,
+      territorySlotHours: 0,
       winterDeficitHours: 0,
       raidsLaunched: 0,
       raidsWon: 0,
@@ -1428,6 +1442,13 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
         p.population + populationGrowthPerHour(p.citadel, territoryOf(p)),
       );
 
+      // ── 佇列閒置統計（docs/18 §12 的越界檢查）────────
+      if (p.coreQueueUntil <= hour) p.coreIdleHours++;
+      for (const until of p.territoryQueueUntil) {
+        p.territorySlotHours++;
+        if (until <= hour) p.territoryIdleSlotHours++;
+      }
+
       // ── 核心佇列（永遠手動，執政官不碰）──────────────
       const manual = rand() < MANUAL_DUTY[p.archetype];
       if (manual) runCoreQueue(p, hour, eff, rand);
@@ -1814,6 +1835,55 @@ function evaluate(results: SeasonResult[]): Check[] {
     pass: parity >= 0.75 && parity <= 0.85,
     actual: `${(parity * 100).toFixed(0)}%`,
     target: "75–85%",
+  });
+
+  /**
+   * ★ 核心佇列的閒置率**不因執政官而下降**（`docs/18` §12）。
+   *
+   * 這是唯一驗得到「執政官沒有越界」的指標。它補的是領土佇列，
+   * 核心佇列碰都不碰 —— 所以完全委託的玩家，核心佇列閒得**更兇**。
+   * 一旦這個比值掉到 1 以下，就代表某處的自動化伸手進了核心佇列，
+   * 而核心佇列是整套取捨系統的命脈。
+   */
+  const coreIdle = (r: SeasonResult, a: Archetype) => {
+    const g = r.players.filter((p) => p.archetype === a);
+    return g.reduce((s, p) => s + p.coreIdleHours, 0) / Math.max(1, g.length);
+  };
+  const coreIdleRatio = avg((r) => {
+    const active = coreIdle(r, "ACTIVE");
+    return active > 0 ? coreIdle(r, "DELEGATED") / active : 0;
+  });
+  checks.push({
+    label: "★ 核心佇列閒置率（委託 ÷ 積極）—— 執政官不碰核心佇列",
+    pass: coreIdleRatio >= 1,
+    actual: `${coreIdleRatio.toFixed(2)}×`,
+    target: "≥ 1.00×",
+  });
+
+  /**
+   * 領土佇列的閒置時間 < 15%（`docs/18` §12）——
+   * 驗證執政官確實補上了每日上線 3 次的玩家留下的空檔。
+   */
+  const territoryIdle = (r: SeasonResult, a: Archetype) => {
+    const g = r.players.filter((p) => p.archetype === a);
+    const idle = g.reduce((s, p) => s + p.territoryIdleSlotHours, 0);
+    const total = g.reduce((s, p) => s + p.territorySlotHours, 0);
+    return total > 0 ? idle / total : 1;
+  };
+  const casualIdle = avg((r) => territoryIdle(r, "CASUAL"));
+  const activeIdle = avg((r) => territoryIdle(r, "ACTIVE"));
+  checks.push({
+    /**
+     * ★ 把積極玩家的數字一起印出來，這個檢查才讀得懂。
+     *   `docs/18` §12 訂 15% 時假設閒置的成因是**注意力**；
+     *   但如果連天天在線的人也閒著同樣多，成因就是**資源**，
+     *   而那不是執政官補得了的東西。見 `11` §17.2。
+     */
+    label: "休閒玩家的領土佇列閒置率",
+    pass: casualIdle < 0.15,
+    actual: `${(casualIdle * 100).toFixed(0)}%（積極玩家 ${(activeIdle * 100).toFixed(0)}%）`,
+    target: "< 15%",
+    indicative: true,
   });
 
   // 休閒 vs 硬核（docs/03 §6 設計檢查點）
