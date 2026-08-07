@@ -124,7 +124,7 @@ CREATE TABLE players (
   base_x         SMALLINT NOT NULL,          -- 核心據點左上角 (A 格)
   base_y         SMALLINT NOT NULL,
   citadel_level  SMALLINT NOT NULL DEFAULT 1,
-  last_seen_at   TIMESTAMPTZ,                -- 用於 AI 託管判定與遺物分配
+  last_seen_at   TIMESTAMPTZ,                -- 用於執政官全權代理判定與遺物分配
   settled_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- AI 欄位（見 15-ai-players.md §7.3）
   is_ai          BOOLEAN NOT NULL DEFAULT false,
@@ -148,6 +148,35 @@ CREATE TABLE base_slots (
   PRIMARY KEY (player_id, slot)
 );
 ```
+
+### 執政官（見 `18-steward.md`）
+
+```sql
+CREATE TABLE stewards (
+  player_id     BIGINT PRIMARY KEY REFERENCES players(id),
+  name          TEXT   NOT NULL,
+  avatar_seed   INT    NOT NULL,
+  directives    JSONB  NOT NULL,  -- 拓荒／建設／募兵的開關、參數、資源保留下限
+  paused_until  TIMESTAMPTZ,      -- 領主接管中
+  full_proxy    BOOLEAN NOT NULL DEFAULT false,  -- 48h 未登入 → 全權代理
+  last_acted_at TIMESTAMPTZ
+);
+
+-- 施政簡報的素材：只保留 48 小時，登入生成簡報後標記已讀
+CREATE TABLE steward_log (
+  id         BIGSERIAL PRIMARY KEY,
+  player_id  BIGINT NOT NULL REFERENCES players(id),
+  kind       TEXT   NOT NULL,   -- CLAIM | BUILD | LEVY | WARNING | BLOCKED
+  payload    JSONB  NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX steward_log_player_idx ON steward_log (player_id, created_at DESC);
+```
+
+`BLOCKED` 記錄「執政官因保留下限或容量上限而**沒能行動**」——
+簡報必須告訴領主「木材保留下限 5,000，本可再拓荒 2 格」。
+**執政官沒做什麼，跟它做了什麼一樣需要被看見。**
 
 ### 資源：快照 + 速率（惰性結算）
 
@@ -461,7 +490,8 @@ CREATE TYPE event_type AS ENUM (
   'LEADER_TRANSFER'     -- 盟主轉讓生效（宣告 + 30 分鐘）
   'AI_TICK',            -- 每遊戲月邊界的 AI 決策（見 15 §7.1）
   'AI_RETALIATE',       -- AI 反擊（被攻擊後 1–4 小時）
-  'AI_TAKEOVER'         -- 離線真人轉 AI 託管
+  'AI_TAKEOVER',        -- 離線真人的執政官轉為全權代理（見 18 §8）
+  'STEWARD_TICK'        -- 每 2 小時的執政官安全網（見 18 §11.1）
 );
 
 CREATE TABLE events (
