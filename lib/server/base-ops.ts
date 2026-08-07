@@ -76,7 +76,7 @@ export async function claimTileFor(
       baseX: state.baseX,
       baseY: state.baseY,
       owned: state.tiles,
-      territoryCapacity: territoryCapacity(state.build.citadel),
+      territoryCapacity: territoryCapacity(state.build.citadel, state.bandBonus),
       terrainAt: terrainMap.at,
       isBlocked: () => occupied[0]?.playerId != null && occupied[0].playerId !== playerId,
     },

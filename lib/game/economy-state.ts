@@ -41,6 +41,12 @@ export interface EconomyInputs {
   /** 科技加成，例如耕作 Lv5 → 0.2 */
   readonly cultivationBonus?: number;
   readonly extractionBonus?: number;
+  /**
+   * 出生環帶的領土容量加成（前線 +1，見 `lib/game/season.ts`）。
+   * 這是常數，賽季一開始就固定，但它必須流進速率推導 ——
+   * 否則 `docs/13` §5 承諾的補償只存在於文件裡。
+   */
+  readonly bandBonus?: number;
 }
 
 export interface DerivedRates {
@@ -106,7 +112,7 @@ export function deriveRates(input: EconomyInputs): DerivedRates {
     populationCap: populationCap(input.citadel),
     // 成長率由**連通的**領土決定 —— 被切斷的地不生人
     populationRate: populationGrowthPerHour(input.citadel, normalTiles),
-    territoryCapacity: territoryCapacity(input.citadel),
+    territoryCapacity: territoryCapacity(input.citadel, input.bandBonus ?? 0),
     outpostLevels,
   };
 }

@@ -57,11 +57,17 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 整合測試 | `lib/**/*.integration.test.ts` 跑在 PGlite（WASM Postgres）上，`pnpm test` 就會跑。不需要容器或連線字串 |
 | 跨玩家事件 | 需要不只一個玩家的鎖的東西（戰鬥）**不屬於 `events` 表**。行軍由結算迴圈直接掃 `marches`，理由見 `docs/11` §19.1 |
 | 隨機性 | 結算路徑一律 `mulberry32(deriveSeed(...))`，不用 `Math.random()`。交易會重試，而重試不該變成「再擲一次骰子」 |
+| 出生點 | 兩點之間的切比雪夫距離**至少 2**（`HARD_MIN_SPACING`）—— 核心是 2×2，差一格就會疊到同一格 `tiles`。`poissonPick` 會被呼叫很多次，硬性下限只有靠那份跨呼叫的 blocker 才守得住 |
+| 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
+| 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |
 
 ## 目前進度
 
-見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b、M3 都已完成**，
+見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b、M3、M5b 都已完成**，
 下一步是 M3b（區域容量與超限損耗）與 M4（聯盟）。
+
+**現在可以真的玩了**：`pnpm tsx scripts/seed-season.ts --me you@example.com`
+會開一場賽季、AI 補足到 600、跑封盤、在 T=0 寫入所有人的初始狀態。
 
 戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過四輪
 （`BALANCE_VERSION` = `2026.08.07-e`，理由見
@@ -83,21 +89,33 @@ M3 把 PvP 循環接上了：派兵、抵達結算、掠奪、回程、戰報、
 （`lib/server/march-ops.ts` 與 `battle-ops.ts`）。結構上的決定見 `docs/11` §19，
 其中最重要的一條是 §19.1：**跨玩家的結算不走 per-player 的事件 applier**。
 
+M5b 把賽季生命週期接上了：建立 → 登記 → 封盤（AI 補足 + 地圖生成 + 出生點）
+→ T=0 → 階段推進（`lib/game/season.ts` 與 `lib/server/season-ops.ts`，
+排程掛在 `/api/cron/settle`）。實作記錄見 `docs/11` §20，
+其中 §20.4 是一個從 M1 就存在、只有整合測試照得出來的空間缺陷：
+**600 人裡有 20 位的據點核心與鄰居重疊**。
+
 ```bash
 pnpm tsx scripts/generate-map.ts --seed 99991         # 地圖 + 五項公平性驗證
 pnpm tsx scripts/generate-map.ts --seed 99991 --out public/terrain/s1
 pnpm tsx scripts/simulate-season.ts --runs 5          # 27 項平衡驗證（含空間項）
 pnpm tsx scripts/simulate-season.ts --runs 1 --trace  # 看一位玩家的完整狀態
 pnpm tsx scripts/simulate-season.ts --sweep           # 網格搜尋數值組合
+pnpm tsx scripts/seed-season.ts --me you@example.com  # 開一場能真的走進去玩的賽季
+pnpm tsx scripts/seed-season.ts --phase REGISTRATION  # 只開登記，讓 cron 自己推進
 ```
 
 模擬現在跑在**真實地圖**上：真實地形產出、地理領土上限、鄰居與掠奪、
 廢土營地（PvE）、科技樹、區域容量與超限損耗、遺跡遠征的行軍限制。
 世界生成約 7–20 秒，之後每場賽季約 10 秒。
 
-**改數值之前先跑模擬。** 目前 27/31 通過，`docs/03` §6 的十二個曲線目標
-只差月 9 的兵力一項。剩下四項的成因都寫在 `docs/11` §15.5，
+**改數值之前先跑模擬。** 目前 28/33 通過，`docs/03` §6 的十二個曲線目標
+只差月 9 的兵力一項。剩下的成因都寫在 `docs/11` §15.5，
 其中「區域超限損兵」要等 M3b 的區域容量才驗得到。
+
+M5b 的出生點下限讓「冬季真的餓死部隊的玩家」從 3% 掉到 2%（目標 3–45%），
+六場複驗一致。成因與處置見 `docs/11` §20.5 —— **沒有為此動數值**，
+冬季壓力偏弱本來就是 §15.5 的待調項之一，要跟其他三項一起處理。
 
 設計目標是「**80% 的玩家只走得完 80% 發展度**」（`docs/11` §14）——
 改任何天花板之前先看那一節，特別是「分母灌水」那個陷阱。

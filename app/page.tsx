@@ -66,12 +66,20 @@ export default async function Home() {
         <Fact label="勝利條件" value="單一聯盟同時控制三座遺跡滿 6 小時" />
       </section>
 
-      <Link
-        href="/signin"
-        className="border-relic text-relic hover:bg-relic hover:text-ink rounded border px-5 py-3 text-center font-medium transition-colors"
-      >
-        登入
-      </Link>
+      <div className="flex flex-col gap-2">
+        <Link
+          href="/seasons"
+          className="bg-relic text-ink rounded px-5 py-3 text-center font-medium transition-opacity hover:opacity-90"
+        >
+          賽季登記
+        </Link>
+        <Link
+          href="/signin"
+          className="border-relic text-relic hover:bg-relic hover:text-ink rounded border px-5 py-3 text-center font-medium transition-colors"
+        >
+          登入
+        </Link>
+      </div>
 
       <footer className="text-ink-mid mt-auto font-mono text-[10px]">
         balance {BALANCE_VERSION}

@@ -179,6 +179,7 @@ export async function runStewardWithin(
     citadel: state.build.citadel,
     depotLevel: state.build.slots.D.building === "DEPOT" ? state.build.slots.D.level : 0,
     tiles: state.tiles,
+    bandBonus: state.bandBonus,
   });
   const season = SEASON_MODIFIERS[state.season];
   const upkeep = outpostUpkeep(derived.outpostLevels);

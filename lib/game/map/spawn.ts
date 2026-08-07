@@ -88,28 +88,82 @@ interface BandCell {
 const NEIGHBOURHOOD_TOLERANCE = 0.1;
 
 /**
+ * ★ 出生點之間的**硬性**下限，切比雪夫距離。
+ *
+ * 據點核心是 2×2（`coreTiles()`），所以兩個出生點只要在任一軸上
+ * 相距 < 2，兩人的核心就會**重疊**到同一格 —— 而 `tiles` 上
+ * (season, x, y) 是唯一鍵，後寫的那位會靜靜地少掉一格主堡用地。
+ * 開賽時看不出來，要等到玩家發現自己的主堡只有三格才會炸出來。
+ *
+ * 這個下限與下面那個「逐步放寬」的理想間距是兩回事：
+ * 理想間距是分佈品質，可以妥協；這一條是資料完整性，不能妥協。
+ *
+ * ★ 就取 2，不多留緩衝。多留一格聽起來比較安全，但它會把候選池的
+ *   需求從 quota × 6 拉到 quota × 18 —— 而那個池子是靠「鄰域統計接近
+ *   全服中位數」篩出來的，要湊到 18 倍就得把容忍度放到 1.5，
+ *   公平性檢查 (d) 直接從 2.8% 惡化到 28%。
+ *   換句話說：為了幾格的呼吸空間，會讓一部分玩家系統性地生在比較好
+ *   （或比較差）的地形上。核心貼核心只是擠，那個才是不公平。
+ */
+export const HARD_MIN_SPACING = 2;
+
+/**
+ * 全服的佔位表。
+ *
+ * `poissonPick` 只看得到**同一次呼叫**裡的點，但九個 (陣營, 環帶) 桶是
+ * 各自取樣的，小隊與散客又分兩批 —— 環帶交界處的兩個人完全可能相差一格。
+ * 所以硬性下限必須有一份跨桶的紀錄。
+ */
+interface Blocker {
+  take(x: number, y: number): void;
+  free(c: { x: number; y: number }): boolean;
+}
+
+function createBlocker(): Blocker {
+  const blocked = new Set<number>();
+  const r = HARD_MIN_SPACING - 1;
+  const key = (x: number, y: number) => y * 100000 + x;
+  return {
+    take(x: number, y: number) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) blocked.add(key(x + dx, y + dy));
+      }
+    },
+    free: (c: { x: number; y: number }) => !blocked.has(key(c.x, c.y)),
+  };
+}
+
+/**
  * Poisson-disk sampling（Bridson）在一組離散候選格上。
  *
  * 標準 Bridson 在連續空間取樣，但這裡的合法格是離散且形狀不規則的
  * （環帶被 Voronoi 邊界與山脈裁切），所以改成「洗牌後貪婪挑選 +
  * 空間雜湊做最小間距檢查」—— 結果同樣是藍雜訊分佈，而且不會卡在
  * 找不到候選點的無限重試裡。
+ *
+ * `blocker` 是跨呼叫的佔位表。每一次呼叫都只看得到自己挑出來的點，
+ * 但這個函式會被呼叫很多次（九個桶 × 五個分層 × 小隊/散客兩批），
+ * 硬性下限只有靠它才守得住。
  */
 function poissonPick(
   rng: Rng,
   cells: BandCell[],
   count: number,
   minSpacing: number,
+  blocker: Blocker = createBlocker(),
 ): BandCell[] {
   if (count <= 0) return [];
   const picked: BandCell[] = [];
 
-  // 空間雜湊：格寬 = 最小間距，只需檢查 3×3 個桶
-  const bucketSize = Math.max(1, minSpacing);
+  // 空間雜湊：格寬 = 最小間距，只需檢查 3×3 個桶。
+  // 格寬不得小於硬性下限，否則 3×3 的鄰域看不到該擋的那個點
+  const bucketSize = Math.max(HARD_MIN_SPACING, minSpacing);
   const buckets = new Map<number, BandCell[]>();
   const key = (x: number, y: number) =>
     Math.floor(y / bucketSize) * 100000 + Math.floor(x / bucketSize);
 
+  // 硬性下限由 blocker 負責（切比雪夫，2×2 核心是方的）；
+  // 這裡的 farEnough 只管「分佈品質」那個可以妥協的理想間距
   const farEnough = (c: BandCell, spacing: number) => {
     const bx = Math.floor(c.x / bucketSize);
     const by = Math.floor(c.y / bucketSize);
@@ -127,6 +181,7 @@ function poissonPick(
 
   const add = (c: BandCell) => {
     picked.push(c);
+    blocker.take(c.x, c.y);
     const k = key(c.x, c.y);
     const list = buckets.get(k);
     if (list) list.push(c);
@@ -143,17 +198,24 @@ function poissonPick(
       if (picked.length >= count) break;
       const k = c.y * 100000 + c.x;
       if (used.has(k)) continue;
+      if (!blocker.free(c)) continue;
       if (!farEnough(c, spacing)) continue;
       used.add(k);
       add(c);
     }
   }
 
-  // 最後保底：只要還有沒用過的格子就填 —— 名額不能少人
+  /**
+   * 最後保底：只要還有沒用過的格子就填 —— 名額不能少人。
+   *
+   * ★ 但硬性下限仍然要守。填不滿的話 `fill.placed < quota` 會讓
+   *   `generateWorld` 換 seed 重來，這比讓兩個人生在同一格好得多。
+   */
   for (const c of pool) {
     if (picked.length >= count) break;
     const k = c.y * 100000 + c.x;
     if (used.has(k)) continue;
+    if (!blocker.free(c)) continue;
     used.add(k);
     add(c);
   }
@@ -175,12 +237,13 @@ function pickStratified(
   cells: BandCell[],
   count: number,
   minSpacing: number,
+  blocker: Blocker = createBlocker(),
   strata = 5,
 ): BandCell[] {
   if (count <= 0 || cells.length === 0) return [];
   const lo = Math.min(...cells.map((c) => c.d));
   const hi = Math.max(...cells.map((c) => c.d));
-  if (hi - lo < 1e-6) return poissonPick(rng, cells, count, minSpacing);
+  if (hi - lo < 1e-6) return poissonPick(rng, cells, count, minSpacing, blocker);
 
   const width = (hi - lo) / strata;
   const groups: BandCell[][] = Array.from({ length: strata }, () => []);
@@ -194,7 +257,7 @@ function pickStratified(
   for (let g = 0; g < strata; g++) {
     // 前面若有分層抽不滿，缺額往後面的層補
     const want = Math.round(((g + 1) * count) / strata) - out.length;
-    for (const c of poissonPick(rng, groups[g]!, want, minSpacing)) {
+    for (const c of poissonPick(rng, groups[g]!, want, minSpacing, blocker)) {
       const k = c.y * 100000 + c.x;
       if (seen.has(k)) continue;
       seen.add(k);
@@ -297,18 +360,31 @@ export function allocateSpawns(
 
   /**
    * 把候選格篩到接近中位數的那一批。逐步放寬容忍度，
-   * 直到剩下的候選足以填滿名額（至少 6 倍，Poisson 才有得挑）。
+   * 直到剩下的候選**塞得下**這麼多人。
+   *
+   * ★ 「塞得下」的門檻是 `HARD_MIN_SPACING` 推出來的，不是隨手挑的倍數。
+   *   切比雪夫下限 d 表示每個人至少獨佔一個 d×d 的格子，
+   *   而候選區是被 Voronoi 與山脈裁得坑坑疤疤的不規則形狀、又是貪婪取樣，
+   *   所以再留 1.5 倍餘裕。d = 2 時剛好是 6 —— 與這裡原本寫死的 6 一致，
+   *   那個常數本來就隱含著「核心 2×2 不能疊」這件事，只是沒寫出來。
+   *
+   * 回傳的是一**階梯**：最緊的池子在前，逐步放寬，最後一階是完全不篩。
+   * 取樣先從最緊的那一階拿，拿不滿才往下一階要 —— 所以只有真的塞不下的
+   * 那幾個人會落到比較鬆的池子裡，而不是整個環帶一起放寬。
    */
-  const narrowToFair = (cells: BandCell[], quota: number): BandCell[] => {
-    for (let tol = NEIGHBOURHOOD_TOLERANCE; tol <= 1.5; tol *= 1.35) {
+  const minPoolMultiple = HARD_MIN_SPACING * HARD_MIN_SPACING * 1.5;
+  const fairPools = (cells: BandCell[], quota: number): BandCell[][] => {
+    const pools: BandCell[][] = [];
+    for (let tol = NEIGHBOURHOOD_TOLERANCE; tol <= 1.5 && pools.length < 3; tol *= 1.35) {
       const kept = cells.filter(
         (c) =>
           Math.abs(c.buildable - targetBuildable) <= targetBuildable * tol &&
           Math.abs(c.valuable - targetValuable) <= targetValuable * tol,
       );
-      if (kept.length >= quota * 6) return kept;
+      if (kept.length >= quota * minPoolMultiple) pools.push(kept);
     }
-    return cells;
+    pools.push(cells);
+    return pools;
   };
 
   // ── 每桶各自取樣 ─────────────────────────────────────────
@@ -316,11 +392,13 @@ export function allocateSpawns(
   const fill: SpawnAllocation["fill"] = [];
   let brokenSquads = 0;
   let squadCounter = 0;
+  const blocker = createBlocker();
 
   for (const f of [1, 2, 3] as const) {
     for (const b of SPAWN_BANDS) {
       const quota = SPAWN_BAND[b].quota;
-      const cells = narrowToFair(buckets.get(bucketKey(f, b))!, quota);
+      const pools = fairPools(buckets.get(bucketKey(f, b))!, quota);
+      const cells = pools[0]!;
 
       // docs/13 §3 步驟 4：r = sqrt(可用面積 / 人數) × 0.8
       const spacing = Math.sqrt(cells.length / Math.max(1, quota)) * 0.8;
@@ -330,7 +408,7 @@ export function allocateSpawns(
       const soloSeats = Math.max(0, quota - squadSeats);
 
       // 先放小隊的「隊長」，彼此拉開；再放散客
-      const anchors = pickStratified(rng, cells, squads.length, spacing * 1.4);
+      const anchors = pickStratified(rng, cells, squads.length, spacing * 1.4, blocker);
       const taken: BandCell[] = [];
 
       squads.forEach((squad, si) => {
@@ -343,10 +421,11 @@ export function allocateSpawns(
         const size = Math.min(SQUAD.maxMembers, squad.size);
         // 隊員落在隊長周圍 8–15 格 —— 一起開始，但不是一支軍隊
         const near = cells.filter((c) => {
+          if (!blocker.free(c)) return false;
           const dd = Math.hypot(c.x - anchor.x, c.y - anchor.y);
           return dd >= SQUAD.clusterSpacing[0] && dd <= SQUAD.clusterSpacing[1];
         });
-        const members = poissonPick(rng, near, size - 1, 4);
+        const members = poissonPick(rng, near, size - 1, 4, blocker);
         if (members.length < size - 1) brokenSquads++;
         for (const c of [anchor, ...members]) {
           taken.push(c);
@@ -363,10 +442,27 @@ export function allocateSpawns(
       });
 
       // 散客：排除已被小隊佔掉的位置附近
-      const occupied = new Set(taken.map((c) => `${c.x},${c.y}`));
-      const free = cells.filter((c) => !occupied.has(`${c.x},${c.y}`));
-      const solos = pickStratified(rng, free, soloSeats, spacing);
-      for (const c of solos) {
+      const free = cells.filter(blocker.free);
+      const solos = pickStratified(rng, free, soloSeats, spacing, blocker);
+
+      /**
+       * ★ 最緊的池子不一定塞得下整個環帶（不規則形狀 + 貪婪取樣的末端會卡住）。
+       *   缺的人往階梯的下一階要，一階一階放寬，而不是一次跳到完全不篩 ——
+       *   跳到底會讓公平性檢查 (d) 從 8.6% 惡化到 12.2%，剛好壓線失敗。
+       *
+       *   放寬的是**公平性篩選**，不是硬性下限。少一個人會讓
+       *   `generateWorld` 白白換 seed 重跑一次；兩個人疊在一起則是靜默的資料損壞。
+       */
+      const extra: BandCell[] = [];
+      for (let p = 1; p < pools.length; p++) {
+        const short = quota - taken.length - solos.length - extra.length;
+        if (short <= 0) break;
+        // 仍然走分層取樣 —— 補位的人也要照遺跡距離鋪開，
+        // 否則公平性檢查 (b) 的環帶平均距離會被這幾個人拉歪
+        extra.push(...pickStratified(rng, pools[p]!.filter(blocker.free), short, spacing, blocker));
+      }
+
+      for (const c of [...solos, ...extra]) {
         points.push({
           x: c.x,
           y: c.y,
@@ -381,7 +477,7 @@ export function allocateSpawns(
       fill.push({
         faction: f,
         band: b,
-        placed: taken.length + solos.length,
+        placed: taken.length + solos.length + extra.length,
         quota,
       });
     }

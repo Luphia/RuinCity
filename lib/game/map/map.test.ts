@@ -11,6 +11,7 @@ import {
   TERRAINS,
 } from "../balance";
 import { deriveSeed, hashSeed, mulberry32 } from "../rng";
+import { coreTiles } from "../territory";
 import { discCountField } from "./field";
 import { evaluateFairness } from "./fairness";
 import { quantile } from "./noise";
@@ -194,6 +195,39 @@ describe("出生點分配", () => {
   it("沒有兩個人生在同一格", () => {
     const seen = new Set(world.spawns.points.map((p) => `${p.x},${p.y}`));
     expect(seen.size).toBe(world.spawns.points.length);
+  });
+
+  /**
+   * ★ 不同格是不夠的 —— 據點核心是 2×2。
+   *
+   * 出生點相差一格，兩人的核心就會共用一格；而 `tiles` 上 (season, x, y)
+   * 是唯一鍵，開賽時後寫的那位會靜靜地少掉一格主堡用地。
+   * 這個回歸測試是 M5b 的整合測試撞出來的：600 人裡有 20 人生在重疊的位置。
+   */
+  it("★ 沒有兩座據點的 2×2 核心重疊", () => {
+    const owner = new Map<string, number>();
+    for (let i = 0; i < world.spawns.points.length; i++) {
+      const p = world.spawns.points[i]!;
+      for (const t of coreTiles(p.x, p.y)) {
+        const k = `${t.x},${t.y}`;
+        expect(owner.has(k), `(${t.x},${t.y}) 同時屬於兩座據點`).toBe(false);
+        owner.set(k, i);
+      }
+    }
+  });
+
+  it("出生點兩兩之間的切比雪夫距離 ≥ 2", () => {
+    const points = world.spawns.points;
+    const grid = new Map<string, { x: number; y: number }>();
+    for (const p of points) grid.set(`${p.x},${p.y}`, p);
+    for (const p of points) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          expect(grid.has(`${p.x + dx},${p.y + dy}`)).toBe(false);
+        }
+      }
+    }
   });
 
   it("每個人都落在自己陣營的區域裡，且距離符合所選環帶", () => {

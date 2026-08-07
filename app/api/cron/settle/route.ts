@@ -6,6 +6,7 @@ import { withTransaction } from "@/lib/db/tx";
 import { settleWithin } from "@/lib/server/player-state";
 import { resolveArrivals } from "@/lib/server/battle-ops";
 import { runStewardWithin } from "@/lib/server/steward";
+import { advanceSeasons, ensureNextSeason } from "@/lib/server/season-ops";
 import { serverNow } from "@/lib/time";
 
 /**
@@ -43,6 +44,33 @@ export async function GET(request: Request) {
   const now = await serverNow();
 
   /**
+   * ★ 賽季的階段推進排在最前面，而且**做了粗活就直接回傳**。
+   *
+   *   封盤要跑地圖生成（實測 7–20 秒）、開賽要寫 600 位玩家，
+   *   兩者都遠比一輪結算重。跟結算擠在同一個 60 秒預算裡的話，
+   *   封盤那一分鐘會把所有人的佇列拖住。它們一個賽季各只發生一次，
+   *   晚一分鐘結算沒有人看得出來 —— 而封盤跑到一半被砍掉是災難。
+   */
+  let seasons = { locked: 0, started: 0, ended: 0, created: null as number | null };
+  try {
+    const advanced = await withTransaction((tx) => advanceSeasons(tx, now));
+    const created = await withTransaction((tx) => ensureNextSeason(tx, now));
+    seasons = { ...advanced, created };
+  } catch {
+    // 沒有資料庫的環境（E2E、預覽）不該讓這條路由 500
+  }
+
+  if (seasons.locked > 0 || seasons.started > 0) {
+    return NextResponse.json({
+      ok: true,
+      settled: 0,
+      seasons,
+      note: "季度轉換佔用了這一輪，結算留給下一分鐘",
+      serverTime: new Date(now).toISOString(),
+    });
+  }
+
+  /**
    * ★ 行軍**先**結算。
    *
    *   戰鬥會改變雙方的駐軍與資源，而執政官的決策要看到最新的狀態 ——
@@ -51,11 +79,11 @@ export async function GET(request: Request) {
   let marches = { resolved: 0, battles: 0, failures: 0 };
   try {
     const { getDb } = await import("@/lib/db");
-    const seasons = await getDb()
+    const running = await getDb()
       .select({ id: schema.seasons.id })
       .from(schema.seasons)
       .where(eq(schema.seasons.status, "RUNNING"));
-    for (const s of seasons) {
+    for (const s of running) {
       const r = await withTransaction((tx) => resolveArrivals(tx, s.id, now));
       marches = {
         resolved: marches.resolved + r.resolved,
@@ -122,6 +150,7 @@ export async function GET(request: Request) {
     ok: true,
     settled,
     stewardRuns,
+    seasons,
     marches,
     failures,
     pending: Math.max(0, actors.size - BATCH),

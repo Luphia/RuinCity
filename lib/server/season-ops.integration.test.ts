@@ -1,0 +1,511 @@
+/**
+ * 賽季生命週期的整合測試。
+ *
+ * ★ 這裡最要緊的兩件事都是**資料庫層**才驗得到的：
+ *   1. 名額的併發控制真的靠 `CHECK (taken <= capacity)` 擋住超賣
+ *   2. T = 0 寫進去的 600 位玩家，`settledAt` 是同一個時間戳
+ */
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, eq, sql } from "drizzle-orm";
+
+import { SEASON_CAPACITY, startingResources } from "@/lib/game/season";
+import * as schema from "@/lib/db/schema";
+import {
+  advanceSeasons,
+  createSeason,
+  lockdownSeason,
+  registerFor,
+  scheduleOf,
+  startSeason,
+} from "./season-ops";
+import { createHarness, type Harness } from "./testing/pg-harness";
+
+/** 封盤要跑真的地圖生成。候選壓到 2、不換 seed，測試才跑得完 */
+const FAST_WORLD = { ruinCandidateCount: 2, maxSeedAttempts: 1 } as const;
+
+const T0 = Date.UTC(2026, 8, 1);
+const HOUR = 3_600_000;
+
+let h: Harness;
+
+beforeAll(async () => {
+  h = await createHarness();
+});
+
+afterAll(async () => {
+  await h.close();
+});
+
+let userCounter = 0;
+async function makeUser(): Promise<number> {
+  const email = `s${++userCounter}@season.test`;
+  const [u] = await h.db
+    .insert(schema.users)
+    .values({ email, provider: "email", displayName: email })
+    .returning({ id: schema.users.id });
+  return u!.id;
+}
+
+describe("createSeason", () => {
+  it("開一場賽季會同時建好九列名額，加起來 600", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 4242, registrationOpensAt: T0 }));
+
+    const quotas = await h.db
+      .select()
+      .from(schema.seasonQuotas)
+      .where(eq(schema.seasonQuotas.seasonId, seasonId));
+
+    expect(quotas).toHaveLength(9);
+    expect(quotas.reduce((s, q) => s + q.capacity, 0)).toBe(SEASON_CAPACITY);
+    expect(quotas.every((q) => q.taken === 0)).toBe(true);
+
+    const [season] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    expect(season!.status).toBe("REGISTRATION");
+    // 時間軸從 registrationOpensAt 推導，不是隨手寫死
+    expect(scheduleOf(season!).registrationOpensAt).toBe(T0);
+  });
+});
+
+describe("登記", () => {
+  it("正常登記會遞增名額、遞增 humanCount", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 7, registrationOpensAt: T0 }));
+    const userId = await makeUser();
+
+    const r = await h.tx((tx) =>
+      registerFor(tx, seasonId, userId, { faction: 2, band: "FRONTIER" }, T0 + HOUR),
+    );
+    expect(r).toEqual({ ok: true });
+
+    const [quota] = await h.db
+      .select()
+      .from(schema.seasonQuotas)
+      .where(
+        and(
+          eq(schema.seasonQuotas.seasonId, seasonId),
+          eq(schema.seasonQuotas.faction, 2),
+          eq(schema.seasonQuotas.spawnBand, "FRONTIER"),
+        ),
+      );
+    expect(quota!.taken).toBe(1);
+
+    const [season] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    expect(season!.humanCount).toBe(1);
+  });
+
+  it("同一場不能登記兩次", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 8, registrationOpensAt: T0 }));
+    const userId = await makeUser();
+
+    await h.tx((tx) =>
+      registerFor(tx, seasonId, userId, { faction: 1, band: "HEARTLAND" }, T0 + HOUR),
+    );
+    const second = await h.tx((tx) =>
+      registerFor(tx, seasonId, userId, { faction: 3, band: "VANGUARD" }, T0 + HOUR),
+    );
+    expect(second).toEqual({ ok: false, reason: "ALREADY_REGISTERED" });
+
+    // 被拒的那次不該留下痕跡
+    const [quota] = await h.db
+      .select()
+      .from(schema.seasonQuotas)
+      .where(
+        and(
+          eq(schema.seasonQuotas.seasonId, seasonId),
+          eq(schema.seasonQuotas.faction, 3),
+          eq(schema.seasonQuotas.spawnBand, "VANGUARD"),
+        ),
+      );
+    expect(quota!.taken).toBe(0);
+  });
+
+  it("★ 一個人不能同時在兩場賽季裡 —— 下一場在第 7 天就開放了", async () => {
+    const first = await h.tx((tx) => createSeason(tx, { seed: 9, registrationOpensAt: T0 }));
+    const second = await h.tx((tx) =>
+      createSeason(tx, { seed: 10, registrationOpensAt: T0 + 7 * 24 * HOUR }),
+    );
+    const userId = await makeUser();
+
+    await h.tx((tx) =>
+      registerFor(tx, first, userId, { faction: 1, band: "HEARTLAND" }, T0 + HOUR),
+    );
+    const r = await h.tx((tx) =>
+      registerFor(
+        tx,
+        second,
+        userId,
+        { faction: 1, band: "HEARTLAND" },
+        T0 + 7 * 24 * HOUR + HOUR,
+      ),
+    );
+    expect(r).toEqual({ ok: false, reason: "ALREADY_IN_ANOTHER_SEASON" });
+
+    // 前一場封存之後就放行
+    await h.db
+      .update(schema.seasons)
+      .set({ status: "ARCHIVED" })
+      .where(eq(schema.seasons.id, first));
+    const again = await h.tx((tx) =>
+      registerFor(
+        tx,
+        second,
+        userId,
+        { faction: 1, band: "HEARTLAND" },
+        T0 + 7 * 24 * HOUR + HOUR,
+      ),
+    );
+    expect(again).toEqual({ ok: true });
+  });
+
+  it("★ 額滿由 DB 的 CHECK 擋住 —— 不是應用層讀計數", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 11, registrationOpensAt: T0 }));
+
+    // 直接把名額灌到 capacity - 1，省掉 39 次登記
+    await h.db
+      .update(schema.seasonQuotas)
+      .set({ taken: sql`${schema.seasonQuotas.capacity} - 1` })
+      .where(
+        and(
+          eq(schema.seasonQuotas.seasonId, seasonId),
+          eq(schema.seasonQuotas.faction, 1),
+          eq(schema.seasonQuotas.spawnBand, "VANGUARD"),
+        ),
+      );
+
+    const winner = await makeUser();
+    expect(
+      await h.tx((tx) =>
+        registerFor(tx, seasonId, winner, { faction: 1, band: "VANGUARD" }, T0 + HOUR),
+      ),
+    ).toEqual({ ok: true });
+
+    const loser = await makeUser();
+    expect(
+      await h.tx((tx) =>
+        registerFor(tx, seasonId, loser, { faction: 1, band: "VANGUARD" }, T0 + HOUR),
+      ),
+    ).toEqual({ ok: false, reason: "QUOTA_FULL" });
+
+    /**
+     * ★ 就算繞過 planRegistration 的預檢（模擬兩個交易同時讀到 taken = 39），
+     *   約束仍然會擋下第 41 個人。這一條才是真正的併發保證。
+     */
+    await expect(
+      h.tx(async (tx) => {
+        await tx
+          .update(schema.seasonQuotas)
+          .set({ taken: sql`${schema.seasonQuotas.taken} + 1` })
+          .where(
+            and(
+              eq(schema.seasonQuotas.seasonId, seasonId),
+              eq(schema.seasonQuotas.faction, 1),
+              eq(schema.seasonQuotas.spawnBand, "VANGUARD"),
+            ),
+          );
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("登記期以外不收", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 12, registrationOpensAt: T0 }));
+    const userId = await makeUser();
+    const r = await h.tx((tx) =>
+      registerFor(tx, seasonId, userId, { faction: 1, band: "HEARTLAND" }, T0 + 5 * 24 * HOUR),
+    );
+    expect(r).toEqual({ ok: false, reason: "NOT_OPEN" });
+  });
+});
+
+describe("★ 封盤 → 開賽", () => {
+  let seasonId: number;
+  const humanIds: number[] = [];
+
+  beforeAll(async () => {
+    seasonId = await h.tx((tx) => createSeason(tx, { seed: 99991, registrationOpensAt: T0 }));
+
+    // 四位真人：兩位組隊、兩位散客，涵蓋三個環帶
+    const picks = [
+      { faction: 1 as const, band: "HEARTLAND", squadCode: "PALS" },
+      { faction: 1 as const, band: "HEARTLAND", squadCode: "PALS" },
+      { faction: 2 as const, band: "FRONTIER", squadCode: null },
+      { faction: 3 as const, band: "VANGUARD", squadCode: null },
+    ];
+    for (const p of picks) {
+      const userId = await makeUser();
+      humanIds.push(userId);
+      const r = await h.tx((tx) => registerFor(tx, seasonId, userId, p, T0 + HOUR));
+      expect(r).toEqual({ ok: true });
+    }
+
+    await h.tx((tx) => lockdownSeason(tx, seasonId, { world: FAST_WORLD }));
+  }, 180_000);
+
+  it("封盤後狀態是 SEALED，AI 補到剛好 600", async () => {
+    const [season] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    expect(season!.status).toBe("SEALED");
+    expect(season!.humanCount + season!.aiCount).toBe(SEASON_CAPACITY);
+    expect(season!.humanCount).toBe(4);
+  });
+
+  it("公平性報告與遺跡座標都存下來了 —— 封盤期的預覽要看", () => {
+    return h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId))
+      .then(([season]) => {
+        expect(Array.isArray(season!.ruinPositions)).toBe(true);
+        expect((season!.ruinPositions as unknown[]).length).toBe(3);
+        expect(season!.fairnessReport).toHaveProperty("pass");
+      });
+  });
+
+  it("★ 座位表存了 600 個，T = 0 不必再跑一次地圖生成", async () => {
+    const [season] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    const plan = season!.spawnPlan as { registrationId: number | null; terrain: string[] }[];
+    expect(plan).toHaveLength(SEASON_CAPACITY);
+    expect(plan.filter((s) => s.registrationId !== null)).toHaveLength(4);
+    // 每個座位都帶著核心 2×2 的地形
+    expect(plan.every((s) => s.terrain.length === 4)).toBe(true);
+  });
+
+  it("真人的出生座標寫回登記列，開賽前就看得到", async () => {
+    const regs = await h.db
+      .select()
+      .from(schema.seasonRegistrations)
+      .where(eq(schema.seasonRegistrations.seasonId, seasonId));
+    expect(regs).toHaveLength(4);
+    for (const r of regs) {
+      expect(r.assignedX).not.toBeNull();
+      expect(r.assignedY).not.toBeNull();
+      // 但玩家還不存在 —— 資源不能從封盤那一刻就開始累積
+      expect(r.playerId).toBeNull();
+    }
+  });
+
+  it("★ 同代碼的兩人被放在一起", async () => {
+    const regs = await h.db
+      .select()
+      .from(schema.seasonRegistrations)
+      .where(
+        and(
+          eq(schema.seasonRegistrations.seasonId, seasonId),
+          eq(schema.seasonRegistrations.squadCode, "PALS"),
+        ),
+      );
+    expect(regs).toHaveLength(2);
+    const [a, b] = regs;
+    const dist = Math.max(Math.abs(a!.assignedX! - b!.assignedX!), Math.abs(a!.assignedY! - b!.assignedY!));
+    // 小隊群集的半徑，比隨機兩點近得多（隨機約 100+ 格）
+    expect(dist).toBeLessThan(40);
+  });
+
+  describe("T = 0", () => {
+    const startAt = T0 + 3 * 24 * HOUR + 12 * HOUR;
+
+    beforeAll(async () => {
+      await h.tx((tx) => startSeason(tx, seasonId, startAt));
+    }, 180_000);
+
+    it("600 位玩家全部寫進去，狀態轉 RUNNING", async () => {
+      const [row] = await h.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.players)
+        .where(eq(schema.players.seasonId, seasonId));
+      expect(row!.n).toBe(SEASON_CAPACITY);
+
+      const [season] = await h.db
+        .select()
+        .from(schema.seasons)
+        .where(eq(schema.seasons.id, seasonId));
+      expect(season!.status).toBe("RUNNING");
+      expect(season!.startedAt!.getTime()).toBe(startAt);
+    });
+
+    it("★ 所有人的 settledAt 是同一個時間戳 —— 這是「全員同時進入」的全部意義", async () => {
+      const rows = await h.db
+        .select({ n: sql<number>`count(distinct ${schema.players.settledAt})::int` })
+        .from(schema.players)
+        .where(eq(schema.players.seasonId, seasonId));
+      expect(rows[0]!.n).toBe(1);
+
+      const res = await h.db
+        .select({ n: sql<number>`count(distinct ${schema.playerResources.settledAt})::int` })
+        .from(schema.playerResources)
+        .innerJoin(schema.players, eq(schema.players.id, schema.playerResources.playerId))
+        .where(eq(schema.players.seasonId, seasonId));
+      expect(res[0]!.n).toBe(1);
+    });
+
+    it("真人與 AI 的比例正確，AI 都有性格", async () => {
+      const players = await h.db
+        .select()
+        .from(schema.players)
+        .where(eq(schema.players.seasonId, seasonId));
+      const ai = players.filter((p) => p.isAi);
+      expect(ai).toHaveLength(SEASON_CAPACITY - 4);
+      expect(ai.every((p) => p.aiPersona !== null && p.aiVariance !== null)).toBe(true);
+      expect(players.filter((p) => !p.isAi).every((p) => p.userId !== null)).toBe(true);
+      // 三種性格都有出現
+      expect(new Set(ai.map((p) => p.aiPersona)).size).toBe(3);
+    });
+
+    it("登記列補上 playerId，玩家找得到自己", async () => {
+      const regs = await h.db
+        .select()
+        .from(schema.seasonRegistrations)
+        .where(eq(schema.seasonRegistrations.seasonId, seasonId));
+      expect(regs.every((r) => r.playerId !== null)).toBe(true);
+    });
+
+    it("★ 邊陲的起始資源 ×1.4，中腹是基準", async () => {
+      const rows = await h.db
+        .select({
+          band: schema.players.spawnBand,
+          grain: schema.playerResources.grain,
+        })
+        .from(schema.players)
+        .innerJoin(
+          schema.playerResources,
+          eq(schema.playerResources.playerId, schema.players.id),
+        )
+        .where(eq(schema.players.seasonId, seasonId));
+
+      for (const r of rows) {
+        expect(Number(r.grain)).toBe(startingResources(r.band).grain);
+      }
+    });
+
+    it("★ 起始民兵從第一秒就佔人口", async () => {
+      const rows = await h.db
+        .select({ used: schema.playerPopulation.used, units: schema.garrisons.units })
+        .from(schema.players)
+        .innerJoin(
+          schema.playerPopulation,
+          eq(schema.playerPopulation.playerId, schema.players.id),
+        )
+        .innerJoin(
+          schema.garrisons,
+          and(
+            eq(schema.garrisons.ownerId, schema.players.id),
+            eq(schema.garrisons.atX, schema.players.baseX),
+          ),
+        )
+        .where(eq(schema.players.seasonId, seasonId))
+        .limit(20);
+
+      expect(rows.length).toBeGreaterThan(0);
+      for (const r of rows) {
+        expect(Number(r.used)).toBe(10);
+        expect(r.units).toEqual({ MILITIA: 10 });
+      }
+    });
+
+    it("每人四格核心、三個空格位、一位執政官", async () => {
+      const [tiles] = await h.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.tiles)
+        .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.kind, "BASE_CORE")));
+      expect(tiles!.n).toBe(SEASON_CAPACITY * 4);
+
+      const [stewards] = await h.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.stewards)
+        .innerJoin(schema.players, eq(schema.players.id, schema.stewards.playerId))
+        .where(eq(schema.players.seasonId, seasonId));
+      expect(stewards!.n).toBe(SEASON_CAPACITY);
+
+      const [slots] = await h.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.baseSlots)
+        .innerJoin(schema.players, eq(schema.players.id, schema.baseSlots.playerId))
+        .where(eq(schema.players.seasonId, seasonId));
+      expect(slots!.n).toBe(SEASON_CAPACITY * 3);
+    });
+
+    it("★ 核心格的地形是真的地形，不是全部 PLAIN", async () => {
+      const kinds = await h.db
+        .selectDistinct({ terrain: schema.tiles.terrain })
+        .from(schema.tiles)
+        .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.kind, "BASE_CORE")));
+      expect(kinds.length).toBeGreaterThan(1);
+    });
+
+    it("開局的玩家可以直接被結算 —— 整條經濟鏈接得上", async () => {
+      const { settleWithin } = await import("./player-state");
+      const [me] = await h.db
+        .select()
+        .from(schema.players)
+        .where(and(eq(schema.players.seasonId, seasonId), eq(schema.players.isAi, false)))
+        .limit(1);
+
+      const state = await h.tx((tx) => settleWithin(tx, me!.id, startAt + 2 * HOUR));
+      expect(state.build.citadel).toBe(1);
+      expect(state.garrison).toEqual({ MILITIA: 10 });
+      // 主堡保底產出讓資源一定在長
+      expect(state.economy.resources.stone).toBeGreaterThan(
+        startingResources(me!.spawnBand).stone,
+      );
+      // 前線 +1 領土容量真的到得了推導層
+      expect(state.bandBonus).toBe(me!.spawnBand === "VANGUARD" ? 1 : 0);
+    });
+  });
+});
+
+describe("advanceSeasons", () => {
+  it("★ 冪等：已經在正確階段的賽季不會被動到", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 555, registrationOpensAt: T0 }));
+
+    // 還在登記期 → 什麼都不做
+    expect(await h.tx((tx) => advanceSeasons(tx, T0 + HOUR))).toMatchObject({
+      locked: 0,
+      started: 0,
+    });
+
+    const [before] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    expect(before!.status).toBe("REGISTRATION");
+  });
+
+  it("推到終戰期只是換一個狀態，不會重跑封盤", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 556, registrationOpensAt: T0 }));
+    await h.db
+      .update(schema.seasons)
+      .set({ status: "RUNNING", startedAt: new Date(T0 + 3.5 * 24 * HOUR) })
+      .where(eq(schema.seasons.id, seasonId));
+
+    const schedule = scheduleOf(
+      (await h.db.select().from(schema.seasons).where(eq(schema.seasons.id, seasonId)))[0]!,
+    );
+
+    const summary = await h.tx((tx) => advanceSeasons(tx, schedule.endsAt + HOUR));
+    expect(summary.ended).toBeGreaterThanOrEqual(1);
+
+    const [after] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    expect(after!.status).toBe("ENDING");
+
+    // 再跑一次不會有變化
+    await h.tx((tx) => advanceSeasons(tx, schedule.endsAt + 2 * HOUR));
+    const [again] = await h.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId));
+    expect(again!.status).toBe("ENDING");
+  });
+});

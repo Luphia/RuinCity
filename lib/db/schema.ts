@@ -183,6 +183,15 @@ export const seasons = pgTable("seasons", {
   ruinPositions: jsonb("ruin_positions"),
   /** 五項公平性驗證的實際數值，封盤期公開給玩家檢查 */
   fairnessReport: jsonb("fairness_report"),
+  /**
+   * ★ 封盤期解出來的 600 個座位（含 AI），T = 0 直接照抄。
+   *
+   * 不在開賽時重跑一次 `generateWorld` —— 那要 7～20 秒，
+   * 而 T = 0 是在交易裡寫 600 位玩家，不能再多花二十秒開著交易。
+   * 更要緊的是：重跑就代表「預覽的座標」與「真正的座標」是兩次獨立計算，
+   * 只要生成參數有任何一點不同，玩家就會生在別的地方。
+   */
+  spawnPlan: jsonb("spawn_plan"),
 
   victoryAllianceId: bigint("victory_alliance_id", { mode: "number" }),
   victoryCountdownStartedAt: timestamp("victory_countdown_started_at", { withTimezone: true }),

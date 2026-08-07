@@ -61,6 +61,7 @@ export default async function BasePage() {
     depotLevel:
       state.build.slots.D.building === "DEPOT" ? state.build.slots.D.level : 0,
     tiles: state.tiles,
+    bandBonus: state.bandBonus,
   });
   const season = SEASON_MODIFIERS[state.season];
 

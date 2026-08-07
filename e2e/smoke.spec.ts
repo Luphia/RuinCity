@@ -24,6 +24,18 @@ test.describe("M0 smoke", () => {
     }
   });
 
+  test("★ /seasons 是公開路由 —— 還沒登入的人也該看得到名額", async ({ page }) => {
+    await page.goto("/seasons");
+    await expect(page).not.toHaveURL(/\/signin$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("賽季");
+  });
+
+  test("首頁的賽季登記連得過去", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "賽季登記" }).click();
+    await expect(page).toHaveURL(/\/seasons$/);
+  });
+
   test("cron 端點在沒有 secret 的環境回應 ok", async ({ request }) => {
     const res = await request.get("/api/cron/settle");
     expect(res.status()).toBe(200);

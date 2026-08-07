@@ -34,6 +34,7 @@ import {
   type ScheduledEvent,
 } from "@/lib/game/settle";
 import { recomputeIsolation } from "@/lib/game/territory";
+import { bonusTerritoryCapacity } from "@/lib/game/season";
 import { armyUpkeep, parseArmy, starve } from "@/lib/game/army";
 import type { TrainState } from "@/lib/game/train";
 import { serverNow } from "@/lib/time";
@@ -58,6 +59,8 @@ export interface LoadedPlayer {
   /** 招募佇列的狀態，`planTrain` 要 */
   readonly train: TrainState;
   readonly season: Season;
+  /** 出生環帶的領土容量加成（前線 +1）。呼叫端重算速率時要一起帶上 */
+  readonly bandBonus: number;
 }
 
 const num = (v: string | number | null | undefined) => Number(v ?? 0);
@@ -184,18 +187,22 @@ export async function settleWithin(
       ),
     );
 
+  const bandBonus = bonusTerritoryCapacity(player.spawnBand);
+
   const world0: WorldState = {
     citadel: player.citadelLevel,
     slots: { B: slotOf(slots, "B"), C: slotOf(slots, "C"), D: slotOf(slots, "D") },
     tiles,
     lastDemolishAt: null,
     garrison: (homeGarrison?.units ?? {}) as WorldState["garrison"],
+    bandBonus,
   };
 
   const derived = deriveRates({
     citadel: world0.citadel,
     depotLevel: depotLevelOf(world0.slots),
     tiles,
+    bandBonus,
   });
 
   const upkeep = outpostUpkeep(derived.outpostLevels);
@@ -255,6 +262,7 @@ export async function settleWithin(
     citadel: world.citadel,
     depotLevel: depotLevelOf(world.slots),
     tiles: world.tiles,
+    bandBonus,
   });
 
   // ── 寫回結構狀態 ──────────────────────────────────────────
@@ -371,6 +379,7 @@ export async function settleWithin(
       militiaQueue: queues.militiaQueue,
     },
     season: seasonOf(seasonStartedAt, now),
+    bandBonus,
   };
 }
 

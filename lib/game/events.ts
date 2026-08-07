@@ -37,6 +37,8 @@ export interface WorldState {
   readonly lastDemolishAt: number | null;
   /** 本營駐軍。行軍與戰鬥是 M3，這裡只有「招募完成後放哪裡」 */
   readonly garrison: Readonly<Partial<Record<Unit, number>>>;
+  /** 出生環帶的領土容量加成。整場賽季不變，但每次重算速率都要帶上 */
+  readonly bandBonus?: number;
 }
 
 export type M2Payload =
@@ -324,6 +326,7 @@ export function createEventApplier(initial: WorldState): EventApplier {
       citadel: world.citadel,
       depotLevel: depotLevelOf(world.slots),
       tiles: world.tiles,
+      bandBonus: world.bandBonus,
     });
 
     const resources = { ...economy.resources };

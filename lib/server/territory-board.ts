@@ -185,7 +185,7 @@ export async function buildTerritoryBoard(
       isolated: t.state === "ISOLATED",
     })),
     candidates: candidates.slice(0, MAX_CANDIDATES),
-    capacity: territoryCapacity(state.build.citadel),
+    capacity: territoryCapacity(state.build.citadel, state.bandBonus),
     queuesFree: freeTerritoryQueue(state.build, now) >= 0,
     queuesFreeCount: countFreeQueues(state, now),
     baseX: state.baseX,
