@@ -3,7 +3,7 @@
 > 像素風格・手機網頁・多人即時戰爭策略遊戲
 > ruincity.com
 
-在一張 **500 × 500** 格的廢土地圖上，600 名玩家從各自的 **2×2 核心據點** 開始，
+在一張 **500 × 500** 格的廢土地圖上，900 名玩家從各自的 **2×2 核心據點** 開始，
 向外蠶食領土、建立軍隊、與其他玩家結盟或開戰。
 地圖上散落著 **三座古老遺跡**——同時控制它們，就是這場戰爭的終局。
 
@@ -56,9 +56,12 @@
 | [`docs/12-open-questions.md`](docs/12-open-questions.md) | 待決議事項與已定案紀錄 |
 | [`docs/13-season-registration.md`](docs/13-season-registration.md) | 賽季登記制、三分天下陣營、出生點批次分配與公平性驗證 |
 | [`docs/14-time-and-cadence.md`](docs/14-time-and-cadence.md) | 12 天賽季、遊戲曆法、四季效應、7 天輪替、時間係數 |
-| [`docs/15-ai-players.md`](docs/15-ai-players.md) | AI 玩家：補足 600 人、三種性格、固定腳本曲線、離線託管 |
+| [`docs/15-ai-players.md`](docs/15-ai-players.md) | AI 玩家：補足 900 人、三種性格、固定腳本曲線、離線託管 |
 | [`docs/16-supply-and-attrition.md`](docs/16-supply-and-attrition.md) | 補給線、區域軍隊容量、城池防禦——取代新手保護期的有機限制 |
 | [`docs/17-ruin-legions.md`](docs/17-ruin-legions.md) | 遺跡軍團：隨時間成長、秋季擴張、冬季征伐 |
+
+> 每場 **900 人**（每陣營 300，真人不足由 AI 補足）、**15 個聯盟 × 60 人**、
+> 賽季 **12 天**、每 **7 天**開新的一場。
 
 ## 技術棧（摘要）
 
