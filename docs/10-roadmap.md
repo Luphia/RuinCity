@@ -79,6 +79,11 @@
 | **M5b：T=0 不重跑地圖生成** | 「反正是確定性的」聽起來成立，但它讓「封盤公布的座標」與「真正開局的座標」變成兩次獨立計算 —— 生成參數差一點就分岔，而這種 bug 不會有人在測試環境撞到。改成封盤把座位表存進 `seasons.spawn_plan`，順便省掉在交易裡多開二十秒 |
 | **M5b：封盤不能建立 `players` 列** | 否則資源從封盤那一刻就開始累積，早報名的人多賺 12 小時 —— 而「全員同時進入」是這整個設計的前提。整合測試驗的是「600 位玩家的 `settledAt` 只能有一個相異值」 |
 | **M5b：賽季轉換與結算不共用同一分鐘** | 封盤要跑地圖生成（7–20 秒）、開賽要寫 600 位玩家，擠進 60 秒的 cron 預算會把所有人的佇列拖住。做了粗活就直接回傳，結算留給下一分鐘 |
+| **★ M5b：`ensureNextSeason` 判「現在有沒有人在收登記」會把七天壓成三天** | 登記第 3 天截止、下一場第 7 天才開，中間四天的空窗是刻意的。判準要看上一場的 `nextOpensAt`，而且新賽季的開放時刻取 `nextOpensAt` 而不是 `now`，否則每一輪都被 cron 的觸發時刻往後拖。單元測試與整合測試都沒照出來 —— 是真的跑一次 `/api/cron/settle` 看到 `created: 2` 才發現的。見 `11` §20.10 |
+| **★ M5b：腳本裡 `config()` 寫在 import 中間是沒用的** | import 先於任何語句求值，所以 `lib/db` 會在 dotenv 之前初始化並抓到 placeholder。而且**只壞一半** —— `withTransaction` 是惰性的所以正常，只有 `getDb()` 會連到 `unset.invalid`。解法是 side-effect 模組 `scripts/load-env.ts` 當第一個 import。見 `11` §20.9 |
+| **M5b：`@neondatabase/serverless` 不是通用的 Postgres client** | 它只對 Neon 端點說話。指向本機 docker 的 Postgres 會連不上，而錯誤看起來像網路問題。`lib/db/driver.ts` 依 URL 的 host 自動切到 node-postgres |
+| **M5b：`drizzle-kit migrate` 把錯誤吞掉** | 連不上、密碼錯、SQL 撞到既有物件全都長成 `[⣷] applying migrations...` 加 exit 1。改用 `drizzle-orm` 的 migrator（`scripts/migrate.ts`），同一個資料夾同一張紀錄表，但錯誤照實印 |
+| **`.env.example` 從來沒進過版控** | `.gitignore` 的 `.env*` 把它一起吃掉了，而 README、CLAUDE.md 與 `lib/env.ts` 的錯誤訊息全都叫人 `cp .env.example .env.local`。從 M0 就是壞的，只在已經有 `.env.local` 的機器上看不出來 |
 | **M3：`settle.ts` 不該認識兵種** | 它只回報「糧食見底且收支為負持續了多久」，餓死哪些兵是 `army.ts` 的事。同一條界線的延續：那一層只做速率 × 時間的積分 |
 
 ---

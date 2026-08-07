@@ -20,7 +20,7 @@ import "server-only";
  * 輸的那個會撞到約束，而不是讀到過期的計數。
  */
 
-import { and, eq, gt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import { BALANCE_VERSION, type SpawnBand } from "@/lib/game/balance";
 import { generateWorld } from "@/lib/game/map/world";
@@ -30,6 +30,7 @@ import {
   initialQuotas,
   phaseAt,
   planAiFill,
+  PHASE_DURATION,
   planRegistration,
   scheduleFrom,
   squadRequestsFrom,
@@ -652,23 +653,41 @@ export async function advanceSeasons(
   return { locked, started, ended };
 }
 
-/** 下一場該不該開了（第 7 天） */
+/**
+ * 下一場該不該開了（第 7 天）。
+ *
+ * ★ 判準是**上一場的時間軸**，不是「現在有沒有人在收登記」。
+ *
+ *   看起來「沒有賽季在收人就開一場」比較直覺，但它會把節奏整個壓垮：
+ *   一場賽季的登記在第 3 天就截止，而下一場要到第 7 天才開 ——
+ *   中間那四天本來就**應該**沒有任何賽季在收人。
+ *   照「沒人收人就開」的寫法，結算迴圈會在封盤後的第一分鐘就開下一場，
+ *   七天的輪替變成三天，而且每一輪都再快一點。
+ *
+ *   新賽季的 `registrationOpensAt` 直接取 `nextOpensAt`，不取 `now` ——
+ *   節奏因此固定在格子上，不會被 cron 的觸發時刻一輪一輪往後拖。
+ */
 export async function ensureNextSeason(
   tx: TxDb,
   now: number,
 ): Promise<number | null> {
-  const [upcoming] = await tx
-    .select({ id: schema.seasons.id })
+  const [latest] = await tx
+    .select()
     .from(schema.seasons)
-    .where(
-      and(
-        eq(schema.seasons.status, "REGISTRATION"),
-        gt(schema.seasons.registrationClosesAt, new Date(now)),
-      ),
-    )
+    .orderBy(desc(schema.seasons.id))
     .limit(1);
-  if (upcoming) return null;
 
-  const seed = Math.floor(mulberry32(deriveSeed(now, "season-seed"))() * 2 ** 31);
-  return createSeason(tx, { seed, registrationOpensAt: now });
+  let opensAt = now;
+  if (latest) {
+    const { nextOpensAt } = scheduleOf(latest);
+    if (now < nextOpensAt) return null;
+    /**
+     * 排程停擺很久之後才恢復的話，`nextOpensAt` 可能已經是很久以前 ——
+     * 照抄會開出一場「一出生就該封盤」的賽季。落後超過一個週期就重新對時。
+     */
+    opensAt = now - nextOpensAt > PHASE_DURATION.cadenceMs ? now : nextOpensAt;
+  }
+
+  const seed = Math.floor(mulberry32(deriveSeed(opensAt, "season-seed"))() * 2 ** 31);
+  return createSeason(tx, { seed, registrationOpensAt: opensAt });
 }

@@ -25,17 +25,11 @@
  * ★ I/O 與 `process.env` 都留在這一層。
  */
 
-import { config } from "dotenv";
-import { and, eq } from "drizzle-orm";
+// ★ 一定要是第一個 import。`next dev` 會自動讀 .env.local，tsx 不會，
+//   而且 import 會先於任何語句求值 —— 理由見該檔案
+import "./load-env";
 
-/**
- * ★ 要在 import `lib/db` **之前**載入。
- *   `next dev` 會自動讀 `.env.local`，但 tsx 不會 —— 少了這兩行，
- *   明明填好了 `DATABASE_URL` 的人還是會看到「需要 DATABASE_URL」。
- *   順序與 `drizzle.config.ts` 一致：`.env.local` 優先於 `.env`。
- */
-config({ path: ".env.local", quiet: true });
-config({ path: ".env", quiet: true });
+import { and, eq } from "drizzle-orm";
 
 import { hashSeed } from "../lib/game/rng";
 import { formatFairness } from "../lib/game/map/fairness";

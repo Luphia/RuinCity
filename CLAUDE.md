@@ -45,7 +45,10 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 
 | 事情 | 注意 |
 | --- | --- |
-| Neon driver | `neon-http` **不支援交易**。M2 的結算路徑要改用 `neon-serverless` 的 WebSocket pool |
+| Neon driver | `neon-http` **不支援交易**，寫入路徑一律走 `lib/db/tx.ts` 的 `withTransaction` |
+| 本機 Postgres | `@neondatabase/serverless` 只對 Neon 端點說話，指向本機的 Postgres 會連不上（而且錯誤看起來像網路問題）。`lib/db/driver.ts` 依 URL 的 host 自動改用 node-postgres —— 兩邊都支援交易，`withTransaction` 的保證不變 |
+| 腳本的環境變數 | `scripts/*.ts` 的**第一個 import** 必須是 `./load-env`。import 會先於任何語句求值，所以「先呼叫 dotenv 再 import lib/db」是錯的 —— `lib/db` 會拿到 placeholder，然後在第一次查詢時炸成 `ENOTFOUND unset.invalid` |
+| 賽季輪替 | `ensureNextSeason` 的判準是**上一場的 `nextOpensAt`**，不是「現在有沒有人在收登記」。登記第 3 天就截止、下一場第 7 天才開，中間四天的空窗是刻意的 |
 | 時間係數 | 數值表的時間是「48 天賽季」基準，實際值要 ÷ `TIME_SCALE`(4)；速率 × 4；單位速度 × `MARCH_SCALE`(2)。成本與戰鬥數值不套用任何係數 |
 | React Compiler | render 中不可呼叫 `Date.now()` 等不純函式。這規則與 P1 一致，別繞過它 |
 | Migration | 改 `schema.ts` 後務必 `pnpm db:generate`，CI 會擋下不同步的提交 |

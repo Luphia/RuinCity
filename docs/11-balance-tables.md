@@ -1282,3 +1282,57 @@ byResource = min over r of floor(spendable[r] / cost[r])
 擠在同一個 60 秒預算裡的話，封盤那一分鐘會把所有人的佇列拖住 ——
 而它們一個賽季各只發生一次，晚一分鐘結算沒有人看得出來。
 封盤跑到一半被平台砍掉才是災難。
+
+### 20.8 本機 Postgres：`@neondatabase/serverless` 不是通用的 client
+
+它是**專門對 Neon 端點說話**的 client —— 走 WebSocket / HTTP 到 Neon 的閘道，
+而不是 Postgres 的 TCP wire protocol。指向 `127.0.0.1:5432` 上一個正常的
+Postgres 時連不上，而且錯誤長得像網路問題（`ErrorEvent { type: 'error' }`），
+完全不會提示「你用錯 driver 了」。
+
+用 docker 在本機起一個 Postgres 是再正常不過的開發方式，所以
+`lib/db/driver.ts` 依 **URL 的 host** 選 driver：Neon 端點走 neon-serverless，
+其餘走 node-postgres 的 TCP pool。兩者都支援真正的交易，
+「所有寫入都在一個交易裡」那個保證不變。
+
+依據是 host 而不是環境變數或 `NODE_ENV` —— 「這個位址說哪一種協定」
+本來就只有 URL 知道。
+
+### 20.9 ★ 腳本裡的 dotenv：`import` 先於任何語句
+
+這樣寫是錯的，而且錯得很難看出來：
+
+```ts
+import { config } from "dotenv";
+config({ path: ".env.local" });        // ← 看起來在前面
+import { getDb } from "../lib/db";     // ← 其實先跑
+```
+
+import 會先於任何語句求值（ESM 如此，esbuild 轉出來的 CJS 也把 require 提到最前）。
+所以 `lib/db` 的模組本體在 `config()` 之前執行，而它在模組載入時就建好連線物件
+—— 拿到的是 placeholder。
+
+症狀是 `getaddrinfo ENOTFOUND unset.invalid`，而 `.env.local` 明明填得好好的。
+更難查的是**它只壞一半**：`withTransaction` 是惰性的（第一次呼叫才建 pool），
+所以走它的查詢正常；只有走 `getDb()` 的會連到不存在的主機。
+
+解法是把載入放進一個 side-effect 模組（`scripts/load-env.ts`），
+並讓它成為每支腳本的第一個 import —— 順序由模組圖保證，不靠人記得。
+`getDb()` 另外加了一道安全網：發現 `DATABASE_URL` 與建構時不同就重建。
+
+### 20.10 ★ `ensureNextSeason` 的判準不能是「現在有沒有人在收登記」
+
+第一版是這樣寫的，看起來很直覺，而它把七天的節奏整個壓垮：
+
+登記在第 3 天截止，下一場第 7 天才開 —— **中間那四天本來就應該沒有賽季在收人**。
+照「沒人收人就開」的寫法，結算迴圈會在封盤後的第一分鐘就開下一場，
+七天變三天，而且每一輪都再快一點。
+
+判準改成上一場的 `nextOpensAt`，而且新賽季的 `registrationOpensAt` 直接取
+`nextOpensAt` 而不是 `now` —— 節奏因此固定在格子上，不會被 cron 的
+觸發時刻一輪一輪往後拖。排程停擺超過一個週期才恢復時重新對時，
+否則會開出一場「一出生就該封盤」的賽季。
+
+這個缺陷**單元測試與整合測試都沒照出來**，是在真實環境下
+`pnpm seed:season` 之後打一次 `/api/cron/settle`、看到回應裡多了
+`created: 2` 才發現的。現在有五項回歸測試釘住它。

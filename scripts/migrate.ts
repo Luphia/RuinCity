@@ -19,14 +19,17 @@
  * 所以與 `drizzle-kit generate` 完全相容 —— 但錯誤會照實印出來。
  */
 
-import { config } from "dotenv";
+// ★ 一定要是第一個 import —— 理由見該檔案
+import "./load-env";
 
-config({ path: ".env.local", quiet: true });
-config({ path: ".env", quiet: true });
+import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
+import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
+import { migrate as migrateNeon } from "drizzle-orm/neon-serverless/migrator";
+import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
+import { migrate as migratePg } from "drizzle-orm/node-postgres/migrator";
+import { Pool as PgPool } from "pg";
 
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { migrate } from "drizzle-orm/neon-serverless/migrator";
+import { isNeonUrl } from "../lib/db/driver";
 
 /** `.env.example` 裡的假值。原封不動貼過去是第一次架環境最常見的失手 */
 const PLACEHOLDER_HOST = "host.neon.tech";
@@ -76,12 +79,12 @@ async function main() {
     fail([
       `DATABASE_URL 還是 .env.example 的範例值（${PLACEHOLDER_HOST}）。`,
       "",
-      "去 https://console.neon.tech 開一個免費專案，把 connection string 貼進 .env.local。",
-      "真實的 host 長得像 `ep-something-12345.ap-southeast-1.aws.neon.tech`。",
+      "兩條路都可以：",
+      "  · Neon：https://console.neon.tech 開一個免費專案，貼 connection string",
+      "  · 本機：docker run -e POSTGRES_PASSWORD=ruincity -p 5432:5432 -d postgres:17",
+      '           DATABASE_URL="postgresql://postgres:ruincity@127.0.0.1:5432/postgres"',
     ]);
   }
-
-  if (typeof WebSocket !== "undefined") neonConfig.webSocketConstructor = WebSocket;
 
   // 只印 host，不印帳密
   let host = "(無法解析)";
@@ -96,12 +99,20 @@ async function main() {
     ]);
   }
 
-  console.log(`\n連線到 ${host} …`);
-  const pool = new Pool({ connectionString: url });
+  const neon = isNeonUrl(url);
+  console.log(`\n連線到 ${host}（${neon ? "neon-serverless" : "node-postgres"}）…`);
+
+  const pool = neon
+    ? new NeonPool({ connectionString: url })
+    : new PgPool({ connectionString: url });
+  if (neon && typeof WebSocket !== "undefined") neonConfig.webSocketConstructor = WebSocket;
 
   try {
-    const db = drizzle(pool);
-    await migrate(db, { migrationsFolder: "drizzle" });
+    if (neon) {
+      await migrateNeon(drizzleNeon(pool as NeonPool), { migrationsFolder: "drizzle" });
+    } else {
+      await migratePg(drizzlePg(pool as PgPool), { migrationsFolder: "drizzle" });
+    }
     console.log("migration 套用完成。\n");
   } catch (e) {
     if (looksLikeConnectionFailure(e)) {
@@ -109,9 +120,16 @@ async function main() {
         `連不上 ${host}。`,
         "",
         "常見原因：",
-        "  · connection string 打錯，或專案已被 Neon 休眠/刪除",
-        "  · 少了 `?sslmode=require`",
-        "  · 網路擋掉了 WebSocket（Neon 的 serverless driver 走 wss）",
+        ...(neon
+          ? [
+              "  · connection string 打錯，或專案已被 Neon 休眠/刪除",
+              "  · 少了 `?sslmode=require`",
+              "  · 網路擋掉了 WebSocket（Neon 的 serverless driver 走 wss）",
+            ]
+          : [
+              "  · Postgres 沒在跑，或 port 不對",
+              "  · 帳號密碼錯，或那個資料庫還不存在（createdb ruincity）",
+            ]),
       ]);
     }
     console.error("\nmigration 失敗：");

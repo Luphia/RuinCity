@@ -9,11 +9,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 
-import { SEASON_CAPACITY, startingResources } from "@/lib/game/season";
+import { PHASE_DURATION, SEASON_CAPACITY, startingResources } from "@/lib/game/season";
 import * as schema from "@/lib/db/schema";
 import {
   advanceSeasons,
   createSeason,
+  ensureNextSeason,
   lockdownSeason,
   registerFor,
   scheduleOf,
@@ -507,5 +508,79 @@ describe("advanceSeasons", () => {
       .from(schema.seasons)
       .where(eq(schema.seasons.id, seasonId));
     expect(again!.status).toBe("ENDING");
+  });
+});
+
+describe("★ ensureNextSeason：七天的節奏", () => {
+  /**
+   * 這一組是回歸測試。第一版的判準是「現在有沒有賽季在收登記」，
+   * 而登記在第 3 天就截止、下一場要第 7 天才開 —— 中間那四天本來就
+   * 應該沒有人在收人。結果結算迴圈在封盤後的第一分鐘就開了下一場，
+   * 七天的輪替變成三天，而且每一輪都再快一點。
+   *
+   * 症狀在真實環境下才看得到：seed 完一場賽季、打一次 /api/cron/settle，
+   * 回應裡就多了一個 `created: 2`。
+   */
+  let fresh: Harness;
+
+  beforeAll(async () => {
+    fresh = await createHarness();
+  });
+  afterAll(async () => {
+    await fresh.close();
+  });
+
+  const idsOf = async () =>
+    (await fresh.db.select({ id: schema.seasons.id }).from(schema.seasons)).map((r) => r.id);
+
+  it("完全沒有賽季時開第一場", async () => {
+    const id = await fresh.tx((tx) => ensureNextSeason(tx, T0));
+    expect(id).not.toBeNull();
+    expect(await idsOf()).toHaveLength(1);
+  });
+
+  it("★ 登記截止之後**不**馬上開下一場 —— 那四天的空窗是刻意的", async () => {
+    // 登記期內
+    expect(await fresh.tx((tx) => ensureNextSeason(tx, T0 + HOUR))).toBeNull();
+    // 登記已截止（第 3 天）、封盤中
+    expect(await fresh.tx((tx) => ensureNextSeason(tx, T0 + 3 * 24 * HOUR + HOUR))).toBeNull();
+    // 開賽了，但還沒到第 7 天
+    expect(await fresh.tx((tx) => ensureNextSeason(tx, T0 + 6 * 24 * HOUR))).toBeNull();
+    expect(await idsOf()).toHaveLength(1);
+  });
+
+  it("第 7 天開下一場，而且對齊在格子上（不被 cron 的觸發時刻拖走）", async () => {
+    const at = T0 + PHASE_DURATION.cadenceMs + 37 * 60_000; // 晚了 37 分鐘才跑到
+    const id = await fresh.tx((tx) => ensureNextSeason(tx, at));
+    expect(id).not.toBeNull();
+
+    const [next] = await fresh.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, id!));
+    // 用 nextOpensAt 而不是 now —— 否則每一輪都會往後漂
+    expect(scheduleOf(next!).registrationOpensAt).toBe(T0 + PHASE_DURATION.cadenceMs);
+  });
+
+  it("剛開完就再問一次不會又開一場", async () => {
+    const before = await idsOf();
+    expect(
+      await fresh.tx((tx) => ensureNextSeason(tx, T0 + PHASE_DURATION.cadenceMs + HOUR)),
+    ).toBeNull();
+    expect(await idsOf()).toEqual(before);
+  });
+
+  it("★ 排程停擺很久之後重新對時，不會開出一場「一出生就該封盤」的賽季", async () => {
+    const long = T0 + PHASE_DURATION.cadenceMs * 5;
+    const id = await fresh.tx((tx) => ensureNextSeason(tx, long));
+    expect(id).not.toBeNull();
+
+    const [next] = await fresh.db
+      .select()
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, id!));
+    // 落後超過一個週期 → 從現在重新起算，而不是照抄早就過期的 nextOpensAt
+    expect(scheduleOf(next!).registrationOpensAt).toBe(long);
+    expect(scheduleOf(next!).registrationClosesAt).toBeGreaterThan(long);
   });
 });
