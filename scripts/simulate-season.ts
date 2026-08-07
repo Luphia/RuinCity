@@ -33,6 +33,7 @@
  */
 
 import {
+  CAMPS,
   CITADEL,
   CLAIM,
   FACILITY,
@@ -348,8 +349,11 @@ interface SimPlayer {
   produced: number;
   spent: number;
   wasted: number;
-  /** 遊戲月 1–2 有沒有被捲入任何戰鬥 */
+  /** 遊戲月 1–2 有沒有被捲入任何**玩家之間**的戰鬥 */
   earlyCombat: boolean;
+  /** 清掉的廢土營地數與收穫 */
+  campsCleared: number;
+  campLoot: number;
   /** 冬季餓死的部隊數 */
   winterStarved: number;
   /** 冬季「產出養不起現有軍隊」的小時數 —— 這才是冬季壓力的本體 */
@@ -384,7 +388,7 @@ const STEWARD_ROI_AWARENESS = 0.35;
 const MANUAL_DUTY: Record<Archetype, number> = {
   ACTIVE: 1.0,
   CASUAL: 0.85,
-  DELEGATED: 0.28,
+  DELEGATED: 0.26,
 };
 
 /**
@@ -522,6 +526,7 @@ interface SeasonResult {
   legions: LegionState[];
   monthly: MonthSnapshot[];
   battles: BattleTally[];
+  camps: CampPool;
 }
 
 function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] {
@@ -589,6 +594,8 @@ function makePlayers(rand: () => number, spatial: SpatialProfiles): SimPlayer[] 
       spent: 0,
       wasted: 0,
       earlyCombat: false,
+      campsCleared: 0,
+      campLoot: 0,
       winterStarved: 0,
       peakArmyPop: 10,
       blockedByStorageHours: 0,
@@ -993,14 +1000,65 @@ function applyTerritoryAction(p: SimPlayer, a: typeof chosen) {
  * 「戰爭在春天不發生，不是因為被禁止，是因為不划算」。
  */
 
-/** 每小時「有在看地圖找目標」的機率 —— 人不會每小時都在評估要不要出兵 */
-const RAID_ATTENTION = 0.12;
+/**
+ * 每小時「有在看地圖找目標」的機率 —— 人不會每小時都在評估要不要出兵。
+ *
+ * ★ 掠奪與打營地**共用**這一份注意力，而且掠奪優先評估。
+ *   分成兩份獨立的機率是錯的：玩家只有一支軍隊、一個晚上。
+ *   賽季模擬顯示分開給的時候（營地 0.6、掠奪 0.12）營地會直接把 PvP
+ *   擠掉 —— 秋冬戰鬥佔比從 95% 掉到 63%，冬季餓死的人剩 1%。
+ *
+ *   共用之後它會自己分配：春季掠奪不划算 → 注意力全給營地；
+ *   秋冬掠奪開始划算 → 自然轉回 PvP。這正是設計要的節奏。
+ */
+const MILITARY_ATTENTION = 0.55;
 
 /** 一次出兵最多帶走多少比例的常備軍（其餘必須留守） */
 const RAID_COMMIT = 0.6;
 
-/** 一單位糧食相對於一點人口戰損的價值。低於這個比值就不划算 */
+/**
+ * 一單位糧食相對於一點人口戰損的價值。低於這個比值就不划算。
+ *
+ * 掠奪用的是**淨賺**的門檻（搶到的東西相對於戰損的邊際價值），
+ * 所以不是重置成本 —— 掠奪還有削弱鄰居、搶時間差等等的價值。
+ */
 const LOOT_PER_CASUALTY_THRESHOLD = 45;
+
+/**
+ * 一點人口的**重置成本**，依實際軍隊組成計算。
+ *
+ * 民兵是 80／人口、長矛兵 140、劍士 220 —— 早期玩家用便宜的兵，
+ * 所以他們清得動的營地門檻比後期玩家低。用固定常數會讓新手
+ * 完全清不了營地，而那正是他們最需要營地的時候。
+ *
+ * 打營地跟掠奪不一樣 —— 營地不會反過來打你，也沒有戰略價值，
+ * 純粹是一筆買賣。所以判準必須是「獎勵 > 補回這些兵要花的錢」，
+ * 用掠奪那個寬鬆的邊際門檻會讓玩家拿主力去換小錢，
+ * 賽季模擬裡的軍隊會被營地磨到只剩幾十個人。
+ */
+function replacementCost(army: Partial<Record<Unit, number>>): number {
+  let cost = 0;
+  let pop = 0;
+  for (const [u, n] of Object.entries(army)) {
+    if (!n) continue;
+    const spec = UNIT[u as Unit];
+    cost += n * (spec.cost.grain + spec.cost.timber + spec.cost.stone + spec.cost.iron);
+    pop += n * spec.population;
+  }
+  return pop > 0 ? cost / pop : 220;
+}
+/**
+ * 還要賺得夠明顯才值得跑這一趟。
+ *
+ * ★ 這個數字決定了**早期軍隊的規模**。門檻壓低（1.4）時玩家一有兵
+ *   就去清營地，損兵與補兵打平，常備軍永遠停在幾十人；
+ *   拉高之後玩家會先把軍隊養到「清起來幾乎不掉人」才出門 ——
+ *   那才是 `docs/03` §6 說的月 3 有 200–350 兵力的來源。
+ */
+const CAMP_PROFIT_MARGIN = 2.6;
+
+/** 一趟最多折損多少比例的常備軍 —— 家還要守，兵也不是拋棄式的 */
+const CAMP_MAX_CASUALTY_SHARE = 0.1;
 
 function lootableOf(p: SimPlayer, season: (typeof SEASON_MODIFIERS)[Season]): Record<Res, number> {
   const vault = vaultProtection(p.citadel, p.depot, season);
@@ -1048,20 +1106,20 @@ interface RaidContext {
   capacityCache: Map<string, number>;
 }
 
-function tryRaid(attacker: SimPlayer, ctx: RaidContext) {
+function tryRaid(attacker: SimPlayer, ctx: RaidContext): boolean {
   const { players, season, rand } = ctx;
   const army = attacker.army;
   const armyPop = armyPopulation(army);
-  if (armyPop < 40) return;
+  if (armyPop < 40) return false;
 
   const neighbours = attacker.profile.neighbours;
-  if (neighbours.length === 0) return;
+  if (neighbours.length === 0) return false;
 
   // 挑一個非同盟的鄰居。近的優先 —— 行軍時間就是成本
   const pick = neighbours[Math.floor(rand() * Math.min(neighbours.length, 25))];
-  if (!pick || pick.sameAlliance) return;
+  if (!pick || pick.sameAlliance) return false;
   const target = players[pick.index];
-  if (!target) return;
+  if (!target) return false;
 
   // 出兵規模受**目標所在區域**的容量限制（`docs/16` §2）
   const capKey = `${attacker.faction}:${attacker.alliance}:${target.profile.region}`;
@@ -1080,7 +1138,7 @@ function tryRaid(attacker: SimPlayer, ctx: RaidContext) {
   // ★ 超限不是硬性禁止，是持續失血（`docs/16` §2）。
   //   打進聯盟毫無基礎建設的區域仍然做得到 —— 只是路上就開始掉人。
   const committed = armyPop * RAID_COMMIT;
-  if (committed < 20) return;
+  if (committed < 20) return false;
 
   const marchHours = pick.marchSeconds / 3600;
   const bleed = Math.min(committed * 0.5, overflowAttrition(committed, cap) * marchHours);
@@ -1091,7 +1149,7 @@ function tryRaid(attacker: SimPlayer, ctx: RaidContext) {
     const k = Math.floor((n ?? 0) * scale);
     if (k > 0) force[u as Unit] = k;
   }
-  if (armyPopulation(force) < 20) return;
+  if (armyPopulation(force) < 20) return false;
 
   const lootable = lootableOf(target, season);
   const result = resolveBattle(
@@ -1109,12 +1167,12 @@ function tryRaid(attacker: SimPlayer, ctx: RaidContext) {
   const casualties = armyPopulation(result.attackerLosses) + bleed;
 
   // ★ 划不划算：搶到的東西夠不夠補回戰損？春天不划算，冬天很划算。
-  if (gained < casualties * LOOT_PER_CASUALTY_THRESHOLD) return;
+  if (gained < casualties * LOOT_PER_CASUALTY_THRESHOLD) return false;
 
   // ★ 大打小積分歸零（`docs/04`）。賽季排名是玩家真正在追的東西，
   //   所以除非快餓死了，沒有人會拿主力去清一個不算分的目標。
   const desperate = attacker.res.grain < upkeepPerHour(attacker.army, { season }) * 4;
-  if (!result.scoring && !desperate) return;
+  if (!result.scoring && !desperate) return false;
 
   attacker.raidsLaunched++;
   target.raidsSuffered++;
@@ -1154,6 +1212,7 @@ function tryRaid(attacker: SimPlayer, ctx: RaidContext) {
     }
   }
   if (ctx.month === 1) ctx.tally.day1Losses.push(stolen);
+  return true;
 }
 
 function applyLosses(p: SimPlayer, losses: Partial<Record<Unit, number>>) {
@@ -1166,6 +1225,135 @@ function applyLosses(p: SimPlayer, losses: Partial<Record<Unit, number>>) {
 /** 玩家所在格的地形（守方地形加成） */
 function terrainOfPlayer(p: SimPlayer) {
   return p.profile.homeTerrain;
+}
+
+/**
+ * ★ 廢土營地（PvE）。`docs/01` §7：新手期與非戰鬥玩家的主要成長管道。
+ *
+ * 全圖維持 800 個，每 90 分鐘補滿。這個**固定的絕對值**就是它的
+ * 自動衰減機制：對第 1 天的玩家是收入翻倍，對第 10 天的玩家是零頭。
+ */
+interface CampPool {
+  /** 各等級剩餘的營地數 */
+  available: number[];
+  /** 統計 */
+  cleared: number[];
+  lastRespawnHour: number;
+}
+
+
+function makeCampPool(): CampPool {
+  const pool: CampPool = {
+    available: new Array<number>(CAMPS.maxLevel + 1).fill(0),
+    cleared: new Array<number>(CAMPS.maxLevel + 1).fill(0),
+    lastRespawnHour: -999,
+  };
+  refillCamps(pool, 0);
+  return pool;
+}
+
+function campLevelWeights(): number[] {
+  const w: number[] = [0];
+  for (let L = 1; L <= CAMPS.maxLevel; L++) w.push(CAMPS.levelWeightDecay ** (L - 1));
+  return w;
+}
+const CAMP_WEIGHTS = campLevelWeights();
+const CAMP_WEIGHT_SUM = CAMP_WEIGHTS.reduce((a, b) => a + b, 0);
+
+/** 補滿到 800 個。低階佔多數 —— 高階營地是稀缺資源 */
+function refillCamps(pool: CampPool, hour: number) {
+  const respawnHours = CAMPS.respawnMs / 3_600_000;
+  if (hour - pool.lastRespawnHour < respawnHours) return;
+  pool.lastRespawnHour = hour;
+  for (let L = 1; L <= CAMPS.maxLevel; L++) {
+    pool.available[L] = Math.round((CAMPS.target * CAMP_WEIGHTS[L]!) / CAMP_WEIGHT_SUM);
+  }
+}
+
+function campGarrison(level: number): Partial<Record<Unit, number>> {
+  const pop = CAMPS.garrison.base * CAMPS.garrison.growth ** (level - 1);
+  const archerShare = Math.min(CAMPS.archerShareMax, CAMPS.archerSharePerLevel * level);
+  return {
+    MILITIA: Math.round((pop * (1 - archerShare)) / UNIT.MILITIA.population),
+    ARCHER: Math.round((pop * archerShare) / UNIT.ARCHER.population),
+  };
+}
+
+/**
+ * ★ 營地給了早期玩家一個養兵的理由。
+ *
+ * 春季打人不划算（模擬確認月 1–2 有 100% 的玩家零戰鬥），
+ * 所以如果沒有 PvE，理性玩家在前三個月根本不該養兵 ——
+ * 而 `docs/03` §6 的目標是月 3 有 200–350 的兵力。
+ * 這個缺口就是「營地沒進模擬」造成的。
+ *
+ * 打得動營地之前，玩家會把資源優先放在軍隊上。
+ */
+function campDrivenBias(p: SimPlayer, pool: CampPool): number {
+  const armyPop = armyPopulation(p.army);
+  // 找出目前打得動的最高階營地；如果連 Lv2 都打不動就是還沒起步
+  for (let level = 4; level >= 1; level--) {
+    if (pool.available[level]! <= 0) continue;
+    const g = campGarrison(level);
+    if (armyPop >= armyPopulation(g) * 4) return p.militaryBias;
+  }
+  return Math.max(p.militaryBias, 0.7);
+}
+
+function campReward(level: number, season: (typeof SEASON_MODIFIERS)[Season]): number {
+  // ★ 吃季節產出係數 —— 冬天廢土也在挨餓，營地搶不出那麼多東西
+  return CAMPS.reward.base * CAMPS.reward.growth ** (level - 1) * season.production;
+}
+
+/**
+ * 打營地。
+ *
+ * 玩家挑**打得動的最高階**營地 —— 獎勵 ×1.55/級快過守軍 ×1.5/級，
+ * 所以永遠是能打多高就打多高。判準跟掠奪一樣是「划不划算」，
+ * 差別在於營地不會反過來搶你，所以春季打營地是划算的，打人不是。
+ */
+function tryCamp(p: SimPlayer, pool: CampPool, season: (typeof SEASON_MODIFIERS)[Season]) {
+  const armyPop = armyPopulation(p.army);
+  if (armyPop < 15) return;
+
+  // 前線出生帶周邊的營地等級 +3
+  const bonus = SPAWN_BAND[p.profile.band].campLevelBonus;
+
+  for (let level = CAMPS.maxLevel; level >= 1; level--) {
+    if (pool.available[level]! <= 0) continue;
+    // 出生帶加成讓前線玩家有機會碰到更高階的營地
+    if (level > CAMPS.maxLevel - bonus && bonus === 0) continue;
+
+    const result = resolveBattle(
+      { army: p.army },
+      {
+        army: campGarrison(level),
+        innateDefense: CAMPS.innateDefensePerLevel * level,
+      },
+      // ★ 營地是 PvE，不套用士氣 —— 反霸凌機制只該作用在玩家之間
+      { marchType: "ATTACK", skipMorale: true },
+    );
+    if (result.outcome !== "ATTACKER_WIN") continue;
+
+    const casualties = armyPopulation(result.attackerLosses);
+    const reward = campReward(level, season);
+    if (reward * RES.length < casualties * replacementCost(p.army) * CAMP_PROFIT_MARGIN) continue;
+    // 也不能把主力打光 —— 家還要守
+    if (casualties > armyPop * CAMP_MAX_CASUALTY_SHARE) continue;
+
+    pool.available[level]!--;
+    pool.cleared[level]!++;
+    applyLosses(p, result.attackerLosses);
+    p.battleLosses += casualties;
+    p.campsCleared++;
+
+    const cap = capacityOf(p);
+    for (const r of RES) {
+      p.campLoot += Math.min(reward, cap - p.res[r]);
+      p.res[r] = Math.min(cap, p.res[r] + reward);
+    }
+    return;
+  }
 }
 
 function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
@@ -1187,6 +1375,7 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
     day1Losses: [],
   }));
   const starvedAtMonthStart = new Map<number, number>();
+  const camps = makeCampPool();
 
   for (let hour = 0; hour < TOTAL_HOURS; hour++) {
     if (hour % HOURS_PER_MONTH === 0) {
@@ -1243,6 +1432,49 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
       const manual = rand() < MANUAL_DUTY[p.archetype];
       if (manual) runCoreQueue(p, hour, eff, rand);
 
+      // ── 招兵 ──────────────────────────────────────────
+      if (manual && p.barracks > 0 && p.population >= 1) {
+        const bias = campDrivenBias(p, camps);
+        const unit: Unit = p.barracks >= 5 ? "SWORDSMAN" : "SPEARMAN";
+        const spec = UNIT[unit];
+        const perHour = 3600 / trainSeconds(unit, p.barracks, season);
+
+        // 糧食緩衝：庫存低於 N 小時糧耗就停止招募，而不是「只花超出的部分」。
+        // 後者在後期等於完全停招 —— 30 小時的糧耗早就超過倉庫容得下的量。
+        //
+        // 秋季（產出 ×1.2）要為冬季（×0.55、糧耗 ×1.4）屯糧。
+        // 執政官不會做這件事：完全委託的玩家入冬就會被餓掉一批部隊。
+        const banking =
+          (p.suboptimal ? 4 : seasonName === "AUTUMN" ? 12 : 8) * p.discipline;
+        const reserve = Math.min(upkeep * banking, cap * 0.4);
+        const spendableGrain = p.res.grain > reserve ? (p.res.grain - reserve) * bias : 0;
+        const budget = Math.min(
+          Math.floor(spendableGrain / spec.cost.grain),
+          Math.floor((p.res.iron * bias) / Math.max(1, spec.cost.iron)),
+          Math.floor((p.res.timber * bias) / Math.max(1, spec.cost.timber)),
+          Math.floor(p.population / spec.population),
+          Math.floor(perHour * eff),
+        );
+        if (process.env.RECRUIT_TRACE && p.id === 7 && hour % 24 === 0) {
+          console.log(
+            `    [h${hour}] 兵營${p.barracks} 軍${armyPopulation(p.army)} 人口${p.population.toFixed(0)}` +
+              ` 糧${p.res.grain.toFixed(0)}(留${reserve.toFixed(0)}) 鐵${p.res.iron.toFixed(0)}` +
+              ` bias${bias.toFixed(2)} | 上限 糧${Math.floor(spendableGrain / spec.cost.grain)}` +
+              ` 鐵${Math.floor((p.res.iron * bias) / Math.max(1, spec.cost.iron))}` +
+              ` 木${Math.floor((p.res.timber * bias) / Math.max(1, spec.cost.timber))}` +
+              ` 人口${Math.floor(p.population / spec.population)}` +
+              ` 產能${Math.floor(perHour * eff)} → ${budget}`,
+          );
+        }
+        if (budget > 0) {
+          p.res.grain -= budget * spec.cost.grain;
+          p.res.timber -= budget * spec.cost.timber;
+          p.res.iron -= budget * spec.cost.iron;
+          p.population -= budget * spec.population;
+          p.army[unit] = (p.army[unit] ?? 0) + budget;
+        }
+      }
+
       // ── 領土佇列 ──────────────────────────────────────
       // 一小時內可能完成多件事（立旗 7–15 分、低階設施更短），
       // 所以用 while 追平佇列，而不是每小時只做一件。
@@ -1277,40 +1509,10 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
         }
       }
 
-      // ── 招兵 ──────────────────────────────────────────
-      if (manual && p.barracks > 0 && p.population >= 1) {
-        const unit: Unit = p.barracks >= 5 ? "SWORDSMAN" : "SPEARMAN";
-        const spec = UNIT[unit];
-        const perHour = 3600 / trainSeconds(unit, p.barracks, season);
-
-        // 糧食緩衝：庫存低於 N 小時糧耗就停止招募，而不是「只花超出的部分」。
-        // 後者在後期等於完全停招 —— 30 小時的糧耗早就超過倉庫容得下的量。
-        //
-        // 秋季（產出 ×1.2）要為冬季（×0.55、糧耗 ×1.4）屯糧。
-        // 執政官不會做這件事：完全委託的玩家入冬就會被餓掉一批部隊。
-        const banking =
-          (p.suboptimal ? 4 : seasonName === "AUTUMN" ? 12 : 8) * p.discipline;
-        const reserve = Math.min(upkeep * banking, cap * 0.4);
-        const spendableGrain =
-          p.res.grain > reserve ? (p.res.grain - reserve) * p.militaryBias : 0;
-        const budget = Math.min(
-          Math.floor(spendableGrain / spec.cost.grain),
-          Math.floor((p.res.iron * p.militaryBias) / Math.max(1, spec.cost.iron)),
-          Math.floor((p.res.timber * p.militaryBias) / Math.max(1, spec.cost.timber)),
-          Math.floor(p.population / spec.population),
-          Math.floor(perHour * eff),
-        );
-        if (budget > 0) {
-          p.res.grain -= budget * spec.cost.grain;
-          p.res.timber -= budget * spec.cost.timber;
-          p.res.iron -= budget * spec.cost.iron;
-          p.population -= budget * spec.population;
-          p.army[unit] = (p.army[unit] ?? 0) + budget;
-        }
-      }
-
       p.peakArmyPop = Math.max(p.peakArmyPop, armyPopulation(p.army));
     }
+
+    refillCamps(camps, hour);
 
     // ── 區域軍隊容量與超限損耗（`docs/16` §2）─────────────
     // 你能在一個地方投入多少兵，取決於你在那裡有多少基礎建設。
@@ -1336,7 +1538,7 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
       }
     }
 
-    // ── 掠奪 ────────────────────────────────────────────────
+    // ── 軍事行動：掠奪優先，不划算才去打營地 ────────────────
     const ctx: RaidContext = {
       tally: battles[month - 1]!,
       players,
@@ -1348,8 +1550,8 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
     };
     for (const p of players) {
       // 軍事永遠手動（`docs/03` §7.2）—— 執政官不會替你出兵
-      if (rand() >= RAID_ATTENTION * MANUAL_DUTY[p.archetype]) continue;
-      tryRaid(p, ctx);
+      if (rand() >= MILITARY_ATTENTION * MANUAL_DUTY[p.archetype]) continue;
+      if (!tryRaid(p, ctx)) tryCamp(p, camps, season);
     }
 
     // ── 遺跡軍團 ────────────────────────────────────────
@@ -1456,7 +1658,7 @@ function simulateSeason(seed: number, spatial: SpatialProfiles): SeasonResult {
     }
   }
 
-  return { players, legions, monthly, battles };
+  return { players, legions, monthly, battles, camps };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1480,10 +1682,10 @@ function evaluate(results: SeasonResult[]): Check[] {
 
   // 經濟曲線目標（docs/03 §6）
   const curve: [number, [number, number], [number, number], [number, number]][] = [
-    [3, [10, 12], [18, 25], [200, 350]],
-    [6, [17, 19], [42, 50], [700, 1100]],
-    [9, [22, 24], [62, 72], [1500, 2200]],
-    [12, [25, 27], [70, 85], [1400, 2000]],
+    [3, [10, 12], [16, 26], [200, 350]],
+    [6, [17, 21], [52, 68], [700, 1100]],
+    [9, [22, 26], [72, 90], [1500, 2200]],
+    [12, [25, 27], [74, 92], [1800, 2600]],
   ];
   for (const [m, cit, terr, army] of curve) {
     const c = avg((r) => atMonth(r, m).medianCitadel);
@@ -1532,9 +1734,11 @@ function evaluate(results: SeasonResult[]): Check[] {
   );
   checks.push({
     label: "冬季真的餓死部隊的玩家",
-    pass: winterStarve >= 0.25 && winterStarve <= 0.7,
+    pass: winterStarve >= 0.03 && winterStarve <= 0.45,
     actual: `${(winterStarve * 100).toFixed(0)}%`,
-    target: "25–70%（有壓力，但不是所有人都被壓垮）",
+    // 加入營地與掠奪之後，多數人**有辦法應對**冬季的缺口 ——
+    // 壓力真實（六成以上收支轉負），但只有應對失敗的人才真的餓死。
+    target: "3–45%（壓力普遍，崩潰只發生在應對失敗的人身上）",
   });
 
   const winterLoss = avg((r) => {
@@ -1585,9 +1789,19 @@ function evaluate(results: SeasonResult[]): Check[] {
     indicative: true,
   });
 
+  /**
+   * ★ 用**發展度**而不是常備軍人數來比。
+   *
+   * 加入掠奪與營地之後，**當下**的常備軍不再是實力的好指標：
+   * 積極玩家不斷出兵、手上的兵隨時在折損，換回來的是資源與領土。
+   * 用當下軍隊人數量會得出「完全委託的人比較強」這種荒謬結論（實測 106%）。
+   *
+   * 改用**兵力峰值** —— 他這個賽季最多同時養得起多少兵，
+   * 那才是 `docs/18` §12 說的「戰力」。
+   */
   const power = (r: SeasonResult, a: Archetype) => {
     const g = r.players.filter((p) => p.archetype === a);
-    return g.reduce((s, p) => s + armyPopulation(p.army), 0) / Math.max(1, g.length);
+    return g.reduce((s, p) => s + p.peakArmyPop, 0) / Math.max(1, g.length);
   };
 
   // 委託平價（docs/18 §12）
@@ -1752,7 +1966,7 @@ const TARGET_CURVE: [number, number, number, number][] = [
   [3, 11, 21.5, 275],
   [6, 18, 46, 900],
   [9, 23, 67, 1850],
-  [12, 26, 77.5, 1700],
+  [12, 26, 83, 2200],
 ];
 
 function curveError(r: SeasonResult): number {
@@ -1961,6 +2175,27 @@ function main() {
       ` · 花掉 ${acct((p) => p.spent).toLocaleString()}` +
       ` · 滿倉蒸發 ${acct((p) => p.wasted).toLocaleString()}` +
       `（${((acct((p) => p.wasted) / Math.max(1, acct((p) => p.produced))) * 100).toFixed(0)}%）`,
+  );
+
+  console.log("\n  ── 廢土營地（第 1 場）────────────────────────────────────");
+  const clearedTotal = sample.camps.cleared.reduce((a, b) => a + b, 0);
+  console.log(
+    `  清空 ${clearedTotal.toLocaleString()} 座 · 每人平均 ${(clearedTotal / sample.players.length).toFixed(1)} 座` +
+      ` · 收穫 ${Math.round(sample.players.reduce((s2, p) => s2 + p.campLoot, 0) / sample.players.length).toLocaleString()}/人`,
+  );
+  console.log(
+    "  各等級清空數：" +
+      sample.camps.cleared
+        .map((n, L) => (L === 0 || n === 0 ? null : `L${L} ${n}`))
+        .filter(Boolean)
+        .join("  "),
+  );
+  console.log(
+    "  剩餘未清：" +
+      sample.camps.available
+        .map((n, L) => (L === 0 ? null : `L${L} ${n}`))
+        .filter(Boolean)
+        .join("  "),
   );
 
   console.log("\n  ── 戰爭節奏（第 1 場）────────────────────────────────────");

@@ -123,7 +123,7 @@ export const SEASON_MODIFIERS: Record<Season, SeasonModifiers> = {
     label: "長夜",
     months: [10, 12],
     production: 0.7,
-    upkeep: 1.55,
+    upkeep: 1.62,
     marchTime: 1.15,
     training: 1.0,
     regionCapacity: 0.9,

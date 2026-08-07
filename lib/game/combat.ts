@@ -51,8 +51,18 @@ export interface DefenderInput {
 
 export interface BattleOptions {
   marchType: MarchType;
-  /** 遺跡爭奪戰不套用士氣（終局內容不該被反霸凌機制干擾） */
-  isRuinBattle?: boolean;
+/**
+   * 不套用士氣。
+   *
+   * 士氣是**反霸凌**機制：大打小時折算戰力與掠奪量，讓「欺負新手」
+   * 不划算。但它只該作用在玩家之間 ——
+   *
+   * - **遺跡爭奪戰**：終局內容不該被反霸凌機制干擾
+   * - **廢土營地／PvE**：營地不是玩家，用主力清一個小營地本來就該很輕鬆。
+   *   賽季模擬顯示忘了關掉士氣時，帶 200 兵打 40 人的營地會被折到 0.57 倍，
+   *   清營地變成穩賠 —— 而 `01` §7 說營地是新手期的主要成長管道。
+   */
+  skipMorale?: boolean;
   /** 守方是否在自己的據點（醫療帳只在這時生效） */
   defenderAtHome?: boolean;
 }
@@ -180,7 +190,7 @@ export function resolveBattle(
   const attackerAfterTech =
     attackerBasePower * (1 + (attacker.attackTech ?? 0) + (attacker.ruinAttackBonus ?? 0));
 
-  const morale = options.isRuinBattle ? 1 : moraleFactor(defPop, atkPop);
+  const morale = options.skipMorale ? 1 : moraleFactor(defPop, atkPop);
   const attackerAfterMorale = attackerAfterTech * morale;
 
   // 沒有攻城器械就別想拆牆

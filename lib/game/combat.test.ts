@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { COMBAT, SEASON_MODIFIERS } from "./balance";
+import { CAMPS, COMBAT, SEASON_MODIFIERS, UNIT } from "./balance";
 import { moraleFactor, resolveBattle, type Army } from "./combat";
 import { armyPopulation, innateDefense, vaultProtection } from "./formulas";
 
@@ -36,7 +36,7 @@ describe("士氣係數", () => {
     const defender = { army: { ARCHER: 50 } satisfies Army };
 
     const normal = resolveBattle(attacker, defender, ATTACK);
-    const ruin = resolveBattle(attacker, defender, { ...ATTACK, isRuinBattle: true });
+    const ruin = resolveBattle(attacker, defender, { ...ATTACK, skipMorale: true });
 
     expect(normal.breakdown.morale).toBeLessThan(0.5);
     expect(ruin.breakdown.morale).toBe(1);
@@ -350,5 +350,62 @@ describe("結算不變式", () => {
     const r = resolveBattle({ army: {} }, { army: { ARCHER: 10 } }, ATTACK);
     expect(r.outcome).toBe("DEFENDER_WIN");
     expect(Number.isFinite(r.breakdown.attackerFinalPower)).toBe(true);
+  });
+});
+
+describe("廢土營地（PvE）", () => {
+  const campGarrison = (level: number) => {
+    const pop = CAMPS.garrison.base * CAMPS.garrison.growth ** (level - 1);
+    const archerShare = Math.min(CAMPS.archerShareMax, CAMPS.archerSharePerLevel * level);
+    return {
+      MILITIA: Math.round((pop * (1 - archerShare)) / UNIT.MILITIA.population),
+      ARCHER: Math.round((pop * archerShare) / UNIT.ARCHER.population),
+    };
+  };
+  const campReward = (level: number) =>
+    CAMPS.reward.base * CAMPS.reward.growth ** (level - 1);
+
+  it("★ PvE 不套用士氣 —— 反霸凌機制只該作用在玩家之間", () => {
+    const attacker = { army: { SWORDSMAN: 200 } };
+    const defender = { army: campGarrison(1), innateDefense: CAMPS.innateDefensePerLevel };
+
+    const withMorale = resolveBattle(attacker, defender, { marchType: "ATTACK" });
+    const pve = resolveBattle(attacker, defender, { marchType: "ATTACK", skipMorale: true });
+
+    // 200 打 25 的士氣係數約 0.53，會讓清營地變成穩賠
+    expect(withMorale.breakdown.morale).toBeLessThan(0.6);
+    expect(pve.breakdown.morale).toBe(1);
+    expect(armyPopulation(pve.attackerLosses)).toBeLessThan(
+      armyPopulation(withMorale.attackerLosses),
+    );
+  });
+
+  it("★ 新手用民兵就清得動 Lv1 營地，而且划算", () => {
+    // 民兵每人口 80 資源，Lv1 獎勵四種合計 8,000
+    const result = resolveBattle(
+      { army: { MILITIA: 120 } },
+      { army: campGarrison(1), innateDefense: CAMPS.innateDefensePerLevel },
+      { marchType: "ATTACK", skipMorale: true },
+    );
+    expect(result.outcome).toBe("ATTACKER_WIN");
+
+    const lost = armyPopulation(result.attackerLosses);
+    const militiaCost =
+      UNIT.MILITIA.cost.grain + UNIT.MILITIA.cost.timber + UNIT.MILITIA.cost.iron;
+    expect(campReward(1) * 4).toBeGreaterThan(lost * militiaCost * 1.5);
+  });
+
+  it("獎勵成長慢於守軍成長 —— 高階營地不會變成後期提款機", () => {
+    const ratio = (L: number) =>
+      (campReward(L) * 4) / (CAMPS.garrison.base * CAMPS.garrison.growth ** (L - 1));
+    expect(ratio(1)).toBeGreaterThan(ratio(10));
+    expect(CAMPS.reward.growth).toBeLessThan(CAMPS.garrison.growth);
+  });
+
+  it("低階營地的弓手比例必須夠低 —— 弓手防禦 62 是民兵的 5 倍", () => {
+    expect(UNIT.ARCHER.defInfantry / UNIT.MILITIA.defInfantry).toBeGreaterThan(4);
+    const share = (L: number) => Math.min(CAMPS.archerShareMax, CAMPS.archerSharePerLevel * L);
+    expect(share(1)).toBeLessThanOrEqual(0.05);
+    expect(share(10)).toBe(CAMPS.archerShareMax);
   });
 });
