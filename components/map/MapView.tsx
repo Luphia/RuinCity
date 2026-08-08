@@ -9,6 +9,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MapCanvas } from "./MapCanvas";
+import { GameHud } from "@/components/hud/GameHud";
+import { loadMyMapOverlay, type MapOverlay } from "@/app/actions/map";
 import type { SceneData, SceneStats } from "@/lib/render/scene";
 
 interface Overview {
@@ -34,20 +36,30 @@ export function MapView() {
   const [stats, setStats] = useState<SceneStats | null>(null);
   const statsRef = useRef<SceneStats | null>(null);
 
+  const [overlay, setOverlay] = useState<MapOverlay | null>(null);
+  const [overlayNote, setOverlayNote] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      // 個人圖層失敗不擋地圖 —— 但要講出來（失敗要看得見）
+      const mine = await loadMyMapOverlay().catch(() => {
+        if (!cancelled) setOverlayNote("個人圖層載入失敗");
+        return null;
+      });
       try {
         const res = await fetch("/api/map/overview");
         if (!res.ok) throw new Error((await res.json()).error ?? `HTTP ${res.status}`);
         const json = (await res.json()) as Overview;
         if (cancelled) return;
         setOverview(json);
+        setOverlay(mine);
         setData({
           source: { seasonId: json.seasonId, baseUrl: json.chunkBaseUrl },
           ruins: json.ruins,
           spawns: json.spawns.map((s, i) => ({ ...s, alliance: i % 5 })),
           battles: json.battles ?? [],
+          mine: mine ?? undefined,
         });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -77,7 +89,12 @@ export function MapView() {
     );
   }
 
-  const home = overview?.spawns[0];
+  /**
+   * ★ 開圖聚焦在**我的據點**，不是第一個出生點。
+   *   spawns[0] 是別人的家 —— 玩家打開地圖第一眼要看到的是自己的疆界。
+   *   沒登入（或沒賽季）才退回 spawns[0]，至少讓地圖有個有東西的起點。
+   */
+  const home = overlay?.base ?? overview?.spawns[0];
 
   return (
     <main className="flex h-dvh flex-col bg-[#1a1614] text-[#e8dcc0]">
@@ -99,6 +116,8 @@ export function MapView() {
           onSelectTile={setSelected}
           onStats={onStats}
         />
+        {/* 常駐 HUD 浮在地圖上緣（docs/09 §5.1）—— 沒登入時它什麼都不畫 */}
+        <GameHud floating />
       </div>
 
       <footer className="shrink-0 border-t border-[#4a413a] bg-[#2e2723] px-3 py-2 text-xs">
@@ -131,6 +150,7 @@ export function MapView() {
           ) : (
             <span className="opacity-70">載入中…</span>
           )}
+          {overlayNote ? <span className="text-[#c4442f]">{overlayNote}</span> : null}
           {stats ? (
             <span data-testid="sprite-count" className="ml-auto opacity-70">
               {stats.fps} fps · sprite {stats.spriteCount} · chunk {stats.chunksVisible}/

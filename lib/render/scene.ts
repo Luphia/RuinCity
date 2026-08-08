@@ -35,6 +35,7 @@ import {
 } from "./chunks";
 import { loadChunk, peekChunk, type ChunkSource } from "./chunk-cache";
 import { PALETTE, allianceColor } from "./palette";
+import { edgeSegment, outlineEdges, type OutlineEdge } from "./territory";
 import {
   visibleTiles,
   worldToScreen,
@@ -62,12 +63,31 @@ export interface BattleMarker {
   readonly y: number;
 }
 
+export interface MineMarch {
+  readonly fromX: number;
+  readonly fromY: number;
+  readonly toX: number;
+  readonly toY: number;
+  readonly departedAt: number;
+  readonly arrivesAt: number;
+}
+
+/** 個人圖層：我的據點、領土與行軍（`app/actions/map.ts` 給的） */
+export interface MineOverlay {
+  readonly serverTime: number;
+  readonly base: { readonly x: number; readonly y: number };
+  readonly tiles: readonly { readonly x: number; readonly y: number }[];
+  readonly marches: readonly MineMarch[];
+}
+
 export interface SceneData {
   readonly source: ChunkSource;
   readonly ruins: readonly RuinMarker[];
   readonly spawns: readonly SpawnMarker[];
   /** 觀戰窗口內的交戰地點 —— 地圖上會有脈動的紅色標示 */
   readonly battles?: readonly BattleMarker[];
+  /** 個人圖層。沒登入就沒有 */
+  readonly mine?: MineOverlay;
   /** 玩家自己的據點，會畫上高亮框 */
   readonly home?: { x: number; y: number };
 }
@@ -127,6 +147,17 @@ export class MapScene {
 
   private readonly gridGraphics = new Graphics();
   private readonly selectionGraphics = new Graphics();
+  /** 個人圖層：領土外框與行軍路徑（territory 層，只在視角變動時重建）、
+      我的據點框與行軍中的部隊點（march 層，每幀重畫 —— 它們在動或要壓在結構上面） */
+  private readonly territoryGraphics = new Graphics();
+  private readonly marchGraphics = new Graphics();
+  private mineEdges: readonly OutlineEdge[] = [];
+  /** 行軍進度的時間基準：伺服器時間 + 客戶端流逝的間隔（不信任絕對值） */
+  private mineEpoch: { server: number; perf: number } | null = null;
+  /** 靜態個人圖層的重建判準：視角沒變就不重建 Graphics（省電，docs/09 §7） */
+  private mineViewKey = "";
+  /** 目前選取的格子。存世界座標，每幀重畫 —— 縮放平移後選取框才跟得上 */
+  private selection: { x: number; y: number } | null = null;
 
   stats: SceneStats = { spriteCount: 0, chunksLoaded: 0, chunksVisible: 0, fps: 0 };
 
@@ -142,6 +173,8 @@ export class MapScene {
     }
     this.layers.overlay.addChild(this.gridGraphics);
     this.layers.overlay.addChild(this.selectionGraphics);
+    this.layers.territory.addChild(this.territoryGraphics);
+    this.layers.march.addChild(this.marchGraphics);
   }
 
   static async create(canvas: HTMLCanvasElement, width: number, height: number) {
@@ -164,6 +197,12 @@ export class MapScene {
 
   setData(data: SceneData) {
     this.data = data;
+    // 外框只在資料變的時候算一次；每幀只做座標換算
+    this.mineEdges = data.mine ? outlineEdges(data.mine.tiles) : [];
+    this.mineEpoch = data.mine
+      ? { server: data.mine.serverTime, perf: performance.now() }
+      : null;
+    this.mineViewKey = ""; // 資料換了，靜態圖層一定要重建
   }
 
   destroy() {
@@ -188,7 +227,9 @@ export class MapScene {
 
     this.syncTerrain(wanted, viewport);
     this.drawStructures(viewport, spec.showStructures);
+    this.drawMine(viewport);
     this.drawGrid(viewport, spec.showRegionGrid);
+    this.drawSelection();
 
     this.tickFps();
     this.stats = {
@@ -357,6 +398,86 @@ export class MapScene {
     }
   }
 
+  /**
+   * 個人圖層：我的領土外框、我的據點、我在路上的部隊。
+   *
+   * ★ 參照同類作品（docs/09 §12）：領土沿邊界描一圈而不是塗滿格子、
+   *   行軍畫成「沿虛線路徑移動的點」。地圖因此從「看的地方」
+   *   變成「遊戲發生的地方」—— 你看得到自己的疆界在長大、部隊在路上。
+   *
+   * ★ 行軍進度是時間的函數（伺服器給 departedAt/arrivesAt，
+   *   客戶端只量流逝的間隔）。畫面上的點位置只供顯示，
+   *   抵達與戰鬥永遠由伺服器結算。
+   */
+  private drawMine(v: Viewport) {
+    const mine = this.data?.mine;
+    if (!mine) {
+      this.territoryGraphics.clear();
+      this.marchGraphics.clear();
+      return;
+    }
+
+    /**
+     * 靜態的部分（領土外框、行軍虛線）只在視角變動時重建 ——
+     * SwiftShader／低階手機上每幀重建 Graphics 是白白燒掉的幀。
+     */
+    const key = `${v.centerX},${v.centerY},${v.tilePixels},${v.screenWidth},${v.screenHeight}`;
+    if (key !== this.mineViewKey) {
+      this.mineViewKey = key;
+      this.territoryGraphics.clear();
+
+      // ── 領土外框（生機藍 —— 整張廢土地圖上「活的」顏色）──
+      for (const e of this.mineEdges) {
+        const [x1, y1, x2, y2] = edgeSegment(e);
+        const a = worldToScreen(v, x1, y1);
+        const b = worldToScreen(v, x2, y2);
+        this.territoryGraphics.moveTo(a.x, a.y).lineTo(b.x, b.y);
+      }
+      this.territoryGraphics.stroke({ color: PALETTE.vitalBlue, width: 2, alpha: 0.9 });
+
+      // ── 行軍的虛線路徑 ──
+      for (const m of mine.marches) {
+        const from = worldToScreen(v, m.fromX + 0.5, m.fromY + 0.5);
+        const to = worldToScreen(v, m.toX + 0.5, m.toY + 0.5);
+        const dist = Math.hypot(to.x - from.x, to.y - from.y);
+        if (dist < 1) continue;
+        const dots = Math.min(80, Math.max(2, Math.floor(dist / 14)));
+        for (let i = 0; i <= dots; i++) {
+          const k = i / dots;
+          this.territoryGraphics
+            .rect(from.x + (to.x - from.x) * k - 1, from.y + (to.y - from.y) * k - 1, 3, 3)
+            .fill({ color: PALETTE.parchment, alpha: 0.7 });
+        }
+      }
+    }
+
+    // ── 每幀重畫的部分：據點框（要壓在結構上面）與移動中的部隊點 ──
+    this.marchGraphics.clear();
+    const home = worldToScreen(v, mine.base.x, mine.base.y);
+    const homeSize = Math.max(8, v.tilePixels * 2);
+    this.marchGraphics
+      .rect(home.x, home.y, homeSize, homeSize)
+      .stroke({ color: PALETTE.relicGold, width: 2 });
+
+    if (mine.marches.length > 0 && this.mineEpoch) {
+      const serverNowMs = this.mineEpoch.server + (performance.now() - this.mineEpoch.perf);
+      for (const m of mine.marches) {
+        const from = worldToScreen(v, m.fromX + 0.5, m.fromY + 0.5);
+        const to = worldToScreen(v, m.toX + 0.5, m.toY + 0.5);
+        const k = Math.min(
+          1,
+          Math.max(0, (serverNowMs - m.departedAt) / Math.max(1, m.arrivesAt - m.departedAt)),
+        );
+        const px = from.x + (to.x - from.x) * k;
+        const py = from.y + (to.y - from.y) * k;
+        // 部隊點要在任何底色上都認得出來：黑框、鏽紅身、羊皮紙心
+        this.marchGraphics.rect(px - 5, py - 5, 10, 10).fill({ color: PALETTE.darkest });
+        this.marchGraphics.rect(px - 4, py - 4, 8, 8).fill({ color: PALETTE.rust });
+        this.marchGraphics.rect(px - 1, py - 1, 2, 2).fill({ color: PALETTE.parchment });
+      }
+    }
+  }
+
   private takeStructure(): Graphics {
     let g = this.structurePool[this.structureUsed];
     if (!g) {
@@ -388,11 +509,18 @@ export class MapScene {
     this.gridGraphics.stroke({ color: PALETTE.mid, width: 1, alpha: 0.5 });
   }
 
-  /** 選取框。點擊格子後由 React 呼叫 */
+  /** 選取框。點擊格子後由 React 呼叫；每幀依當下視角重畫，
+      縮放平移之後框才會跟著格子走（★ 之前畫一次就不管，雙擊放大後
+      框會停在舊縮放的位置與尺寸） */
   setSelection(tile: { x: number; y: number } | null) {
+    this.selection = tile;
+    this.drawSelection();
+  }
+
+  private drawSelection() {
     this.selectionGraphics.clear();
-    if (!tile || !this.viewport) return;
-    const at = worldToScreen(this.viewport, tile.x, tile.y);
+    if (!this.selection || !this.viewport) return;
+    const at = worldToScreen(this.viewport, this.selection.x, this.selection.y);
     const size = this.viewport.tilePixels;
     this.selectionGraphics
       .rect(at.x, at.y, size, size)

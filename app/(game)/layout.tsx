@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
+import { GameHud } from "@/components/hud/GameHud";
 
 /**
  * 遊戲主介面。所有子路由都需要登入。
@@ -24,6 +25,9 @@ export default async function GameLayout({ children }: { children: React.ReactNo
 
   return (
     <div className="min-h-dvh bg-[#1a1614] pb-14">
+      {/* ★ 常駐 HUD（docs/09 §5.1）：資源與「下一件完成的事」在每一個分頁都看得到。
+          它自己抓資料、自己外推 —— 沒有進行中的賽季時什麼都不畫 */}
+      <GameHud />
       {children}
       <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto flex max-w-md border-t border-[#4a413a] bg-[#2e2723] text-[#e8dcc0]">
         {TABS.map((t) => (

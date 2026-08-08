@@ -64,13 +64,16 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
 | 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |
 | 失敗要看得見 | 每一個 `void (async () => {})()` 都要有 catch，而 catch 裡要有 UI。只 `console.error` 不算 —— 使用者看不到 console。這個毛病在 M5b 出現三次（登入失敗、地圖場景、賽季狀態），症狀都是「按了沒反應」 |
+| useEffect 依賴 | 會高頻重繪的元件之間，props 依賴一律用**基本型別**（`focus?.x`），不要用物件 —— 每次 render 的新物件字面量會讓 effect 每次都重跑。症狀跟成因看起來毫無關係（「地圖自己跳回出生點」vs「stats 的計時器」），見 `docs/11` §20.23 |
 | 地圖 | `/api/map/overview` 依資料庫解析「現在是哪一場」，地形檔在封盤時寫出（`lib/server/terrain-files.ts`，與 `pnpm map:generate` 共用）。退回 `s0` 開發地圖時 `isFallback` 會是 true，畫面要講出來 |
 | 本機登入 | 沒設 `EMAIL_SERVER` 時，開發模式會把 magic link 印在終端機上（`usesDevMailbox()`）。token 仍是 Auth.js 發的、只能用一次、會過期 —— 換掉的只有投遞管道。production 一律關閉 |
 
 ## 目前進度
 
-見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b、M3、M5b 都已完成**，
+見 [`docs/10-roadmap.md`](docs/10-roadmap.md)。**M0、M1a、M1b、M2、M2b、M3、M5b、M5c 都已完成**，
 下一步是 M3b（區域容量與超限損耗）與 M4（聯盟）。
+M5c 是對照同類作品的介面修正（常駐 HUD、狀態疊在場景上、地圖個人圖層），
+取捨記錄在 `docs/09` §12 —— 特別是**不採用**任務鏈的理由。
 
 **現在可以真的玩了**：`pnpm seed:season you@example.com`
 會開一場賽季、AI 補足到 600、跑封盤、在 T=0 寫入所有人的初始狀態。

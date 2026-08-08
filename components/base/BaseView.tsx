@@ -118,31 +118,10 @@ export function BaseView(props: BaseViewProps) {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 bg-[#1a1614] p-4 text-[#e8dcc0]">
-      {/* ── 資源條 ── */}
-      <section className="grid grid-cols-4 gap-2" data-testid="resource-bar">
-        {(Object.keys(RESOURCE_LABEL) as (keyof Amounts)[]).map((r) => {
-          const full = props.resources[r] >= props.capacity;
-          return (
-            <div key={r} className="rounded border border-[#4a413a] bg-[#2e2723] p-2 text-center">
-              <div className="text-xs opacity-70">{RESOURCE_LABEL[r]}</div>
-              <div className={`text-sm tabular-nums ${full ? "text-[#c4442f]" : ""}`}>
-                {Math.floor(props.resources[r]).toLocaleString()}
-              </div>
-              <div className="text-[10px] tabular-nums opacity-60">
-                +{Math.round(props.perHour[r])}/h
-              </div>
-            </div>
-          );
-        })}
-      </section>
-
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-80">
-        <span>上限 {props.capacity.toLocaleString()}</span>
-        <span>{props.seasonLabel}</span>
-        <span>
-          人口 {Math.floor(props.population.amount)} / {props.population.cap}
-          （已用 {Math.floor(props.population.used)}）
-        </span>
+      {/* 資源、速率、人口、季節都在常駐 HUD（layout 掛的 GameHud）——
+          這裡只留據點自己的事：儲存上限與領土 */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-80" data-testid="resource-bar">
+        <span>儲存上限 {props.capacity.toLocaleString()}</span>
         <span data-testid="territory-count">
           領土 {props.territory.used} / {props.territory.cap}
           {props.territory.isolated > 0 ? (
@@ -170,6 +149,15 @@ export function BaseView(props: BaseViewProps) {
             busy: busySlots.has(s.slot),
           }))}
           garrison={props.army?.garrison ?? {}}
+          now={now}
+          coreCountdown={
+            props.coreQueue.target && props.coreQueue.doneAt
+              ? { slot: props.coreQueue.target, doneAt: props.coreQueue.doneAt }
+              : null
+          }
+          trainChips={props.army.queues
+            .filter((q): q is typeof q & { doneAt: number } => q.doneAt !== null)
+            .map((q) => ({ label: q.producer ? "招募" : "民兵", doneAt: q.doneAt }))}
           disabledSlots={
             new Set(
               props.slots

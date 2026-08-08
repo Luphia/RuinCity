@@ -21,6 +21,7 @@ import {
   pct,
   type SceneSlot,
 } from "@/lib/game/citadel";
+import { formatCountdown } from "@/lib/game/hud";
 import { slotLabel } from "@/lib/game/sprite";
 import type { Unit } from "@/lib/game/balance";
 
@@ -29,6 +30,12 @@ export interface CitadelSceneProps {
   readonly garrison: Readonly<Partial<Record<Unit, number>>>;
   readonly onPlotClick?: (slot: "A" | "B" | "C" | "D") => void;
   readonly disabledSlots?: ReadonlySet<string>;
+  /** 伺服器校正的現在（`useServerClock`）。給了才會畫倒數 */
+  readonly now?: number;
+  /** 施工中的那塊地與完工時間 —— 倒數直接疊在鷹架上 */
+  readonly coreCountdown?: { readonly slot: "A" | "B" | "C" | "D"; readonly doneAt: number } | null;
+  /** 進行中的招募佇列 —— 浮在場景右緣的小chip */
+  readonly trainChips?: readonly { readonly label: string; readonly doneAt: number }[];
 }
 
 export function CitadelScene(props: CitadelSceneProps) {
@@ -86,6 +93,43 @@ export function CitadelScene(props: CitadelSceneProps) {
           </button>
         );
       })}
+
+      {/* ── 施工倒數：疊在鷹架那塊地的正上方 ──────────────
+          ★ 狀態長在場景上（docs/09 §12）：玩家看城就知道還要多久，
+            不用往下捲到佇列區。佇列區仍在 —— 那是帳本，這是現場 */}
+      {props.coreCountdown && props.now !== undefined && props.coreCountdown.doneAt > props.now
+        ? (() => {
+            const p = PLOTS.find((x) => x.slot === props.coreCountdown!.slot);
+            if (!p) return null;
+            return (
+              <div
+                data-testid="scene-countdown"
+                style={{ left: pct(p.x - 2), top: pct(p.y - 2.2), width: pct(p.w + 4) }}
+                className="pointer-events-none absolute text-center"
+              >
+                <span className="rounded-[2px] bg-[#1a1614]/85 px-1 text-[9px] leading-[1.5] tabular-nums text-[#d9a441]">
+                  🔨 {formatCountdown(props.coreCountdown.doneAt - props.now)}
+                </span>
+              </div>
+            );
+          })()
+        : null}
+
+      {/* ── 招募倒數：場景右緣的浮動 chip（參照建造中單位的慣例） ── */}
+      {props.now !== undefined && props.trainChips && props.trainChips.length > 0 ? (
+        <div className="pointer-events-none absolute top-[30%] right-1 flex flex-col items-end gap-1">
+          {props.trainChips
+            .filter((c) => c.doneAt > props.now!)
+            .map((c, i) => (
+              <span
+                key={i}
+                className="rounded-[2px] bg-[#1a1614]/85 px-1 text-[9px] leading-[1.6] tabular-nums text-[#e8dcc0]"
+              >
+                {c.label} <span className="text-[#d9a441]">{formatCountdown(c.doneAt - props.now!)}</span>
+              </span>
+            ))}
+        </div>
+      ) : null}
 
       {/* ── 牆外的四支部隊 ─────────────────────────────── */}
       {groups.map((g) => {
