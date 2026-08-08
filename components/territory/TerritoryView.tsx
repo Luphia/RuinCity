@@ -13,6 +13,7 @@ import { useState, useTransition } from "react";
 
 import { FACILITIES, FACILITY, TILE_RESOURCE, type Facility } from "@/lib/game/balance";
 import { tileYieldPerHour } from "@/lib/game/formulas";
+import { ResourceAmounts, ResourceIcon } from "@/components/ui/ResourceIcon";
 import type { ActionResult } from "@/app/actions/base";
 import type { ClaimCandidate, OwnedTileView, TerritoryBoard } from "@/lib/server/territory-board";
 
@@ -115,7 +116,7 @@ export function TerritoryView(props: TerritoryViewProps) {
       <section>
         <h2 className="mb-2 text-sm font-bold">可拓荒</h2>
         <p className="mb-2 text-[10px] opacity-50">
-          成本、民兵、時間**三重**隨已有領土遞增 —— 無限擴張在任何一個維度上都走不通。
+          成本、民兵、時間<b>三重</b>隨已有領土遞增 —— 無限擴張在任何一個維度上都走不通。
         </p>
         {b.candidates.length === 0 ? (
           <p className="rounded border border-[#4a413a] bg-[#2e2723] p-3 text-xs opacity-60">
@@ -184,11 +185,13 @@ export function TerritoryView(props: TerritoryViewProps) {
                     {FACILITY[f].label}
                     {picking.facility ? ` → Lv${picking.facilityLevel + 1}` : ""}
                   </div>
-                  <div className="tabular-nums opacity-70">
-                    {Object.entries(FACILITY[f].cost)
-                      .map(([r, v]) => `${SHORT[r] ?? r}${v}`)
-                      .join(" ")}
-                    {FACILITY[f].yields ? ` · 產 ${SHORT[FACILITY[f].yields]}` : ""}
+                  <div className="flex flex-wrap items-center gap-x-1.5 tabular-nums opacity-70">
+                    <ResourceAmounts amounts={FACILITY[f].cost} />
+                    {FACILITY[f].yields ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        · 產 <ResourceIcon kind={FACILITY[f].yields} />
+                      </span>
+                    ) : null}
                   </div>
                 </button>
               ))}
@@ -199,13 +202,6 @@ export function TerritoryView(props: TerritoryViewProps) {
     </main>
   );
 }
-
-const SHORT: Record<string, string> = {
-  grain: "糧",
-  timber: "木",
-  stone: "石",
-  iron: "鐵",
-};
 
 function Candidate({
   candidate,
@@ -236,17 +232,23 @@ function Candidate({
           {(() => {
             // 格子自己的固定產出（佔領即有；對口設施最多再 ×5）
             const y = tileYieldPerHour(candidate.terrain, candidate.level, null, 0);
-            const RES = { grain: "糧", timber: "木", stone: "石", iron: "鐵" } as const;
-            const yieldText = y ? `${RES[y.resource]} ${Math.round(y.perHour)}/h（設施可 ×5）` : "不產出";
-            return candidate.guarded ? (
-              <>
-                {yieldText} · 有野生守衛，要派兵征服
-              </>
+            const yieldNode = y ? (
+              <span className="inline-flex items-center gap-0.5">
+                <ResourceIcon kind={y.resource} /> {Math.round(y.perHour)}/h（設施可 ×5）
+              </span>
             ) : (
-              <>
-                {yieldText} · 糧{candidate.cost.grain} 木{candidate.cost.timber} · 民兵
-                {candidate.militia} · {Math.round(candidate.seconds / 60)} 分
-              </>
+              <span>不產出</span>
+            );
+            return candidate.guarded ? (
+              <span className="inline-flex flex-wrap items-center gap-x-1">
+                {yieldNode} · 有野生守衛，要派兵征服
+              </span>
+            ) : (
+              <span className="inline-flex flex-wrap items-center gap-x-1">
+                {yieldNode} ·{" "}
+                <ResourceAmounts amounts={{ grain: candidate.cost.grain, timber: candidate.cost.timber }} />
+                · 民兵{candidate.militia} · {Math.round(candidate.seconds / 60)} 分
+              </span>
             );
           })()}
         </div>

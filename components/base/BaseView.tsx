@@ -16,6 +16,7 @@ import { slotLabel } from "@/lib/game/sprite";
 import { CORE_BUILDING, CORE_BUILDINGS, type CoreBuilding } from "@/lib/game/balance";
 import type { CoreSlot } from "@/lib/game/build";
 import type { Amounts } from "@/lib/game/settle";
+import { ResourceAmounts } from "@/components/ui/ResourceIcon";
 import { useServerClock } from "@/components/use-server-clock";
 import { ArmyPanel, type ArmyPanelProps } from "@/components/base/ArmyPanel";
 
@@ -59,13 +60,6 @@ export interface BaseViewProps {
     building: CoreBuilding,
   ) => Promise<{ ok: boolean; reason?: string }>;
 }
-
-const RESOURCE_LABEL: Record<keyof Amounts, string> = {
-  grain: "糧",
-  timber: "木",
-  stone: "石",
-  iron: "鐵",
-};
 
 const REJECTION_TEXT: Record<string, string> = {
   CORE_QUEUE_BUSY: "核心佇列忙碌中",
@@ -224,13 +218,9 @@ export function BaseView(props: BaseViewProps) {
               )}
 
               {s.next && !s.next.blocked ? (
-                <div className="mt-1 text-[10px] tabular-nums opacity-60">
-                  {(Object.keys(RESOURCE_LABEL) as (keyof Amounts)[])
-                    .filter((r) => s.next!.cost[r] > 0)
-                    .map((r) => `${RESOURCE_LABEL[r]}${Math.round(s.next!.cost[r])}`)
-                    .join(" ")}
-                  {" · "}
-                  {Math.round(s.next.seconds / 60)} 分
+                <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[10px] tabular-nums opacity-60">
+                  <ResourceAmounts amounts={s.next.cost} />
+                  <span>· {Math.round(s.next.seconds / 60)} 分</span>
                 </div>
               ) : null}
             </div>

@@ -10,13 +10,7 @@
 
 import { UNIT, type Unit } from "@/lib/game/balance";
 import type { ReportView } from "@/app/actions/war";
-
-const RESOURCE_LABEL: Record<string, string> = {
-  grain: "糧",
-  timber: "木",
-  stone: "石",
-  iron: "鐵",
-};
+import { ResourceAmounts } from "@/components/ui/ResourceIcon";
 
 export function BattleReportCard({ report }: { report: ReportView }) {
   const s = report.snapshot as Record<string, unknown>;
@@ -121,12 +115,7 @@ export function BattleReportCard({ report }: { report: ReportView }) {
         ) : null}
         <Row
           label="掠奪"
-          value={
-            Object.entries(loot)
-              .filter(([, v]) => v > 0)
-              .map(([r, v]) => `${RESOURCE_LABEL[r] ?? r}${Math.floor(v)}`)
-              .join(" ") || "無"
-          }
+          value={<ResourceAmounts amounts={loot} emptyLabel="無" />}
           tone="good"
         />
       </Section>
@@ -160,12 +149,7 @@ function ScoutBody({ snapshot }: { snapshot: Record<string, unknown> }) {
         <Row label="部隊" value={armyText(report.army ?? {})} />
       </Section>
       <Section title="資源（±15% 誤差）">
-        <Row
-          label="庫存"
-          value={Object.entries(report.resources ?? {})
-            .map(([r, v]) => `${RESOURCE_LABEL[r] ?? r}${v}`)
-            .join(" ")}
-        />
+        <Row label="庫存" value={<ResourceAmounts amounts={report.resources ?? {}} />} />
       </Section>
       <Section title="建築（精確）">
         <Row label="主堡" value={`Lv${report.citadelLevel}`} />
@@ -228,7 +212,7 @@ function Row({
   strong,
 }: {
   label: string;
-  value: string | undefined;
+  value: React.ReactNode;
   note?: string;
   tone?: "good" | "bad";
   strong?: boolean;

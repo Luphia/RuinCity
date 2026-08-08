@@ -11,14 +11,12 @@ import { useState, useTransition } from "react";
 
 import type { ListingView, MarketBoard, MarketResult } from "@/app/actions/market";
 import type { Amounts } from "@/lib/game/settle";
+import { RESOURCE_NAME } from "@/lib/game/resource-icon";
+import { ResourceIcon } from "@/components/ui/ResourceIcon";
 
-const RESOURCE_LABEL: Record<keyof Amounts, string> = {
-  grain: "糧",
-  timber: "木",
-  stone: "石",
-  iron: "鐵",
-};
-const RESOURCE_KEYS = Object.keys(RESOURCE_LABEL) as (keyof Amounts)[];
+/** ★ `<option>` 裡塞不了 SVG，所以下拉選單用**全名**；列表用圖示 */
+const RESOURCE_LABEL = RESOURCE_NAME;
+const RESOURCE_KEYS = ["grain", "timber", "stone", "iron"] as const satisfies readonly (keyof Amounts)[];
 
 const REJECTION_TEXT: Record<string, string> = {
   NO_ALLIANCE: "沒有聯盟就無法交易 —— 這是刻意的，去加入一個或去搶",
@@ -69,7 +67,7 @@ export function MarketView(props: MarketViewProps) {
       <main className="mx-auto max-w-md px-6 py-16 text-[#e8dcc0]">
         <h1 className="text-2xl font-bold">集市</h1>
         <p className="mt-3 text-sm leading-relaxed opacity-80">
-          交易**僅限同一聯盟成員**。你還沒有聯盟，所以沒有可以交易的對象。
+          交易<b>僅限同一聯盟成員</b>。你還沒有聯盟，所以沒有可以交易的對象。
         </p>
         <p className="mt-3 text-sm leading-relaxed opacity-60">
           資源不能跨類轉換，所以「石頭滿了但木頭見底」遲早會發生。
@@ -214,9 +212,9 @@ function Row({
     <li className="flex items-center justify-between rounded border border-[#4a413a] bg-[#2e2723] px-3 py-2 text-xs">
       <div>
         <div className="tabular-nums">
-          {RESOURCE_LABEL[listing.offer.resource]} {listing.offer.amount.toLocaleString()}
+          <ResourceIcon kind={listing.offer.resource} /> {listing.offer.amount.toLocaleString()}
           <span className="mx-2 opacity-50">→</span>
-          {RESOURCE_LABEL[listing.want.resource]} {listing.want.amount.toLocaleString()}
+          <ResourceIcon kind={listing.want.resource} /> {listing.want.amount.toLocaleString()}
         </div>
         <div className="text-[10px] tabular-nums opacity-60">
           匯率 {listing.rate.toFixed(2)}

@@ -13,6 +13,7 @@
 import { useState, useTransition } from "react";
 
 import { FACILITY, type Facility } from "@/lib/game/balance";
+import { RESOURCE_NAME } from "@/lib/game/resource-icon";
 import type { Briefing } from "@/lib/server/steward";
 import type { StewardResult } from "@/app/actions/steward";
 
@@ -37,12 +38,8 @@ const WARNING_TEXT: Record<string, string> = {
   TERRITORY_CAPPED: "領土已達上限，升主堡才能再拓",
 };
 
-const RESOURCE_LABEL: Record<string, string> = {
-  grain: "糧食",
-  timber: "木材",
-  stone: "石材",
-  iron: "鐵礦",
-};
+/** ★ 名字只有一份（`lib/game/resource-icon.ts`）—— 兩份遲早分岔 */
+const RESOURCE_LABEL: Record<string, string> = RESOURCE_NAME;
 
 export interface BriefingCardProps {
   readonly briefing: Briefing;

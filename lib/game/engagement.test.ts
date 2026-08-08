@@ -6,6 +6,7 @@ import {
   canJoin,
   distributeLosses,
   distributeSpoils,
+  resolveMelee,
   sideArmy,
   slotUsage,
   slotsFor,
@@ -125,5 +126,98 @@ describe("★ 戰利品按存活兵力分 —— 死光的那一支搬不動東�
   it("大家都死光就沒有人拿得走（不會 NaN）", () => {
     const spoils = distributeSpoils(new Map([[0, {}]]), 500);
     expect(spoils.get(0)).toBe(0);
+  });
+});
+
+describe("★ 中立野地的混戰：站到最後的拿走那塊地", () => {
+  const A = { SWORDSMAN: 100 };
+  const B = { SWORDSMAN: 60 };
+  const C = { SWORDSMAN: 30 };
+
+  /** 一場對決：人多的贏，存活 = 差額（測試用的可預測結果） */
+  const bigger = (holder: Parameters<typeof armyPopulation>[0], challenger: Parameters<typeof armyPopulation>[0]) => {
+    const h = armyPopulation(holder);
+    const c = armyPopulation(challenger);
+    return h >= c
+      ? { holder: { SWORDSMAN: h - c }, challenger: {} }
+      : { holder: {}, challenger: { SWORDSMAN: c - h } };
+  };
+
+  it("只有一位攻方時不會有混戰 —— 他直接拿走", () => {
+    const r = resolveMelee([{ index: 0, army: A }], () => {
+      throw new Error("不該打起來");
+    });
+    expect(r.winner).toBe(0);
+    expect(r.duels).toHaveLength(0);
+  });
+
+  it("★ 三方混戰：先到的守，後到的一個一個上來挑戰", () => {
+    const r = resolveMelee(
+      [
+        { index: 0, army: A },
+        { index: 1, army: B },
+        { index: 2, army: C },
+      ],
+      bigger,
+    );
+    // 100 打贏 60 剩 40，40 再打贏 30 剩 10
+    expect(r.duels).toHaveLength(2);
+    expect(r.duels[0]).toMatchObject({ holder: 0, challenger: 1, winner: 0 });
+    expect(r.duels[1]).toMatchObject({ holder: 0, challenger: 2, winner: 0 });
+    expect(r.winner).toBe(0);
+    expect(r.survivors.get(0)).toEqual({ SWORDSMAN: 10 });
+    expect(armyPopulation(r.survivors.get(1)!)).toBe(0);
+  });
+
+  it("★ 打贏的人接手守方 —— 挑戰成功就換他站上去", () => {
+    const r = resolveMelee(
+      [
+        { index: 0, army: C },
+        { index: 1, army: A },
+      ],
+      bigger,
+    );
+    expect(r.duels[0]).toMatchObject({ holder: 0, challenger: 1, winner: 1 });
+    expect(r.winner).toBe(1);
+    expect(r.survivors.get(1)).toEqual({ SWORDSMAN: 70 });
+  });
+
+  it("★ 兩敗俱盡 → 下一位不戰而得（兩強相爭的故事）", () => {
+    const r = resolveMelee(
+      [
+        { index: 0, army: { SWORDSMAN: 50 } },
+        { index: 1, army: { SWORDSMAN: 50 } },
+        { index: 2, army: { SWORDSMAN: 5 } },
+      ],
+      bigger,
+    );
+    // 50 vs 50 → 守方剩 0，攻方也剩 0；第三位走上去插旗
+    expect(r.duels).toHaveLength(1);
+    expect(r.duels[0]!.winner).toBeNull();
+    expect(r.winner).toBe(2);
+    expect(r.survivors.get(2)).toEqual({ SWORDSMAN: 5 });
+  });
+
+  it("★ 全部同歸於盡就沒有人拿得到 —— 那塊地留在原地", () => {
+    const r = resolveMelee(
+      [
+        { index: 0, army: { SWORDSMAN: 50 } },
+        { index: 1, army: { SWORDSMAN: 50 } },
+      ],
+      bigger,
+    );
+    expect(r.winner).toBeNull();
+  });
+
+  it("清守衛時就死光的人不進混戰", () => {
+    const r = resolveMelee(
+      [
+        { index: 0, army: {} },
+        { index: 1, army: B },
+      ],
+      bigger,
+    );
+    expect(r.duels).toHaveLength(0);
+    expect(r.winner).toBe(1);
   });
 });

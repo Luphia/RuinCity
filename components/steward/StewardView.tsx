@@ -14,16 +14,11 @@ import { FACILITIES, FACILITY, UNIT, type Facility } from "@/lib/game/balance";
 import type { Directives } from "@/lib/game/steward";
 import type { StewardBoard, StewardResult } from "@/app/actions/steward";
 import type { Amounts } from "@/lib/game/settle";
+import { ResourceIcon } from "@/components/ui/ResourceIcon";
 import { useServerClock } from "@/components/use-server-clock";
 import { avatarSvg, STEWARD_NAME_MAX } from "@/lib/game/avatar";
 
-const RESOURCE_LABEL: Record<keyof Amounts, string> = {
-  grain: "糧",
-  timber: "木",
-  stone: "石",
-  iron: "鐵",
-};
-const RESOURCE_KEYS = Object.keys(RESOURCE_LABEL) as (keyof Amounts)[];
+const RESOURCE_KEYS = ["grain", "timber", "stone", "iron"] as const satisfies readonly (keyof Amounts)[];
 
 const PREFERENCE_LABEL = {
   NEAREST: "就近",
@@ -362,7 +357,7 @@ function Reserve({
       </div>
       {RESOURCE_KEYS.map((r) => (
         <label key={r} className="flex items-center gap-2 text-[11px]">
-          <span className="w-4 opacity-70">{RESOURCE_LABEL[r]}</span>
+          <ResourceIcon kind={r} className="opacity-90" />
           <input
             type="range"
             min={0}

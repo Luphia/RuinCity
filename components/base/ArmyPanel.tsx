@@ -16,6 +16,7 @@ import { UNIT, type Unit } from "@/lib/game/balance";
 import { maxAffordable } from "@/lib/game/train";
 import type { Amounts } from "@/lib/game/settle";
 import type { ActionResult } from "@/app/actions/base";
+import { ResourceAmounts } from "@/components/ui/ResourceIcon";
 import { useServerClock } from "@/components/use-server-clock";
 
 const REJECTION_TEXT: Record<string, string> = {
@@ -123,13 +124,10 @@ export function ArmyPanel(props: ArmyPanelProps) {
 
       {picked ? (
         <div className="mt-2 rounded border border-[#4a413a] bg-[#2e2723] p-2 text-xs">
-          <div className="mb-1 tabular-nums opacity-70">
-            {UNIT[picked].label} · 每人{" "}
-            {(["grain", "timber", "stone", "iron"] as const)
-              .filter((r) => UNIT[picked].cost[r] > 0)
-              .map((r) => `${SHORT[r]}${UNIT[picked].cost[r]}`)
-              .join(" ")}{" "}
-            · 人口 {UNIT[picked].population}
+          <div className="mb-1 flex flex-wrap items-center gap-x-1.5 tabular-nums opacity-70">
+            <span>{UNIT[picked].label} · 每人</span>
+            <ResourceAmounts amounts={UNIT[picked].cost} />
+            <span>· 人口 {UNIT[picked].population}</span>
           </div>
           <div className="flex gap-1">
             <input
@@ -178,8 +176,6 @@ export function ArmyPanel(props: ArmyPanelProps) {
     </section>
   );
 }
-
-const SHORT: Record<string, string> = { grain: "糧", timber: "木", stone: "石", iron: "鐵" };
 
 function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

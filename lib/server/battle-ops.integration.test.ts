@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, desc, eq } from "drizzle-orm";
 
 import { schema } from "@/lib/db";
-import { parseArmy, type Army } from "@/lib/game/army";
+import { armyPopulation, parseArmy, type Army } from "@/lib/game/army";
 import { BATTLE } from "@/lib/game/balance";
 import { resolveArrivals, resolveEngagements } from "@/lib/server/battle-ops";
 import { liveEngagementAt } from "@/lib/server/engagement-ops";
@@ -1289,6 +1289,17 @@ describe("★ 中立資源地：有空位就能一起搶", () => {
       .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, spot.x), eq(schema.tiles.y, spot.y)));
     // 出兵多的那一位存活最多 → 地是他的
     expect(tile!.playerId).toBe(big.playerId);
+
+    // ★ 混戰真的打了：出兵少的那一位被清空，不是「只是沒拿到地」
+    const smallHome = await h.tx((tx) => garrisonAt(tx, seasonId, small.playerId, 103, 100));
+    const [smallReturn] = await h.db
+      .select()
+      .from(schema.marches)
+      .where(and(eq(schema.marches.ownerId, small.playerId), eq(schema.marches.type, "RETURN")));
+    const smallSurvivors =
+      (smallReturn ? armyPopulation(parseArmy(smallReturn.units)) : 0) +
+      armyPopulation(smallHome);
+    expect(smallSurvivors, "混戰之後小部隊不該原封不動回家").toBe(0);
 
     // 兩位都拿到戰報，但只有一位的 captured 是 true
     const reports = await h.db.select().from(schema.battleReports).where(eq(schema.battleReports.seasonId, seasonId));

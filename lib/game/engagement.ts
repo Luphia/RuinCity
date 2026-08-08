@@ -173,3 +173,104 @@ export function distributeSpoils(
   }
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────
+// 中立野地的混戰（docs/04 §3d）
+// ─────────────────────────────────────────────────────────────
+
+export interface MeleeParty {
+  /** `participants` 裡的索引，用來把結果對回去 */
+  readonly index: number;
+  readonly army: Army;
+}
+
+export interface MeleeDuel {
+  readonly holder: number;
+  readonly challenger: number;
+  readonly winner: number | null;
+  readonly holderSurvivors: Army;
+  readonly challengerSurvivors: Army;
+}
+
+export interface MeleeResult {
+  /** 站到最後的那一位（全部同歸於盡就是 null） */
+  readonly winner: number | null;
+  readonly survivors: ReadonlyMap<number, Army>;
+  readonly duels: readonly MeleeDuel[];
+}
+
+/**
+ * ★ 中立野地：清完守衛之後，攻方**彼此開打**。
+ *
+ * 「同一場仗、同一批守衛，三方混戰，存活到最後的拿走那塊地。」
+ *
+ * ## 為什麼是接力而不是所有人同時互毆
+ *
+ * 「每一方對上其餘所有人的合計」在數學上很誘人，但三方兵力相近時
+ * 每個人都要面對兩倍的敵人 → 一輪之後**全部歸零**。
+ * 那不是混戰，那是同歸於盡，而且是常態不是意外。
+ *
+ * 所以混戰是一串**依抵達順序**的對決：先站上那塊地的人是**守方**，
+ * 後到的一個一個上來挑戰。這條規則有三個好處：
+ *
+ *   1. 只用一個戰鬥引擎（`resolveBattle` 呼叫 N 次），總帳仍然命定
+ *   2. 順序是決定性的（`joinedAt`），不需要擲骰
+ *   3. 產生真的故事：兩強相爭到兩敗俱傷，第三個到的人走上去把旗插了
+ *
+ * 守方沒有城牆、沒有固有防禦 —— 大家都只是站在一塊空地上。
+ *
+ * @param parties 依抵達順序排好的各方（已經是清完守衛之後的殘部）
+ * @param duel    打一場：回傳雙方的存活。注入是為了讓這一層仍然是純的，
+ *                而且測試可以餵一個可預測的結果
+ */
+export function resolveMelee(
+  parties: readonly MeleeParty[],
+  duel: (holder: Army, challenger: Army) => { holder: Army; challenger: Army },
+): MeleeResult {
+  const alive = parties.filter((p) => armyPopulation(p.army) > 0);
+  const survivors = new Map<number, Army>(parties.map((p) => [p.index, p.army]));
+  const duels: MeleeDuel[] = [];
+
+  if (alive.length <= 1) {
+    return { winner: alive[0]?.index ?? null, survivors, duels };
+  }
+
+  // 先到的人站上去，後到的一個一個挑戰
+  let holder: MeleeParty | null = alive[0]!;
+  for (const challenger of alive.slice(1)) {
+    if (!holder) {
+      // 上一場兩敗俱傷 → 這一位直接接手（不戰而得，故事的一部分）
+      holder = challenger;
+      continue;
+    }
+    const r = duel(holder.army, challenger.army);
+    survivors.set(holder.index, r.holder);
+    survivors.set(challenger.index, r.challenger);
+    duels.push({
+      holder: holder.index,
+      challenger: challenger.index,
+      winner:
+        armyPopulation(r.holder) > 0
+          ? holder.index
+          : armyPopulation(r.challenger) > 0
+            ? challenger.index
+            : null,
+      holderSurvivors: r.holder,
+      challengerSurvivors: r.challenger,
+    });
+
+    if (armyPopulation(r.holder) > 0) {
+      holder = { index: holder.index, army: r.holder };
+    } else if (armyPopulation(r.challenger) > 0) {
+      holder = { index: challenger.index, army: r.challenger };
+    } else {
+      holder = null; // 兩敗俱傷，下一位不戰而得
+    }
+  }
+
+  return {
+    winner: holder && armyPopulation(holder.army) > 0 ? holder.index : null,
+    survivors,
+    duels,
+  };
+}

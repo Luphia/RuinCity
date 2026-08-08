@@ -20,14 +20,15 @@ import { loadHud, type HudState } from "@/app/actions/hud";
 import { extrapolate, formatCountdown } from "@/lib/game/hud";
 import type { Season } from "@/lib/game/balance";
 import type { Amounts } from "@/lib/game/settle";
+import { ResourceIcon } from "@/components/ui/ResourceIcon";
 import { useServerClock } from "@/components/use-server-clock";
 
-const RESOURCE_LABEL: Record<keyof Amounts, string> = {
-  grain: "糧",
-  timber: "木",
-  stone: "石",
-  iron: "鐵",
-};
+/**
+ * ★ 資源用**圖示**不用字（`lib/game/resource-icon.ts`）。
+ *   這條 40px 的狀態列是玩家一整場賽季看最多次的東西 ——
+ *   形狀在餘光裡分得出來，「糧／木／石／鐵」四個字得讀。
+ */
+const RESOURCE_KEYS = ["grain", "timber", "stone", "iron"] as const satisfies readonly (keyof Amounts)[];
 
 /** 四季的色票（docs/09 §3）：荒芽綠、焦土鏽、豐鏽金、長夜藍 */
 const SEASON_COLOR: Record<Season, string> = {
@@ -86,14 +87,14 @@ export function GameHud({ floating = false }: { floating?: boolean }) {
       <div className="mx-auto max-w-md px-3 py-1.5">
         {/* ── 四種資源：值 + 速率 + 儲存量條 ── */}
         <div className="grid grid-cols-4 gap-1.5">
-          {(Object.keys(RESOURCE_LABEL) as (keyof Amounts)[]).map((r) => {
+          {RESOURCE_KEYS.map((r) => {
             const value = extrapolate(hud.resources[r], hud.perHour[r], elapsed, hud.capacity);
             const full = value >= hud.capacity;
             const rate = Math.round(hud.perHour[r]);
             return (
               <div key={r} className="min-w-0">
                 <div className="flex items-baseline gap-1 text-[13px] leading-tight">
-                  <span className="opacity-60">{RESOURCE_LABEL[r]}</span>
+                  <ResourceIcon kind={r} />
                   <span
                     className={`truncate font-bold tabular-nums ${full ? "text-[#c4442f]" : ""}`}
                   >

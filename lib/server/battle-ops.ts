@@ -66,7 +66,13 @@ import {
   toParticipants,
   type EngagementRow,
 } from "@/lib/server/engagement-ops";
-import { distributeLosses, distributeSpoils, sideArmy } from "@/lib/game/engagement";
+import {
+  distributeLosses,
+  distributeSpoils,
+  resolveMelee,
+  sideArmy,
+  type MeleeResult,
+} from "@/lib/game/engagement";
 import {
   addWounded,
   garrisonAt,
@@ -376,19 +382,61 @@ async function resolveOneEngagement(tx: TxDb, e: EngagementRow, now: number): Pr
   );
 
   /**
-   * ★ 誰佔到這一格：**存活兵力最多的那一位攻方**。
-   *   中立資源地的競爭因此有一個乾淨的答案 —— 出力最多、留得下人的人拿走。
-   *   平手時取先到的（`joinedAt` 排序已經保證了）。
+   * ★ 誰佔到這一格。
+   *
+   * **有主的格子**（PvP 圍城）：攻方是同一邊的，存活最多的那一位插旗。
+   * 一起打下來的城，誰留得下人誰接手 —— 平手時取先到的
+   * （`joinedAt` 排序已經保證了）。
+   *
+   * **中立野地**：清完守衛之後，攻方**彼此開打**（`docs/04` §3d）。
+   * 同一場仗、同一批守衛，然後混戰，站到最後的人拿走那塊地。
+   * 混戰的規則在 `lib/game/engagement.ts` 的 `resolveMelee`。
    */
-  let winner: { index: number; playerId: number } | null = null;
-  let best = -1;
-  for (const { p, i } of attackerIdx) {
-    const pop = armyPopulation(attackerSurvivors.get(i) ?? {});
-    if (pop > best) {
-      best = pop;
-      winner = { index: i, playerId: p.playerId };
+  let melee: MeleeResult | null = null;
+  if (neutral && attackerIdx.length > 1) {
+    melee = resolveMelee(
+      attackerIdx.map(({ i }) => ({ index: i, army: attackerSurvivors.get(i) ?? {} })),
+      (holderArmy, challengerArmy) => {
+        /**
+         * 一場對決：先站上去的是守方，但**沒有城牆也沒有固有防禦** ——
+         * 大家都只是站在一塊空地上。士氣照算（這是真人打真人）。
+         */
+        const r = resolveBattle(
+          { army: challengerArmy },
+          { army: holderArmy },
+          { marchType: "ATTACK", defenderAtHome: false },
+        );
+        return { holder: r.defenderSurvivors, challenger: r.attackerSurvivors };
+      },
+    );
+    for (const [index, army] of melee.survivors) {
+      survivorsByIndex.set(index, army);
+      attackerSurvivors.set(index, army);
     }
   }
+
+  let winner: { index: number; playerId: number } | null = null;
+  if (melee) {
+    const idx = melee.winner;
+    const row = idx === null ? undefined : attackerIdx.find(({ i }) => i === idx);
+    winner = row ? { index: row.i, playerId: row.p.playerId } : null;
+  } else {
+    let best = -1;
+    for (const { p, i } of attackerIdx) {
+      const pop = armyPopulation(attackerSurvivors.get(i) ?? {});
+      if (pop > best) {
+        best = pop;
+        winner = { index: i, playerId: p.playerId };
+      }
+    }
+  }
+
+  /**
+   * ★ 佔領要求勝方**還有活人**。混戰打到兩敗俱盡時沒有人插得了旗 ——
+   *   那塊地留在原地，而這正是「站到最後」的字面意思。
+   */
+  const winnerAlive =
+    winner !== null && armyPopulation(attackerSurvivors.get(winner.index) ?? {}) > 0;
 
   // ── 攻城階段：守軍清空且攻方獲勝才輪得到建物 ──────────────
   const defenderSurvivorsAll = ps
@@ -446,7 +494,7 @@ async function resolveOneEngagement(tx: TxDb, e: EngagementRow, now: number): Pr
    * 中立地被拿下 → 直接寫進 `tiles`（`resolveSiege` 只處理有主的格子）。
    * 野地的旗就是它的守衛：守衛清光，地就是你的。
    */
-  if (neutral && battle.outcome === "ATTACKER_WIN" && winner && best > 0) {
+  if (neutral && battle.outcome === "ATTACKER_WIN" && winner && winnerAlive) {
     await claimNeutralTile(tx, e, winner.playerId, now);
   }
 
@@ -509,8 +557,26 @@ async function resolveOneEngagement(tx: TxDb, e: EngagementRow, now: number): Pr
           participants: parts.length,
           mine: p.army,
           allies: attackerIdx.length - 1,
-          captured: winner?.index === i && (siege?.captured || (neutral && best > 0)),
+          captured: winner?.index === i && (siege?.captured || (neutral && winnerAlive)),
         },
+        /**
+         * ★ 混戰的帳要說得出來（中立野地才有）。
+         *   少了它，玩家看到的是「我打贏了守衛，然後我的兵全沒了」——
+         *   而戰報沒有任何一行解釋那是誰幹的。
+         */
+        melee: melee
+          ? {
+              duels: melee.duels.map((d) => ({
+                holder: d.holder,
+                challenger: d.challenger,
+                winner: d.winner,
+              })),
+              iWasIn: melee.duels.some((d) => d.holder === i || d.challenger === i),
+              survivors: armyPopulation(attackerSurvivors.get(i) ?? {}),
+              /** 站到最後的那一位在名冊裡的位置；null = 兩敗俱盡，沒有人插旗 */
+              lastStanding: melee.winner,
+            }
+          : null,
         attacker: { sent: p.army, losses: atkLosses.get(i) ?? {} },
         defender: { present: defenderArmy, losses: battle.defenderLosses, wounded: battle.defenderWounded },
         loot: cargo ?? {},

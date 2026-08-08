@@ -14,7 +14,9 @@ import { GameNav } from "@/components/nav/GameNav";
 import { loadMyMapOverlay, type MapOverlay } from "@/app/actions/map";
 import { TERRAIN, TILE_RESOURCE } from "@/lib/game/balance";
 import { CODE_TERRAIN } from "@/lib/game/map/terrain";
+import type { ResourceKind } from "@/lib/game/resource-icon";
 import { needsConquest, wildLevelAt } from "@/lib/game/wilds";
+import { ResourceIcon } from "@/components/ui/ResourceIcon";
 import { peekChunk } from "@/lib/render/chunk-cache";
 import { CHUNK_SIZE } from "@/lib/render/chunks";
 import type { SceneData, SceneStats } from "@/lib/render/scene";
@@ -34,8 +36,6 @@ interface Overview {
   battles?: { id: number; x: number; y: number; fresh: boolean; live?: boolean }[];
 }
 
-const RESOURCE_LABEL = { grain: "糧", timber: "木", stone: "石", iron: "鐵" } as const;
-
 /**
  * 選取格的地形情報。**只供顯示** —— 佔領與戰鬥的判定永遠在伺服器重算。
  * chunk 還沒載到就回 null（footer 只顯示座標），載到後下一次點擊就有了。
@@ -48,7 +48,7 @@ function tileInfoAt(
   mine?: MapOverlay | null,
 ): {
   label: string;
-  resource?: string;
+  resource?: ResourceKind;
   level: number;
   guarded: boolean;
   /** 這一格是我的什麼（沒有就是別人的地或無主野地）*/
@@ -71,7 +71,7 @@ function tileInfoAt(
   const isTerritory = !!mine?.tiles.some((t) => t.x === x && t.y === y);
   return {
     label: TERRAIN[terrain].label,
-    resource: res ? RESOURCE_LABEL[res.resource] : undefined,
+    resource: res ? (res.resource as ResourceKind) : undefined,
     level,
     guarded: needsConquest(level),
     owned: isBase ? "BASE" : isTerritory ? "TERRITORY" : null,
@@ -207,11 +207,15 @@ export function MapView() {
                 <b className="text-[#4a8fa8]">我的領地 · </b>
               ) : null}
               {selectedInfo.label}
-              {selectedInfo.resource
-                ? ` · ${selectedInfo.resource} Lv${selectedInfo.level}` +
-                  // 守衛是**無主野地**的屬性 —— 已經是誰的地就不該再講
-                  (selectedInfo.guarded && !selectedInfo.owned ? "（有守衛）" : "")
-                : ""}
+              {selectedInfo.resource ? (
+                <>
+                  {" · "}
+                  <ResourceIcon kind={selectedInfo.resource} />
+                  {` Lv${selectedInfo.level}`}
+                  {/* 守衛是**無主野地**的屬性 —— 已經是誰的地就不該再講 */}
+                  {selectedInfo.guarded && !selectedInfo.owned ? "（有守衛）" : ""}
+                </>
+              ) : null}
             </span>
           ) : null}
           {/* ★ 點了格子就給出口：展開成 50×50 的戰場視圖。
