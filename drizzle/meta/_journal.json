@@ -36,6 +36,13 @@
       "when": 1786167674345,
       "tag": "0004_dear_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786170542509,
+      "tag": "0005_condemned_cammi",
+      "breakpoints": true
     }
   ]
 }

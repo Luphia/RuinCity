@@ -90,7 +90,7 @@ describe("parsePayload", () => {
 
   it("缺欄位時用安全的預設值，而不是 NaN", () => {
     const p = parsePayload("CLAIM_DONE", { x: 1, y: 2 });
-    expect(p).toEqual({ kind: "CLAIM", x: 1, y: 2, militia: 0, terrain: "PLAIN", queueIndex: 0 });
+    expect(p).toEqual({ kind: "CLAIM", x: 1, y: 2, militia: 0, terrain: "PLAIN", level: 1, queueIndex: 0 });
   });
 });
 
@@ -119,6 +119,7 @@ describe("resolveEvent", () => {
       y: 11,
       militia: 5,
       terrain: "FOREST",
+      level: 3,
       queueIndex: 0,
     });
     expect(r.world.tiles).toHaveLength(1);
@@ -134,6 +135,7 @@ describe("resolveEvent", () => {
       y: 11,
       militia: 5,
       terrain: "PLAIN" as const,
+      level: 1,
       queueIndex: 0,
     };
     const once = resolveEvent(world(), payload);

@@ -159,6 +159,7 @@ export async function settleWithin(
       facility: (t.facility as Facility | null) ?? null,
       facilityLevel: t.facilityLevel,
       terrain: t.terrain as Terrain,
+      level: t.level,
     }));
 
   const [homeGarrison] = await tx
@@ -423,6 +424,7 @@ async function writeTiles(
         facility: t.facility,
         facilityLevel: t.facilityLevel,
         terrain: t.terrain,
+        level: t.level ?? 1,
         state: t.state,
       })
       .onConflictDoUpdate({
@@ -433,6 +435,7 @@ async function writeTiles(
           facility: t.facility,
           facilityLevel: t.facilityLevel,
           terrain: t.terrain,
+          level: t.level ?? 1,
           state: t.state,
         },
       });

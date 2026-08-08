@@ -198,6 +198,52 @@ describe("出生點分配", () => {
   });
 
   /**
+   * ★ 真人間距 > 10 格（docs/11 §22.1）。
+   *   散客真人排在每桶點列的**前面**（封盤依序配對），
+   *   彼此以及與小隊叢集的切比雪夫距離 > 10；小隊成員彼此豁免。
+   */
+  it("★ 散客真人彼此（與小隊）相距 > 10 格；AI 不受此限", () => {
+    const humanSolos = [
+      { faction: 1 as const, band: "HEARTLAND" as const, count: 8 },
+      { faction: 2 as const, band: "HEARTLAND" as const, count: 8 },
+      { faction: 1 as const, band: "VANGUARD" as const, count: 5 },
+    ];
+    const squads = randomSquads(world.seed, 0.1);
+    const alloc = allocateSpawns(world.map, world.ruins, world.split, world.seed, {
+      squads,
+      humanSolos,
+    });
+
+    // 名額一個都不能少
+    for (const f of alloc.fill) expect(f.placed).toBe(f.quota);
+    expect(alloc.humanSpacingShort).toBe(0);
+
+    // 每桶的前段點位就是真人席：小隊叢集 + 散客真人
+    const byBucket = new Map<string, typeof alloc.points>();
+    for (const p of alloc.points) {
+      const k = `${p.faction}:${p.band}`;
+      byBucket.set(k, [...(byBucket.get(k) ?? []), p]);
+    }
+    const humans: { x: number; y: number; squad: number | null }[] = [];
+    for (const [k, list] of byBucket) {
+      const squadSeats = list.filter((p) => p.squad !== null).length;
+      const soloHumans = humanSolos.find((h) => `${h.faction}:${h.band}` === k)?.count ?? 0;
+      humans.push(...list.slice(0, squadSeats + soloHumans));
+    }
+
+    for (let i = 0; i < humans.length; i++) {
+      for (let j = i + 1; j < humans.length; j++) {
+        const a = humans[i]!;
+        const b = humans[j]!;
+        // 同一小隊的成員自願聚落 —— 豁免
+        if (a.squad !== null && a.squad === b.squad) continue;
+        const d = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+        expect(d, `真人 (${a.x},${a.y}) 與 (${b.x},${b.y}) 距離只有 ${d}`).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  /**
    * ★ 不同格是不夠的 —— 據點核心是 2×2。
    *
    * 出生點相差一格，兩人的核心就會共用一格；而 `tiles` 上 (season, x, y)

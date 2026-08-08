@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SPAWN_BAND, SQUAD } from "./balance";
 import {
+  humanSoloCountsFrom,
   BASE_STARTING_RESOURCES,
   bonusTerritoryCapacity,
   FACTION_CAPACITY,
@@ -273,5 +274,20 @@ describe("registrationOpen", () => {
     expect(registrationOpen(schedule, T0)).toBe(true);
     expect(registrationOpen(schedule, schedule.registrationClosesAt - 1)).toBe(true);
     expect(registrationOpen(schedule, schedule.registrationClosesAt)).toBe(false);
+  });
+});
+
+describe("humanSoloCountsFrom：散客真人的間距名單", () => {
+  it("小隊成員不算散客；不足 2 人的小隊算散客", () => {
+    const counts = humanSoloCountsFrom([
+      { faction: 1, band: "VANGUARD", squadCode: "AAA" },
+      { faction: 1, band: "VANGUARD", squadCode: "AAA" },
+      { faction: 1, band: "VANGUARD", squadCode: null },
+      { faction: 1, band: "VANGUARD", squadCode: "SOLO" }, // 一人小隊 = 散客
+      { faction: 2, band: "FRONTIER", squadCode: null },
+    ]);
+    expect(counts).toContainEqual({ faction: 1, band: "VANGUARD", count: 2 });
+    expect(counts).toContainEqual({ faction: 2, band: "FRONTIER", count: 1 });
+    expect(counts).toHaveLength(2);
   });
 });

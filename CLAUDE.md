@@ -63,6 +63,8 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 整合測試 | `lib/**/*.integration.test.ts` 跑在 PGlite（WASM Postgres）上，`pnpm test` 就會跑。不需要容器或連線字串 |
 | 跨玩家事件 | 需要不只一個玩家的鎖的東西（戰鬥）**不屬於 `events` 表**。行軍由結算迴圈直接掃 `marches`，理由見 `docs/11` §19.1 |
 | 隨機性 | 結算路徑一律 `mulberry32(deriveSeed(...))`，不用 `Math.random()`。交易會重試，而重試不該變成「再擲一次骰子」 |
+| 野地等級 | 無主格的等級（1–5）由 `wildLevelAt(seed,x,y,terrain)` 決定性推導，**不入庫**；佔領時抄進 `tiles.level`（與 terrain 同模式）。lv≥2 有野生守衛：立旗回 `GUARDED_TILE`，要走 CLAIM 行軍（PvE、`skipMorale`）。執政官的候選清單已濾掉有守衛的格子 —— 不濾它會永遠嘗試一件做不到的事 |
+| 真人間距 | 「用戶之間 >10 格」只管**真人**（`users` 表）：全服 600 人一律 11 在幾何上不可行（`docs/11` §22.1 的算術）。小隊成員彼此豁免。AI 維持 `HARD_MIN_SPACING` |
 | 出生點 | 兩點之間的切比雪夫距離**至少 2**（`HARD_MIN_SPACING`）—— 核心是 2×2，差一格就會疊到同一格 `tiles`。`poissonPick` 會被呼叫很多次，硬性下限只有靠那份跨呼叫的 blocker 才守得住 |
 | 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
 | 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |
@@ -82,8 +84,10 @@ M5c 是對照同類作品的介面修正（常駐 HUD、狀態疊在場景上、
 會開一場賽季、AI 補足到 600、跑封盤、在 T=0 寫入所有人的初始狀態。
 
 戰鬥引擎、行軍、賽季模擬都已完成，數值表也依模擬結果重新配平過四輪
-（`BALANCE_VERSION` = `2026.08.07-e`，理由見
-[`docs/11`](docs/11-balance-tables.md) §12–§15）。
+（`BALANCE_VERSION` = `2026.08.08-a`，理由見
+[`docs/11`](docs/11-balance-tables.md) §12–§15、§22）。
+野地征服（等級、守衛、CLAIM 行軍、產出加成）見 `docs/02` §2.5 ——
+模擬尚未建模 lv≥2 的征服經濟，缺口記在 `docs/11` §22.5。
 
 M2 把 §1–§11 的數值表接上了資料庫，**沒有改任何數值** ——
 但過程中補上了幾個文件沒說到的規則，見 `docs/11` §16。

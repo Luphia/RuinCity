@@ -26,12 +26,15 @@ import {
 import type { Amounts, SettleResource } from "./settle";
 import { zeroAmounts } from "./settle";
 import { yieldMultiplierFor, type OwnedTile } from "./territory";
+import { wildProductionMultiplier } from "./wilds";
 import type { Terrain } from "./balance";
 
 export interface TileWithFacility extends OwnedTile {
   readonly facility: Facility | null;
   readonly facilityLevel: number;
   readonly terrain: Terrain;
+  /** 野地等級（docs/02 §2.5），佔領時抄定。1 = 無加成；征服來的 2–5 有生產加成 */
+  readonly level?: number;
 }
 
 export interface EconomyInputs {
@@ -103,7 +106,9 @@ export function deriveRates(input: EconomyInputs): DerivedRates {
     baseRates[resource] +=
       facilityYieldPerHour(tile.facility, tile.facilityLevel, tile.terrain, { techBonus }) *
       // 孤立領土產出減半（`docs/02` §2.4）
-      yieldMultiplierFor(tile.state);
+      yieldMultiplierFor(tile.state) *
+      // 征服來的高等級野地有生產加成（`docs/02` §2.5；lv≤1 = ×1）
+      wildProductionMultiplier(tile.level ?? 1);
   }
 
   return {

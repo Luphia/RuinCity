@@ -507,3 +507,177 @@ describe("★ 餓死：糧食歸零時軍隊會消失", () => {
     expect(after.garrison.SPEARMAN).toBe(20);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// 征服（docs/02 §2.5）：lv≥2 的野地要打下來才佔得到
+// ─────────────────────────────────────────────────────────────
+
+describe("★ 征服（CLAIM 行軍）", () => {
+  const TARGET = { x: 102, y: 100 } as const; // 緊貼核心 2×2 的東側
+
+  async function conquestSetup(seedPick: (lv: number) => boolean, army: Army) {
+    const seasonId = await seedSeason(h, { startedAt: T0 });
+    await writeTerrainFixture(seasonId);
+
+    // 挑一個讓目標格是想要等級的賽季 seed（wildLevelAt 是純函式，掃得出來）
+    const { wildLevelAt } = await import("@/lib/game/wilds");
+    let seed = 0;
+    for (let s = 1; s < 20_000; s++) {
+      if (seedPick(wildLevelAt(s, TARGET.x, TARGET.y, "PLAIN"))) {
+        seed = s;
+        break;
+      }
+    }
+    expect(seed, "掃不到符合條件的 seed").toBeGreaterThan(0);
+    await h.db
+      .update(schema.seasons)
+      .set({ seed: BigInt(seed) })
+      .where(eq(schema.seasons.id, seasonId));
+
+    const p = await seedPlayer(h, seasonId, {
+      startedAt: T0,
+      baseX: 100,
+      baseY: 100,
+      citadelLevel: 15,
+      resources: 5000,
+    });
+    await h.tx((tx) =>
+      writeGarrison(tx, seasonId, p.playerId, p.playerId, 100, 100, army),
+    );
+    const { wildLevelAt: lvl } = await import("@/lib/game/wilds");
+    return { seasonId, playerId: p.playerId, seed, level: lvl(seed, TARGET.x, TARGET.y, "PLAIN") };
+  }
+
+  async function marchAndArrive(seasonId: number, playerId: number, army: Army) {
+    const sent = await h.tx((tx) =>
+      sendMarchFor(
+        tx,
+        playerId,
+        { type: "CLAIM", fromX: 100, fromY: 100, toX: TARGET.x, toY: TARGET.y, army },
+        T0.getTime(),
+      ),
+    );
+    expect(sent.ok, `派征服失敗: ${sent.reason}`).toBe(true);
+    await h.db
+      .update(schema.marches)
+      .set({ arrivesAt: new Date(T0.getTime() + 1000) })
+      .where(eq(schema.marches.id, sent.marchId!));
+    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+    return sent;
+  }
+
+  it("★ 打贏 lv≥2 的守衛 → 立刻佔領，tiles 帶著等級；立旗則被 GUARDED_TILE 擋下", async () => {
+    const { seasonId, playerId, level } = await conquestSetup(
+      (lv) => lv >= 2 && lv <= 3,
+      { SWORDSMAN: 300 },
+    );
+
+    // 立旗碰不得有守衛的格子（執政官也是走這裡被擋）
+    const { claimTileFor } = await import("@/lib/server/base-ops");
+    const flag = await h.tx((tx) => claimTileFor(tx, playerId, TARGET.x, TARGET.y, T0.getTime()));
+    expect(flag).toMatchObject({ ok: false, reason: "GUARDED_TILE" });
+
+    await marchAndArrive(seasonId, playerId, { SWORDSMAN: 200 });
+
+    const [tile] = await h.db
+      .select()
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, TARGET.x), eq(schema.tiles.y, TARGET.y)));
+    expect(tile).toBeDefined();
+    expect(tile!.playerId).toBe(playerId);
+    expect(tile!.kind).toBe("TERRITORY");
+    expect(tile!.level).toBe(level);
+
+    const reports = await h.db
+      .select()
+      .from(schema.battleReports)
+      .where(and(eq(schema.battleReports.seasonId, seasonId), eq(schema.battleReports.marchType, "CLAIM")));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.outcome).toBe("ATTACKER_WIN");
+    const snap = reports[0]!.snapshot as { kind: string; wild: { level: number } };
+    expect(snap.kind).toBe("BATTLE");
+    expect(snap.wild.level).toBe(level);
+
+    // 打完的部隊在回程路上（有戰損但沒全滅）
+    const returns = await h.db
+      .select()
+      .from(schema.marches)
+      .where(and(eq(schema.marches.seasonId, seasonId), eq(schema.marches.type, "RETURN")));
+    expect(returns).toHaveLength(1);
+  });
+
+  it("打不贏就是打不贏：一名民兵去踢 lv5 的巢穴 → 沒有佔領、殘軍覆滅", async () => {
+    const { seasonId, playerId } = await conquestSetup((lv) => lv === 5, { MILITIA: 1, SWORDSMAN: 0 });
+    await marchAndArrive(seasonId, playerId, { MILITIA: 1 });
+
+    const tiles = await h.db
+      .select()
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, TARGET.x), eq(schema.tiles.y, TARGET.y)));
+    expect(tiles).toHaveLength(0);
+
+    const [report] = await h.db
+      .select()
+      .from(schema.battleReports)
+      .where(and(eq(schema.battleReports.seasonId, seasonId), eq(schema.battleReports.marchType, "CLAIM")));
+    expect(report!.outcome).not.toBe("ATTACKER_WIN");
+  });
+
+  it("lv≤1 立旗照舊，而且 tiles 記下等級（產出係數 ×1）", async () => {
+    const { seasonId, playerId, level } = await conquestSetup((lv) => lv === 1, { MILITIA: 50 });
+    const { claimTileFor } = await import("@/lib/server/base-ops");
+    const r = await h.tx((tx) => claimTileFor(tx, playerId, TARGET.x, TARGET.y, T0.getTime()));
+    expect(r.ok).toBe(true);
+
+    const done = await h.tx((tx) => settleWithin(tx, playerId, r.doneAt! + 1000));
+    const t = done.tiles.find((q) => q.x === TARGET.x && q.y === TARGET.y);
+    expect(t).toBeDefined();
+    expect(t!.level).toBe(level);
+    expect(seasonId).toBeGreaterThan(0);
+  });
+
+  it("★ 被搶先：抵達時已有主 → CLAIM_FAILED，一格都不動", async () => {
+    const { seasonId, playerId } = await conquestSetup((lv) => lv >= 2, { SWORDSMAN: 200 });
+    const rival = await seedPlayer(h, seasonId, { startedAt: T0, baseX: 120, baseY: 120 });
+
+    const sent = await h.tx((tx) =>
+      sendMarchFor(
+        tx,
+        playerId,
+        { type: "CLAIM", fromX: 100, fromY: 100, toX: TARGET.x, toY: TARGET.y, army: { SWORDSMAN: 100 } },
+        T0.getTime(),
+      ),
+    );
+    expect(sent.ok).toBe(true);
+
+    // 路上被別人插旗
+    await h.db.insert(schema.tiles).values({
+      seasonId,
+      x: TARGET.x,
+      y: TARGET.y,
+      kind: "TERRITORY",
+      playerId: rival.playerId,
+      terrain: "PLAIN",
+      level: 1,
+      state: "NORMAL",
+    });
+
+    await h.db
+      .update(schema.marches)
+      .set({ arrivesAt: new Date(T0.getTime() + 1000) })
+      .where(eq(schema.marches.id, sent.marchId!));
+    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+
+    const [tile] = await h.db
+      .select()
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, TARGET.x), eq(schema.tiles.y, TARGET.y)));
+    expect(tile!.playerId).toBe(rival.playerId); // 沒被搶走
+
+    const [report] = await h.db
+      .select()
+      .from(schema.battleReports)
+      .where(and(eq(schema.battleReports.seasonId, seasonId), eq(schema.battleReports.marchType, "CLAIM")));
+    expect(report!.outcome).toBe("CLAIM_FAILED");
+  });
+});

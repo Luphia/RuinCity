@@ -6,6 +6,7 @@
  */
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { UNIT, type Unit } from "@/lib/game/balance";
@@ -20,13 +21,14 @@ const TYPE_LABEL: Record<string, string> = {
   REINFORCE: "增援",
   GARRISON: "駐防",
   RETURN: "返程",
-  CLAIM: "拓荒",
+  CLAIM: "征服",
 };
 
 const TYPE_NOTE: Record<string, string> = {
   RAID: "只交戰一輪、雙方損失 ×0.6，不破壞建築、不佔領",
   ATTACK: "完整戰鬥；可破城牆，帶投石機可拆指定建築",
   SCOUT: "只能派偵查兵；不觸發對方的來襲預警",
+  CLAIM: "攻打無主野地的守衛，打贏立刻佔領。目標要與領土相鄰、容量要夠",
   REINFORCE: "部隊駐紮在對方據點、計入對方防禦；糧食仍由你付",
   GARRISON: "停駐並成為新的行軍起點",
 };
@@ -61,8 +63,13 @@ export interface WarViewProps {
 export function WarView(props: WarViewProps) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [type, setType] = useState<string>("RAID");
-  const [target, setTarget] = useState({ x: "", y: "" });
+  // 領土頁的「征服」按鈕會帶著目標跳過來 —— 表單先填好，玩家只挑兵力
+  const params = useSearchParams();
+  const [type, setType] = useState<string>(params.get("type") === "CLAIM" ? "CLAIM" : "RAID");
+  const [target, setTarget] = useState({
+    x: params.get("x") ?? "",
+    y: params.get("y") ?? "",
+  });
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [openReport, setOpenReport] = useState<number | null>(null);
   const now = useServerClock(props.board.serverTime);

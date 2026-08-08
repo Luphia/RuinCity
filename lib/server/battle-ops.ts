@@ -117,11 +117,130 @@ async function resolveOne(tx: TxDb, march: MarchRow, now: number): Promise<boole
     case "RAID":
     case "ATTACK":
       return resolveAssault(tx, march, now);
+    case "CLAIM":
+      return resolveConquest(tx, march, now);
     default:
-      // CLAIM 不走行軍（它是佇列）。認不出來的類型就當作原地解散並回家
+      // 認不出來的類型就當作原地解散並回家
       await sendHome(tx, march, parseArmy(march.units), null, now);
       return false;
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 征服：打野生守衛，贏了立刻佔領（docs/02 §2.5、docs/11 §22）
+// ─────────────────────────────────────────────────────────────
+
+async function resolveConquest(tx: TxDb, march: MarchRow, now: number): Promise<boolean> {
+  const army = parseArmy(march.units);
+  const state = await settleWithin(tx, march.ownerId, now);
+
+  /**
+   * ★ 抵達時**重新驗證**（伺服器是唯一真相）：路上可能被別人搶先、
+   *   容量可能被同時完成的立旗吃掉、連通可能被孤立打斷。
+   *   驗不過就原地回頭 —— 出發時收的立旗資源不退（docs/11 §22.3）。
+   */
+  const { claimPlanFor } = await import("@/lib/server/base-ops");
+  const check = await claimPlanFor(tx, state, march.toX, march.toY);
+  if ("reason" in check) {
+    await tx.insert(schema.battleReports).values({
+      seasonId: march.seasonId,
+      attackerId: march.ownerId,
+      defenderId: null,
+      atX: march.toX,
+      atY: march.toY,
+      marchType: "CLAIM",
+      outcome: "CLAIM_FAILED",
+      snapshot: { kind: "WILD_CLAIM", reason: check.reason, sent: army } as never,
+      createdAt: new Date(now),
+    });
+    await tx.update(schema.marches).set({ status: "ARRIVED" }).where(eq(schema.marches.id, march.id));
+    await sendHome(tx, march, army, null, now);
+    return false;
+  }
+
+  const { wildGuardsFor, wildInnateDefense } = await import("@/lib/game/wilds");
+  const distance = Math.max(Math.abs(march.toX - march.fromX), Math.abs(march.toY - march.fromY));
+  const guards = wildGuardsFor(check.level, distance);
+  const hasGuards = Object.keys(guards).length > 0;
+
+  let outcome: ResolvedBattle["outcome"] = "ATTACKER_WIN";
+  let survivors: Army = army;
+  let attackerLosses: Army = {};
+  let defenderLosses: Army = {};
+  let battle: ResolvedBattle | null = null;
+
+  if (hasGuards) {
+    /**
+     * ★ 與 PvE 營地同一條規則：`skipMorale`（docs/11 §15.1）——
+     *   反霸凌的士氣修正不該懲罰打野。巢穴沒有牆，只有固有防禦。
+     */
+    battle = resolveBattle(
+      { army },
+      {
+        army: guards,
+        wallLevel: 0,
+        innateDefense: wildInnateDefense(check.level),
+        watchtowerDefense: 0,
+        infirmaryLevel: 0,
+        lootable: {},
+      },
+      { marchType: "ATTACK", defenderAtHome: false, skipMorale: true },
+    );
+    outcome = battle.outcome;
+    survivors = battle.attackerSurvivors;
+    attackerLosses = battle.attackerLosses;
+    defenderLosses = battle.defenderLosses;
+  }
+
+  if (outcome === "ATTACKER_WIN") {
+    // 血已經付過了：立刻佔領，不再立旗倒數
+    const [me] = await tx
+      .select({ allianceId: schema.players.allianceId })
+      .from(schema.players)
+      .where(eq(schema.players.id, march.ownerId))
+      .limit(1);
+    await tx
+      .insert(schema.tiles)
+      .values({
+        seasonId: march.seasonId,
+        x: march.toX,
+        y: march.toY,
+        kind: "TERRITORY",
+        playerId: march.ownerId,
+        allianceId: me?.allianceId ?? null,
+        terrain: check.terrain,
+        level: Math.max(1, check.level),
+        state: "NORMAL",
+      })
+      .onConflictDoNothing();
+  }
+
+  await tx.insert(schema.battleReports).values({
+    seasonId: march.seasonId,
+    attackerId: march.ownerId,
+    defenderId: null, // 野生守衛不是玩家
+    atX: march.toX,
+    atY: march.toY,
+    marchType: "CLAIM",
+    outcome,
+    snapshot: {
+      kind: "BATTLE",
+      wild: { level: check.level, terrain: check.terrain, distance },
+      outcome,
+      scoring: battle?.scoring ?? null,
+      attacker: { sent: army, losses: attackerLosses },
+      defender: { present: guards, losses: defenderLosses, wounded: {} },
+      loot: {},
+      raid: null,
+      breakdown: battle?.breakdown ?? null,
+    } as never,
+    createdAt: new Date(now),
+  });
+
+  await tx.update(schema.marches).set({ status: "ARRIVED" }).where(eq(schema.marches.id, march.id));
+  const anySurvivor = Object.values(survivors).some((n) => (n ?? 0) > 0);
+  if (anySurvivor) await sendHome(tx, march, survivors, null, now);
+  return hasGuards;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@
  *   按下去之後 Server Action 會用同一組純函式再驗一次。
  */
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { FACILITIES, FACILITY, type Facility } from "@/lib/game/balance";
@@ -24,6 +25,7 @@ const REJECTION_TEXT: Record<string, string> = {
   OUT_OF_BOUNDS: "超出地圖範圍",
   INSUFFICIENT_RESOURCES: "資源不足",
   INSUFFICIENT_POPULATION: "人口不足，拓荒隊派不出去",
+  GUARDED_TILE: "有野生守衛 —— 到軍事頁派「征服」打下來",
   TERRAIN_UNAVAILABLE: "這一季的地形檔還沒生成",
   LEVEL_CAPPED: "設施等級不能超過主堡允許的上限",
   EXCEEDS_CAPACITY: "儲存上限不夠 —— 先蓋倉庫",
@@ -212,19 +214,43 @@ function Candidate({
           ({candidate.x}, {candidate.y})
         </span>
         <span className="ml-2 opacity-60">{candidate.terrainLabel}</span>
+        {candidate.level > 0 ? (
+          <span
+            className={`ml-1.5 rounded-[2px] px-1 text-[10px] tabular-nums ${
+              candidate.guarded ? "bg-[#6e3a26] text-[#e8dcc0]" : "bg-[#4a413a] text-[#e8dcc0]"
+            }`}
+          >
+            Lv{candidate.level}
+          </span>
+        ) : null}
         <div className="text-[10px] tabular-nums opacity-60">
-          糧{candidate.cost.grain} 木{candidate.cost.timber} · 民兵{candidate.militia} ·{" "}
-          {Math.round(candidate.seconds / 60)} 分
+          {candidate.guarded ? (
+            <>有野生守衛 —— 產出 +{Math.round((candidate.level - 1) * 15)}%，要派兵征服</>
+          ) : (
+            <>
+              糧{candidate.cost.grain} 木{candidate.cost.timber} · 民兵{candidate.militia} ·{" "}
+              {Math.round(candidate.seconds / 60)} 分
+            </>
+          )}
         </div>
       </div>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onClaim}
-        className="rounded border border-[#a35a3a] px-3 py-1 disabled:opacity-40"
-      >
-        拓荒
-      </button>
+      {candidate.guarded ? (
+        <Link
+          href={`/war?type=CLAIM&x=${candidate.x}&y=${candidate.y}`}
+          className="rounded border border-[#8a6b3a] px-3 py-1 text-[#d9a441]"
+        >
+          征服
+        </Link>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onClaim}
+          className="rounded border border-[#a35a3a] px-3 py-1 disabled:opacity-40"
+        >
+          拓荒
+        </button>
+      )}
     </li>
   );
 }

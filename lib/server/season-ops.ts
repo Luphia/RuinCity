@@ -33,6 +33,7 @@ import {
   PHASE_DURATION,
   planRegistration,
   scheduleFrom,
+  humanSoloCountsFrom,
   squadRequestsFrom,
   startingPopulationUsed,
   startingResources,
@@ -319,17 +320,21 @@ export async function lockdownSeason(
   }
 
   // ── 地圖生成 + 分配 + 驗證 ────────────────────────────────
+  const regShapes = registrations.map((r) => ({
+    faction: r.faction,
+    band: r.spawnBand,
+    squadCode: r.squadCode,
+  }));
   const world = generateWorld(Number(season.seed), {
     ...opts.world,
-    squads: squadRequestsFrom(
-      registrations.map((r) => ({
-        faction: r.faction,
-        band: r.spawnBand,
-        squadCode: r.squadCode,
-      })),
-    ),
+    squads: squadRequestsFrom(regShapes),
+    // 真人間距 > 10 格（docs/11 §22.1）：小隊豁免，散客真人在這裡數
+    humanSolos: humanSoloCountsFrom(regShapes),
     onProgress: log,
   });
+  if (world.spawns.humanSpacingShort > 0) {
+    log(`⚠ ${world.spawns.humanSpacingShort} 位真人塞不進 >10 格的間距，降級為一般間距`);
+  }
   log(
     `地圖完成（seed ${world.seed}，換了 ${world.seedAttempts - 1} 次）` +
       `，公平性 ${world.fairness.pass ? "全過" : "未全過"}`,

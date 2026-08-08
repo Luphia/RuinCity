@@ -215,7 +215,9 @@ export async function runStewardWithin(
     barracksQueuesFree: freeTrainQueues(state.train, now),
     ownedCount: state.tiles.length,
     territoryCapacity: board.capacity,
-    candidates: board.candidates,
+    // ★ 有野生守衛的格子不進執政官的視野 —— 拓那些要派兵（軍事禁區，docs/18 §2）。
+    //   不濾掉的話它會永遠嘗試一件永遠做不到的事（CLAUDE.md「規劃 vs 執行」）
+    candidates: board.candidates.filter((c) => !c.guarded),
     facilityOptions,
   });
 

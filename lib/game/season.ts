@@ -261,6 +261,33 @@ export function squadRequestsFrom(
   return [...groups.values()].filter((g) => g.size >= 2);
 }
 
+/**
+ * 每個 (陣營, 環帶) 有幾位**散客真人**（沒有小隊、或小隊不足 2 人的）。
+ * 分配器據此把「真人間距 > 10」（`docs/11` §22.1）只加在真人身上 ——
+ * 小隊成員不算散客：他們自願聚落，由小隊路徑處理。
+ */
+export function humanSoloCountsFrom(
+  registrations: readonly { faction: number; band: string; squadCode: string | null }[],
+): readonly { faction: FactionId; band: SpawnBand; count: number }[] {
+  const squadSizes = new Map<string, number>();
+  for (const r of registrations) {
+    if (!r.squadCode) continue;
+    const key = `${r.squadCode}:${r.faction}:${r.band}`;
+    squadSizes.set(key, (squadSizes.get(key) ?? 0) + 1);
+  }
+  const counts = new Map<string, { faction: FactionId; band: SpawnBand; count: number }>();
+  for (const r of registrations) {
+    const squadKey = r.squadCode ? `${r.squadCode}:${r.faction}:${r.band}` : null;
+    const inSquad = squadKey !== null && (squadSizes.get(squadKey) ?? 0) >= 2;
+    if (inSquad) continue;
+    const key = `${r.faction}:${r.band}`;
+    const cur = counts.get(key);
+    if (cur) cur.count++;
+    else counts.set(key, { faction: r.faction as FactionId, band: r.band as SpawnBand, count: 1 });
+  }
+  return [...counts.values()];
+}
+
 // ─────────────────────────────────────────────────────────────
 // AI 補足
 // ─────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ import { TERRAIN, type Terrain } from "@/lib/game/balance";
 import { freeTerritoryQueue } from "@/lib/game/build";
 import { territoryCapacity, territoryQueues } from "@/lib/game/formulas";
 import { claimCost, claimMilitia, claimSeconds, coreTiles } from "@/lib/game/territory";
+import { needsConquest, wildLevelAt } from "@/lib/game/wilds";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import type { settleWithin } from "@/lib/server/player-state";
@@ -45,6 +46,10 @@ export interface ClaimCandidate {
   readonly distanceToBase: number;
   readonly distanceToRuin: number;
   readonly hostileNeighbours: number;
+  /** 野地等級（docs/02 §2.5）。荒地 = 0 */
+  readonly level: number;
+  /** true = 有野生守衛，立旗不可、要派兵征服。執政官跳過這些（軍事禁區） */
+  readonly guarded: boolean;
 }
 
 export interface TerritoryBoard {
@@ -87,6 +92,13 @@ export async function buildTerritoryBoard(
   state: Awaited<ReturnType<typeof settleWithin>>,
   now: number,
 ): Promise<TerritoryBoard> {
+  const [seasonRow] = await tx
+    .select({ seed: schema.seasons.seed })
+    .from(schema.seasons)
+    .where(eq(schema.seasons.id, state.seasonId))
+    .limit(1);
+  const seasonSeed = Number(seasonRow?.seed ?? 0);
+
   const key = (x: number, y: number) => `${x},${y}`;
   const ownedKeys = new Set(state.tiles.map((t) => key(t.x, t.y)));
   const core = coreTiles(state.baseX, state.baseY);
@@ -157,6 +169,7 @@ export async function buildTerritoryBoard(
       if (takenKeys.has(key(p.x + dx, p.y + dy))) hostile++;
     }
 
+    const level = wildLevelAt(seasonSeed, p.x, p.y, terrain);
     candidates.push({
       x: p.x,
       y: p.y,
@@ -168,6 +181,8 @@ export async function buildTerritoryBoard(
       distanceToBase: Math.abs(p.x - state.baseX) + Math.abs(p.y - state.baseY),
       distanceToRuin: distanceToRuin(p.x, p.y),
       hostileNeighbours: hostile,
+      level,
+      guarded: needsConquest(level),
     });
   }
 

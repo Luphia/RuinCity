@@ -24,7 +24,7 @@ import "server-only";
 
 import { and, eq } from "drizzle-orm";
 
-import { SEASON_MODIFIERS } from "@/lib/game/balance";
+import { SEASON_MODIFIERS, type Terrain } from "@/lib/game/balance";
 import { checkBuild, freeTerritoryQueue, planFacility } from "@/lib/game/build";
 import { checkTrain, planTrain } from "@/lib/game/train";
 import { territoryCapacity } from "@/lib/game/formulas";
@@ -47,21 +47,23 @@ export interface OpResult {
  *   少了這一檢查，玩家可以一次下二十張拓荒單 ——
  *   「拓荒要排隊」這件事就完全失效了。
  */
-export async function claimTileFor(
+/**
+ * 佔領一格的**共同驗證**：地形、無主、容量、連通、野地等級。
+ * 立旗（佇列）、征服行軍的出發與抵達三個地方都用它 ——
+ * 可佔判斷只能有一份實作（CLAUDE.md「規劃 vs 執行」那一行）。
+ */
+export async function claimPlanFor(
   tx: TxDb,
-  playerId: number,
+  state: Awaited<ReturnType<typeof settleWithin>>,
   x: number,
   y: number,
-  now: number,
-): Promise<OpResult> {
-  const state = await settleWithin(tx, playerId, now);
-
-  const queueIndex = freeTerritoryQueue(state.build, now);
-  if (queueIndex < 0) return { ok: false, reason: "NO_FREE_QUEUE" };
-
+): Promise<
+  | { cost: { grain: number; timber: number }; militia: number; seconds: number; terrain: Terrain; level: number }
+  | { reason: string }
+> {
   // 地形決定拓荒耗時與之後的設施產出，一律從地圖靜態檔查，不信任呼叫端
   const terrainMap = await loadTerrainAround(terrainDirFor(state.seasonId), [{ x, y }]);
-  if (!terrainMap.loaded) return { ok: false, reason: "TERRAIN_UNAVAILABLE" };
+  if (!terrainMap.loaded) return { reason: "TERRAIN_UNAVAILABLE" };
 
   const occupied = await tx
     .select({ playerId: schema.tiles.playerId })
@@ -78,12 +80,48 @@ export async function claimTileFor(
       owned: state.tiles,
       territoryCapacity: territoryCapacity(state.build.citadel, state.bandBonus),
       terrainAt: terrainMap.at,
-      isBlocked: () => occupied[0]?.playerId != null && occupied[0].playerId !== playerId,
+      isBlocked: () =>
+        occupied[0]?.playerId != null && occupied[0].playerId !== state.playerId,
     },
     x,
     y,
   );
+  if ("reason" in plan) return { reason: plan.reason };
+
+  // 野地等級（docs/02 §2.5）：由賽季 seed 決定性推導，佔領時抄進 tiles
+  const [seasonRow] = await tx
+    .select({ seed: schema.seasons.seed })
+    .from(schema.seasons)
+    .where(eq(schema.seasons.id, state.seasonId))
+    .limit(1);
+  const { wildLevelAt } = await import("@/lib/game/wilds");
+  const terrain = terrainMap.at(x, y);
+  const level = wildLevelAt(Number(seasonRow?.seed ?? 0), x, y, terrain);
+
+  return { cost: plan.cost, militia: plan.militia, seconds: plan.seconds, terrain, level };
+}
+
+export async function claimTileFor(
+  tx: TxDb,
+  playerId: number,
+  x: number,
+  y: number,
+  now: number,
+): Promise<OpResult> {
+  const state = await settleWithin(tx, playerId, now);
+
+  const queueIndex = freeTerritoryQueue(state.build, now);
+  if (queueIndex < 0) return { ok: false, reason: "NO_FREE_QUEUE" };
+
+  const plan = await claimPlanFor(tx, state, x, y);
   if ("reason" in plan) return { ok: false, reason: plan.reason };
+
+  /**
+   * ★ lv≥2 有野生守衛，立旗碰不得 —— 要派兵征服（CLAIM 行軍）。
+   *   執政官的拓荒也從這裡被擋下：軍事禁區不變（docs/18 §2）。
+   */
+  const { needsConquest } = await import("@/lib/game/wilds");
+  if (needsConquest(plan.level)) return { ok: false, reason: "GUARDED_TILE" };
 
   const r = state.economy.resources;
   if (r.grain < plan.cost.grain || r.timber < plan.cost.timber) {
@@ -123,7 +161,8 @@ export async function claimTileFor(
       x,
       y,
       militia: plan.militia,
-      terrain: terrainMap.at(x, y),
+      terrain: plan.terrain,
+      level: Math.max(1, plan.level),
       queueIndex,
     },
     resolveAt: doneAt,

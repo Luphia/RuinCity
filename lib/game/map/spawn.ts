@@ -6,7 +6,7 @@
  * 分配必須是可驗證公平的，不能靠隨機祈禱。
  */
 
-import { MAP, SPAWN_BAND, SPAWN_BANDS, SQUAD, type SpawnBand } from "../balance";
+import { HUMAN_MIN_SPACING, MAP, SPAWN_BAND, SPAWN_BANDS, SQUAD, type SpawnBand } from "../balance";
 import { deriveSeed, mulberry32, randRange, shuffle, type Rng } from "../rng";
 import { TERRAIN_CODE, idx, type TerrainMap } from "./terrain";
 import { inNoBuildZone, type RuinSite } from "./ruins";
@@ -36,6 +36,8 @@ export interface SpawnAllocation {
   readonly points: readonly SpawnPoint[];
   /** 每個 (陣營, 環帶) 實際配到的人數與名額 */
   readonly fill: { faction: FactionId; band: SpawnBand; placed: number; quota: number }[];
+  /** 有幾位真人塞不進真人間距、降級成一般間距（名額不會少，只是離得近） */
+  readonly humanSpacingShort: number;
   /** 有多少小隊沒能整組放在一起 */
   readonly brokenSquads: number;
 }
@@ -119,9 +121,8 @@ interface Blocker {
   free(c: { x: number; y: number }): boolean;
 }
 
-function createBlocker(): Blocker {
+function createBlocker(r = HARD_MIN_SPACING - 1): Blocker {
   const blocked = new Set<number>();
-  const r = HARD_MIN_SPACING - 1;
   const key = (x: number, y: number) => y * 100000 + x;
   return {
     take(x: number, y: number) {
@@ -130,6 +131,17 @@ function createBlocker(): Blocker {
       }
     },
     free: (c: { x: number; y: number }) => !blocked.has(key(c.x, c.y)),
+  };
+}
+
+/** 兩份佔位表疊在一起：真人的點要同時滿足一般間距與真人間距 */
+function composeBlockers(a: Blocker, b: Blocker): Blocker {
+  return {
+    take(x: number, y: number) {
+      a.take(x, y);
+      b.take(x, y);
+    },
+    free: (c: { x: number; y: number }) => a.free(c) && b.free(c),
   };
 }
 
@@ -281,6 +293,13 @@ function pickStratified(
 export interface AllocateOptions {
   /** 同行小隊。未指定時全部視為散客 */
   readonly squads?: readonly SquadRequest[];
+  /**
+   * 每個 (陣營, 環帶) 的**散客真人**數（`docs/11` §22.1）。
+   * 這些席位彼此（以及與小隊）保持 `HUMAN_MIN_SPACING` 的硬性間距，
+   * 而且排在該桶點列的**前面** —— 封盤的依序配對會讓真人拿到它們。
+   * AI 之間維持 `HARD_MIN_SPACING`：全服 600 人一律 11 在幾何上不可行。
+   */
+  readonly humanSolos?: readonly { faction: FactionId; band: SpawnBand; count: number }[];
 }
 
 /**
@@ -394,6 +413,18 @@ export function allocateSpawns(
   let squadCounter = 0;
   const blocker = createBlocker();
 
+  /**
+   * ★ 真人間距（`docs/11` §22.1）：真人與真人 > 10 格（切比雪夫），
+   *   跨桶共用一份佔位表。AI 不進這份表 —— 全服 600 人一律 11
+   *   在幾何上塞不下（中原帶上限 ~68 席 < 配額 100）。
+   *   小隊成員彼此豁免：叢集先擺好、再整組記進表裡。
+   */
+  const humanBlocker = createBlocker(HUMAN_MIN_SPACING - 1);
+  const humanPick = composeBlockers(blocker, humanBlocker);
+  let humanSpacingShort = 0;
+  const humanSoloCount = (f: FactionId, b: SpawnBand) =>
+    (opts.humanSolos ?? []).find((h) => h.faction === f && h.band === b)?.count ?? 0;
+
   for (const f of [1, 2, 3] as const) {
     for (const b of SPAWN_BANDS) {
       const quota = SPAWN_BAND[b].quota;
@@ -407,8 +438,16 @@ export function allocateSpawns(
       const squadSeats = squads.reduce((s, q) => s + Math.min(SQUAD.maxMembers, q.size), 0);
       const soloSeats = Math.max(0, quota - squadSeats);
 
-      // 先放小隊的「隊長」，彼此拉開；再放散客
-      const anchors = pickStratified(rng, cells, squads.length, spacing * 1.4, blocker);
+      // 先放小隊的「隊長」，彼此拉開；再放散客。
+      // 小隊是真人：隊長的落點要避開其他真人（humanBlocker.free），
+      // 但整個叢集**擺好之後**才記進真人佔位表 —— 隊員彼此豁免（自願聚落）
+      const anchors = pickStratified(
+        rng,
+        cells.filter((c) => humanBlocker.free(c)),
+        squads.length,
+        spacing * 1.4,
+        blocker,
+      );
       const taken: BandCell[] = [];
 
       squads.forEach((squad, si) => {
@@ -421,13 +460,14 @@ export function allocateSpawns(
         const size = Math.min(SQUAD.maxMembers, squad.size);
         // 隊員落在隊長周圍 8–15 格 —— 一起開始，但不是一支軍隊
         const near = cells.filter((c) => {
-          if (!blocker.free(c)) return false;
+          if (!blocker.free(c) || !humanBlocker.free(c)) return false;
           const dd = Math.hypot(c.x - anchor.x, c.y - anchor.y);
           return dd >= SQUAD.clusterSpacing[0] && dd <= SQUAD.clusterSpacing[1];
         });
         const members = poissonPick(rng, near, size - 1, 4, blocker);
         if (members.length < size - 1) brokenSquads++;
         for (const c of [anchor, ...members]) {
+          humanBlocker.take(c.x, c.y);
           taken.push(c);
           points.push({
             x: c.x,
@@ -441,9 +481,32 @@ export function allocateSpawns(
         }
       });
 
-      // 散客：排除已被小隊佔掉的位置附近
+      /**
+       * ★ 散客真人先挑（複合佔位表：一般間距 + 真人間距），
+       *   而且**排在點列前面** —— 封盤依序配對，真人席位在前，
+       *   自然拿到這些點。塞不下的降級成一般間距（名額不能少人）。
+       */
+      const wantHumans = Math.min(humanSoloCount(f, b), soloSeats);
+      const humanSolos =
+        wantHumans > 0
+          ? pickStratified(rng, cells.filter(humanBlocker.free), wantHumans, spacing, humanPick)
+          : [];
+      humanSpacingShort += Math.max(0, wantHumans - humanSolos.length);
+      for (const c of humanSolos) {
+        points.push({
+          x: c.x,
+          y: c.y,
+          faction: f,
+          band: b,
+          ruinDistance: c.d,
+          region: regionOf(c.x, c.y),
+          squad: null,
+        });
+      }
+
+      // 其餘散客（AI 與塞不下的真人）：排除已被佔掉的位置附近
       const free = cells.filter(blocker.free);
-      const solos = pickStratified(rng, free, soloSeats, spacing, blocker);
+      const solos = pickStratified(rng, free, soloSeats - humanSolos.length, spacing, blocker);
 
       /**
        * ★ 最緊的池子不一定塞得下整個環帶（不規則形狀 + 貪婪取樣的末端會卡住）。
@@ -455,7 +518,7 @@ export function allocateSpawns(
        */
       const extra: BandCell[] = [];
       for (let p = 1; p < pools.length; p++) {
-        const short = quota - taken.length - solos.length - extra.length;
+        const short = quota - taken.length - humanSolos.length - solos.length - extra.length;
         if (short <= 0) break;
         // 仍然走分層取樣 —— 補位的人也要照遺跡距離鋪開，
         // 否則公平性檢查 (b) 的環帶平均距離會被這幾個人拉歪
@@ -477,13 +540,13 @@ export function allocateSpawns(
       fill.push({
         faction: f,
         band: b,
-        placed: taken.length + solos.length + extra.length,
+        placed: taken.length + humanSolos.length + solos.length + extra.length,
         quota,
       });
     }
   }
 
-  return { points, fill, brokenSquads };
+  return { points, fill, brokenSquads, humanSpacingShort };
 }
 
 /** 依 `SQUAD` 上限隨機產生一批同行小隊（測試與模擬用） */

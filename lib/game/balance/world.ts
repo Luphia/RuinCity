@@ -256,3 +256,39 @@ export const CAMPS = {
    */
   levelWeightDecay: 0.92,
 } as const;
+
+// ─────────────────────────────────────────────────────────────
+// 野地與征服（docs/02 §2.5、docs/11 §22）
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 真人與真人的最小出生間距（切比雪夫，>10 格）。
+ *
+ * ★ 只管真人（`users` 表有帳號的）：全服 600 人一律 11 在幾何上不可行
+ *   —— 中原帶的最密堆疊上限約 68 席，配額卻是 100（`11` §22.1 的算術）。
+ *   AI 之間維持 `HARD_MIN_SPACING`。同行小隊豁免（自願聚落）。
+ */
+export const HUMAN_MIN_SPACING = 11;
+
+/** 野地：無主格的等級、守衛與生產加成 */
+export const WILDS = {
+  maxLevel: 5,
+  /** 等級權重 = decay^(L-1)：lv1 ≈ 56%、lv2 ≈ 25%、lv3 ≈ 11%、lv4 ≈ 5%、lv5 ≈ 2% */
+  levelWeightDecay: 0.45,
+  /** 稀有地形（LODE、MARSH）+1 級，封頂 maxLevel */
+  richTerrainBonus: 1,
+  /** 這一級（含）以上有守衛，要打下來才佔得到；以下可立旗 */
+  guardedFromLevel: 2,
+
+  /** 守衛人口 = base × growth^(L-1) × (1 + 距離 / distanceDivisor) */
+  garrison: { base: 12, growth: 1.7 },
+  distanceDivisor: 40,
+  /** 弓手比例 = perLevel × L，封頂 shareMax；其餘民兵 */
+  archerSharePerLevel: 0.08,
+  archerShareMax: 0.4,
+  /** 巢穴固有防禦 = perLevel × L */
+  innateDefensePerLevel: 30,
+
+  /** 設施產出 × (1 + perLevel × (L−1))；lv5 = +60% */
+  productionPerLevel: 0.15,
+} as const;

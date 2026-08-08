@@ -421,6 +421,8 @@ export const tiles = pgTable(
     facilityLevel: smallint("facility_level").notNull().default(0),
     /** 佔領時從地圖靜態檔抄下來，整季不變 */
     terrain: terrainEnum("terrain").notNull().default("PLAIN"),
+    /** 野地等級（docs/02 §2.5）：佔領時由 wildLevelAt 抄下來。1 = 無加成 */
+    level: smallint("level").notNull().default(1),
     state: tileStateEnum("state").notNull().default("NORMAL"),
     stateUntil: timestamp("state_until", { withTimezone: true }),
   },

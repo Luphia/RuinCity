@@ -190,6 +190,29 @@ export async function sendMarchFor(
     return { ok: false, reason: "SELF_TARGET" };
   }
 
+  /**
+   * ★ 征服（docs/02 §2.5）：出發前就用**同一份**可佔判準驗過
+   *   （容量、連通、無主 —— `claimPlanFor`，與立旗共用），
+   *   立旗的資源成本在這裡收，敗不退 —— 遠征的代價。
+   *   抵達時會再驗一次：伺服器是唯一真相，路上世界會變。
+   */
+  if (plan.type === "CLAIM") {
+    const { claimPlanFor } = await import("@/lib/server/base-ops");
+    const claim = await claimPlanFor(tx, state, to.x, to.y);
+    if ("reason" in claim) return { ok: false, reason: claim.reason };
+    const r = state.economy.resources;
+    if (r.grain < claim.cost.grain || r.timber < claim.cost.timber) {
+      return { ok: false, reason: "INSUFFICIENT_RESOURCES" };
+    }
+    await tx
+      .update(schema.playerResources)
+      .set({
+        grain: String(r.grain - claim.cost.grain),
+        timber: String(r.timber - claim.cost.timber),
+      })
+      .where(eq(schema.playerResources.playerId, playerId));
+  }
+
   await writeGarrison(
     tx,
     state.seasonId,

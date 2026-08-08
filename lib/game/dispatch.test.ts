@@ -60,11 +60,12 @@ describe("★ 出擊規模 ≤ 出發地駐軍量", () => {
 });
 
 describe("行軍類型", () => {
-  it("玩家能主動發起五種；CLAIM 走佇列、RETURN 自動產生", () => {
-    expect(DISPATCHABLE).toEqual(["RAID", "ATTACK", "SCOUT", "REINFORCE", "GARRISON"]);
-    expect(planDispatch(state(), "CLAIM", { x: 101, y: 100 }, { SPEARMAN: 1 }, T0)).toEqual({
-      reason: "UNKNOWN_TYPE",
-    });
+  it("玩家能主動發起六種（含征服 CLAIM）；RETURN 自動產生", () => {
+    expect(DISPATCHABLE).toEqual(["RAID", "ATTACK", "SCOUT", "CLAIM", "REINFORCE", "GARRISON"]);
+    // 征服是可派遣的行軍（docs/02 §2.5）—— 目標與容量的驗證在 server 層
+    expect("reason" in planDispatch(state(), "CLAIM", { x: 101, y: 100 }, { SPEARMAN: 1 }, T0)).toBe(
+      false,
+    );
     expect(planDispatch(state(), "RETURN", { x: 101, y: 100 }, { SPEARMAN: 1 }, T0)).toEqual({
       reason: "UNKNOWN_TYPE",
     });

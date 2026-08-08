@@ -17,8 +17,12 @@ import { armyPopulation } from "./formulas";
 import { isEmptyArmy, subtractArmy, type Army } from "./army";
 import type { SeasonModifiers } from "./balance";
 
-/** 玩家可以主動發起的類型。`CLAIM` 走佇列不走行軍，`RETURN` 是自動產生的 */
-export const DISPATCHABLE = ["RAID", "ATTACK", "SCOUT", "REINFORCE", "GARRISON"] as const;
+/**
+ * 玩家可以主動發起的類型。`RETURN` 是自動產生的。
+ * `CLAIM` 是**征服**（docs/02 §2.5）：lv≥2 的野地有守衛，士兵打下來才佔得到；
+ * 無守衛格的立旗仍走領土佇列（`claimTileFor`），不經過這裡。
+ */
+export const DISPATCHABLE = ["RAID", "ATTACK", "SCOUT", "CLAIM", "REINFORCE", "GARRISON"] as const;
 export type DispatchType = (typeof DISPATCHABLE)[number];
 
 export function isDispatchable(t: string): t is DispatchType {

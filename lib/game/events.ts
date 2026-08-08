@@ -62,6 +62,7 @@ export type M2Payload =
       readonly y: number;
       readonly militia: number;
       readonly terrain: Terrain;
+      readonly level: number;
       readonly queueIndex: number;
     }
   | {
@@ -133,6 +134,7 @@ export function parsePayload(type: string, raw: unknown): M2Payload | null {
         y: p.y,
         militia: isNum(p.militia) ? p.militia : 0,
         terrain: (typeof p.terrain === "string" ? p.terrain : "PLAIN") as Terrain,
+        level: isNum(p.level) ? p.level : 1,
         queueIndex: isNum(p.queueIndex) ? p.queueIndex : 0,
       };
     }
@@ -228,6 +230,7 @@ export function resolveEvent(world: WorldState, payload: M2Payload): ResolveOutc
         facility: null,
         facilityLevel: 0,
         terrain: payload.terrain,
+        level: payload.level,
       };
       /**
        * ★ 人口在**下單時**就被扣了（`base-ops.ts` 的 `claimTileFor`）。
