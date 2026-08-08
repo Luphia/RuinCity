@@ -8,12 +8,12 @@ import "server-only";
  *   —— 執政官**不會**，軍事是 `docs/18` §2 明列的禁區。
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, isNotNull, eq } from "drizzle-orm";
 
 import { SEASON_MODIFIERS, type Terrain } from "@/lib/game/balance";
 import { isEmptyArmy, mergeArmies, parseArmy, type Army } from "@/lib/game/army";
 import { planDispatch, type DispatchType } from "@/lib/game/dispatch";
-import type { RoadNetwork } from "@/lib/game/structures";
+import { woundedReady, type RoadNetwork } from "@/lib/game/structures";
 import { sampleTerrainFactor } from "@/lib/game/march";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
@@ -117,6 +117,146 @@ async function writeGarrison(
 }
 
 export { garrisonAt, writeGarrison };
+
+/**
+ * ★ 傷兵歸隊（`docs/04` §3c）。
+ *
+ * 條件是**站在自己的據點或要塞**：野地上沒有人替你收容傷員。
+ * 十分鐘一到，那些人就回到同一格的駐軍裡 —— 陣亡的不在其中。
+ *
+ * 這是懶惰結算：不排事件、不開定時器，時間到了誰來讀就誰來補。
+ * 呼叫點有兩個（`runCronTick` 每分鐘一次、`resolveArrivals` 開頭一次），
+ * 而它是冪等的 —— 兩邊同時跑不會讓傷兵複製。
+ */
+export async function recoverWounded(tx: TxDb, seasonId: number, now: number): Promise<number> {
+  const rows = await tx
+    .select({
+      id: schema.garrisons.id,
+      ownerId: schema.garrisons.ownerId,
+      atX: schema.garrisons.atX,
+      atY: schema.garrisons.atY,
+      units: schema.garrisons.units,
+      wounded: schema.garrisons.wounded,
+      woundedAt: schema.garrisons.woundedAt,
+    })
+    .from(schema.garrisons)
+    .where(and(eq(schema.garrisons.seasonId, seasonId), isNotNull(schema.garrisons.woundedAt)));
+
+  let healed = 0;
+  for (const row of rows) {
+    if (!woundedReady(row.woundedAt ? row.woundedAt.getTime() : null, now)) continue;
+
+    const wounded = parseArmy(row.wounded ?? {});
+    // 傷兵在不在自己的據點或要塞上？不在就**留在原地繼續躺著** ——
+    // 部隊撤回據點之後那一刻才收得回來
+    const canHeal = isEmptyArmy(wounded)
+      ? false
+      : await isOwnBaseOrFortress(tx, seasonId, row.ownerId, row.atX, row.atY);
+    if (!canHeal) continue;
+
+    await tx
+      .update(schema.garrisons)
+      .set({
+        units: mergeArmies(parseArmy(row.units), wounded) as never,
+        wounded: null,
+        woundedAt: null,
+      })
+      .where(eq(schema.garrisons.id, row.id));
+    healed++;
+  }
+  return healed;
+}
+
+/** 這一格是不是這位玩家的據點或要塞（傷兵歸隊的唯一條件） */
+export async function isOwnBaseOrFortress(
+  tx: TxDb,
+  seasonId: number,
+  playerId: number,
+  x: number,
+  y: number,
+): Promise<boolean> {
+  const [base] = await tx
+    .select({ id: schema.players.id })
+    .from(schema.players)
+    .where(
+      and(
+        eq(schema.players.id, playerId),
+        eq(schema.players.baseX, x),
+        eq(schema.players.baseY, y),
+      ),
+    )
+    .limit(1);
+  if (base) return true;
+
+  const [fort] = await tx
+    .select({ x: schema.tiles.x })
+    .from(schema.tiles)
+    .where(
+      and(
+        eq(schema.tiles.seasonId, seasonId),
+        eq(schema.tiles.x, x),
+        eq(schema.tiles.y, y),
+        eq(schema.tiles.playerId, playerId),
+        eq(schema.tiles.facility, "FORTRESS"),
+      ),
+    )
+    .limit(1);
+  return !!fort;
+}
+
+/**
+ * 把傷兵記在某一格的駐軍上。已經有傷兵就合併，
+ * 並且**重置倒數** —— 又被打了一次，療程從頭算。
+ */
+export async function addWounded(
+  tx: TxDb,
+  seasonId: number,
+  ownerId: number,
+  x: number,
+  y: number,
+  wounded: Army,
+  now: number,
+) {
+  if (isEmptyArmy(wounded)) return;
+  const [row] = await tx
+    .select({ id: schema.garrisons.id, wounded: schema.garrisons.wounded })
+    .from(schema.garrisons)
+    .where(
+      and(
+        eq(schema.garrisons.seasonId, seasonId),
+        eq(schema.garrisons.ownerId, ownerId),
+        eq(schema.garrisons.atX, x),
+        eq(schema.garrisons.atY, y),
+      ),
+    )
+    .limit(1);
+
+  const merged = mergeArmies(parseArmy(row?.wounded ?? {}), wounded);
+
+  if (row) {
+    await tx
+      .update(schema.garrisons)
+      .set({ wounded: merged as never, woundedAt: new Date(now) })
+      .where(eq(schema.garrisons.id, row.id));
+    return;
+  }
+
+  /**
+   * ★ 駐軍被打光了也要留一列 —— 傷兵是唯一的倖存者。
+   *   少了這一段，「全滅但有傷兵」的守方會兩手空空：
+   *   `writeGarrison` 在部隊為空時會把整列刪掉。
+   */
+  await tx.insert(schema.garrisons).values({
+    seasonId,
+    ownerId,
+    hostId: ownerId,
+    atX: x,
+    atY: y,
+    units: {} as never,
+    wounded: merged as never,
+    woundedAt: new Date(now),
+  });
+}
 
 /**
  * 派兵。

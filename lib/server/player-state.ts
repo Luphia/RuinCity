@@ -96,6 +96,21 @@ export async function loadAndSettle(playerId: number): Promise<LoadedPlayer> {
  *   （CLAUDE.md 第三條界線）。呼叫端能傳，是因為呼叫端已經在
  *   伺服器上了；真正的界線在 Server Action 的邊緣，不在這裡。
  */
+/**
+ * 已出局的領主不能再做任何事。呼叫端要嘛擋在更前面，
+ * 要嘛捕捉它並顯示「你已出局」—— 而不是讓一個不存在的人繼續玩。
+ */
+export class PlayerEliminatedError extends Error {
+  readonly playerId: number;
+  readonly eliminatedAt: number;
+  constructor(playerId: number, eliminatedAt: number) {
+    super(`player ${playerId} 已於 ${new Date(eliminatedAt).toISOString()} 出局`);
+    this.name = "PlayerEliminatedError";
+    this.playerId = playerId;
+    this.eliminatedAt = eliminatedAt;
+  }
+}
+
 export async function settleWithin(
   tx: TxDb,
   playerId: number,
@@ -109,6 +124,17 @@ export async function settleWithin(
     .where(eq(schema.players.id, playerId))
     .for("update");
   if (!player) throw new Error(`player ${playerId} not found`);
+  /**
+   * ★ 出局的領主不再結算（`docs/02` §3.1）。
+   *
+   *   主城被打爆之後那個人就不在了 —— 資源不再累積、佇列不再前進。
+   *   把時間戳推到現在再回傳，於是「出局那一刻」之後的每一秒
+   *   都不會產生任何東西，而且**重複呼叫是冪等的**。
+   *   守門放在這裡而不是每個呼叫端，是因為這是所有寫入路徑的共同入口。
+   */
+  if (player.eliminatedAt) {
+    throw new PlayerEliminatedError(playerId, player.eliminatedAt.getTime());
+  }
 
   const [season] = await tx
     .select()

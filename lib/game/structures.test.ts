@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ROAD, STRUCTURE, STRUCTURE_REPAIR } from "./balance";
+import { ROAD, STRUCTURE, STRUCTURE_REPAIR, WOUNDED } from "./balance";
 import { marchTime } from "./march";
 import {
   currentHp,
@@ -11,6 +11,8 @@ import {
   structureDamage,
   structureOf,
   wavesToDestroy,
+  woundedReady,
+  woundedRemainingMs,
 } from "./structures";
 
 describe("領地建物", () => {
@@ -65,23 +67,55 @@ describe("★ 一般部隊對建物只有 1 點傷害", () => {
   });
 });
 
-describe("建物自我修復", () => {
+describe("★ 建物十分鐘回滿：攻城是一次攻勢，不是跨天消耗", () => {
+  const t0 = 1_000_000_000;
+  const TEN_MIN = STRUCTURE_REPAIR.fullRepairMs;
+
   it("沒被打過就是滿血", () => {
-    expect(currentHp("TOWER", 1, { hp: null, hitAt: null }, 1_000)).toBe(1200);
+    expect(currentHp("TOWER", 1, { hp: null, hitAt: null }, t0)).toBe(1200);
   });
 
-  it("★ 零星騷擾追不上修復，持續施壓才有效", () => {
-    const t0 = 1_000_000_000;
+  it("線性回復 —— 早三分鐘到就真的多打掉一些", () => {
+    const dented = { hp: 0, hitAt: t0 };
+    expect(currentHp("TOWER", 1, dented, t0)).toBe(0);
+    expect(currentHp("TOWER", 1, dented, t0 + TEN_MIN / 2)).toBe(600);
+    expect(currentHp("TOWER", 1, dented, t0 + TEN_MIN)).toBe(1200);
+  });
+
+  it("★ 回復量按滿血的比例算 —— 否則要塞愈升級愈脆", () => {
+    const half = TEN_MIN / 2;
+    // Lv1（1,200）與 Lv5（3,600）都在十分鐘內回滿，所以半程各回一半
+    expect(currentHp("TOWER", 1, { hp: 0, hitAt: t0 }, t0 + half)).toBe(600);
+    expect(currentHp("TOWER", 5, { hp: 0, hitAt: t0 }, t0 + half)).toBe(1800);
+  });
+
+  it("★ 隔天再來敲完全無效 —— 十分鐘後石塔又是滿的", () => {
     const dented = { hp: 200, hitAt: t0 };
-    // 一小時後回 50 點
-    expect(currentHp("TOWER", 1, dented, t0 + 3_600_000)).toBe(200 + STRUCTURE_REPAIR.hpPerHour);
-    // 一天後早就回滿（不會超過上限）
     expect(currentHp("TOWER", 1, dented, t0 + 86_400_000)).toBe(1200);
   });
 
   it("時間回頭也不會倒扣（時鐘一律由呼叫端傳入）", () => {
-    const t0 = 1_000_000_000;
     expect(currentHp("FLAG", 0, { hp: 100, hitAt: t0 }, t0 - 999_999)).toBe(100);
+  });
+});
+
+describe("★ 傷兵十分鐘歸隊，陣亡的回不來", () => {
+  const t0 = 1_000_000_000;
+
+  it("十分鐘整才算好", () => {
+    expect(woundedReady(t0, t0)).toBe(false);
+    expect(woundedReady(t0, t0 + WOUNDED.recoverMs - 1)).toBe(false);
+    expect(woundedReady(t0, t0 + WOUNDED.recoverMs)).toBe(true);
+  });
+
+  it("沒有傷兵就沒有倒數", () => {
+    expect(woundedReady(null, t0)).toBe(false);
+    expect(woundedRemainingMs(null, t0)).toBe(0);
+  });
+
+  it("倒數會歸零，不會變負的", () => {
+    expect(woundedRemainingMs(t0, t0)).toBe(WOUNDED.recoverMs);
+    expect(woundedRemainingMs(t0, t0 + WOUNDED.recoverMs * 2)).toBe(0);
   });
 });
 

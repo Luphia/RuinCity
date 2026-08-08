@@ -491,6 +491,14 @@ export const garrisons = pgTable(
     /** 駐紮地的主人（增援時 ≠ owner） */
     hostId: bigint("host_id", { mode: "number" }),
     units: jsonb("units").notNull(),
+    /**
+     * 傷兵（`docs/04` §3c）：戰鬥結束十分鐘後歸隊 ——
+     * **但只有站在自己的據點或要塞才收得回來**，野地上沒人收容傷員。
+     * 陣亡的士兵不進這裡，他們永遠回不來。
+     */
+    wounded: jsonb("wounded"),
+    /** 傷兵是什麼時候倒下的；歸隊時間由它 + `WOUNDED.recoverMs` 推出來 */
+    woundedAt: timestamp("wounded_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("garrisons_owner_at_uq").on(t.seasonId, t.ownerId, t.atX, t.atY),

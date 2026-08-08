@@ -24,7 +24,7 @@ import { schema } from "@/lib/db";
 import { explainDbError } from "@/lib/db/diagnose";
 import { withTransaction } from "@/lib/db/tx";
 import type { TxDb } from "@/lib/db/tx";
-import { settleWithin } from "@/lib/server/player-state";
+import { PlayerEliminatedError, settleWithin } from "@/lib/server/player-state";
 import { resolveArrivals } from "@/lib/server/battle-ops";
 import { runStewardWithin } from "@/lib/server/steward";
 import { advanceSeasons, ensureNextSeason } from "@/lib/server/season-ops";
@@ -157,7 +157,13 @@ export async function runCronTick(now: number, tx: TxRunner = withTransaction): 
         }
       });
       settled++;
-    } catch {
+    } catch (e) {
+      /**
+       * ★ 出局的領主不是失敗，是**沒有事情可做**。
+       *   把它算成 failure 的話，cron 會每分鐘記一筆看不出原因的錯 ——
+       *   而 `eliminatePlayer` 已經把他的事件清掉了，這裡是防呆。
+       */
+      if (e instanceof PlayerEliminatedError) continue;
       // 一位玩家結算失敗不能拖垮整批。事件仍未結算，下一輪會再試
       failures++;
     }

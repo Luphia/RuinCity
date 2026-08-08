@@ -8,7 +8,7 @@
  * 兩場賽季同時運行且每 7 天開一場，所以數值可以每週上線一次；
  * 這個常數就是隔離牆。任何影響 PvP 平衡的改動都必須 bump 這個版本。
  */
-export const BALANCE_VERSION = "2026.08.08-d" as const;
+export const BALANCE_VERSION = "2026.08.08-e" as const;
 
 export type BalanceVersion = typeof BALANCE_VERSION;
 

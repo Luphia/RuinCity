@@ -17,7 +17,7 @@ import "server-only";
  * 「事件被標記已結算但沒人套用」的陷阱。
  */
 
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 
 import { CLAIM, SEASON_MODIFIERS, STRUCTURE } from "@/lib/game/balance";
 import {
@@ -56,7 +56,14 @@ import { deriveSeed, mulberry32 } from "@/lib/game/rng";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import { settleWithin } from "@/lib/server/player-state";
-import { garrisonAt, landReturn, roadNetworkFor, writeGarrison } from "@/lib/server/march-ops";
+import {
+  addWounded,
+  garrisonAt,
+  landReturn,
+  recoverWounded,
+  roadNetworkFor,
+  writeGarrison,
+} from "@/lib/server/march-ops";
 
 /** 一次最多結算幾支行軍 */
 const BATCH = 100;
@@ -78,6 +85,14 @@ export async function resolveArrivals(
   seasonId: number,
   now: number,
 ): Promise<ArrivalSummary> {
+  /**
+   * ★ 先讓傷兵歸隊，再結算抵達。
+   *   順序反過來的話，「十一分鐘前被打過、現在又被打」的守方
+   *   會少掉那一批已經該站起來的人 —— 而玩家看到的是
+   *   「我明明看到傷兵倒數跑完了，怎麼還是沒人守」。
+   */
+  await recoverWounded(tx, seasonId, now);
+
   const due = await tx
     .select()
     .from(schema.marches)
@@ -452,6 +467,25 @@ async function resolveAssault(tx: TxDb, march: MarchRow, now: number): Promise<b
     defenderSurvivors,
   );
 
+  /**
+   * ★ 傷兵（`docs/04` §3c）：十分鐘後歸隊，**陣亡的永遠回不來**。
+   *   `combat.ts` 從 M0 就在算 `defenderWounded`（醫療帳回收率）、
+   *   戰報也一直印它 —— 但那些人從來沒有真的回到駐軍裡。
+   *   現在它們有家了。歸隊條件（自己的據點或要塞）由 `recoverWounded` 判斷，
+   *   所以躺在野地上的傷兵會一直躺著，直到那一格重新變成你的。
+   */
+  if (!isRaid) {
+    await addWounded(
+      tx,
+      march.seasonId,
+      defender.garrisonOwnerId,
+      march.toX,
+      march.toY,
+      battle.defenderWounded,
+      now,
+    );
+  }
+
   const lootTotal = (["grain", "timber", "stone", "iron"] as const).reduce(
     (s, r) => s + (loot[r] ?? 0),
     0,
@@ -594,14 +628,14 @@ async function resolveSiege(
   const destroyed = hpAfter <= 0;
 
   /**
-   * ★ 主城不會易主（斬首是聯盟主旗的事，`docs/06` §4）。
-   *   打爆主城的效果是**破城**：那一次掠奪不再受地窖保護 ——
-   *   不過掠奪在上游已經算完了，所以 v1 只記在戰報上，
-   *   讓「破城」看得見；實際的掠奪加成留給 M4（見 `11` §24.4）。
+   * ★ 主城不會「易主」，它會**終結一位玩家**（`docs/02` §3.1）：
+   *   打爆主城 = 那位領主**出局**，整季不再回來。
+   *   這是全遊戲最重的一個後果，所以它不共用佔領那條路徑。
    */
   const captured = destroyed && kind !== "KEEP";
 
   if (kind === "KEEP") {
+    if (destroyed) await eliminatePlayer(tx, march.seasonId, defender.playerId, ctx.now);
     // 主城的耐久不入庫 —— 每一波都是完整的一次攻城
     return { ...base, hpAfter, damage, destroyed, captured: false, blockedBy: null };
   }
@@ -653,6 +687,80 @@ async function resolveSiege(
   return { ...base, hpAfter, damage, destroyed, captured, blockedBy: null };
 }
 
+/**
+ * ★ 出局：主城被打爆的那一刻，這位領主的賽季就結束了。
+ *
+ * 做四件事，順序不重要但一件都不能少 —— 少任何一件，
+ * 地圖上都會留下一個「已經不存在的人」還在運作的東西：
+ *
+ *   1. `players.eliminatedAt` —— 出局的判準只有這一個欄位
+ *   2. 領地全部釋放成無主（旗倒了，地就回到廢土）
+ *   3. 駐軍清空（守軍隨主城一起沒了）
+ *   4. 在途的行軍全部取消（沒有人可以回去了）
+ *
+ * 已出局的玩家不會被結算、不能派兵、也不會再被當成攻擊目標
+ * （`settleWithin` 與 `sendMarchFor` 都會擋）。
+ */
+async function eliminatePlayer(tx: TxDb, seasonId: number, playerId: number, now: number) {
+  const [already] = await tx
+    .select({ eliminatedAt: schema.players.eliminatedAt })
+    .from(schema.players)
+    .where(eq(schema.players.id, playerId))
+    .limit(1);
+  if (already?.eliminatedAt) return; // 冪等：同一波兩支部隊同時破城
+
+  await tx
+    .update(schema.players)
+    .set({ eliminatedAt: new Date(now) })
+    .where(eq(schema.players.id, playerId));
+
+  // 領地回到無主 —— 設施也跟著消失（沒有人維護它們了）
+  await tx
+    .update(schema.tiles)
+    .set({
+      playerId: null,
+      allianceId: null,
+      facility: null,
+      facilityLevel: 0,
+      structureHp: null,
+      structureHitAt: null,
+      state: "NORMAL",
+      stateUntil: null,
+    })
+    .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.playerId, playerId)));
+
+  await tx
+    .delete(schema.garrisons)
+    .where(and(eq(schema.garrisons.seasonId, seasonId), eq(schema.garrisons.ownerId, playerId)));
+
+  await tx
+    .update(schema.marches)
+    .set({ status: "RECALLED" })
+    .where(
+      and(
+        eq(schema.marches.seasonId, seasonId),
+        eq(schema.marches.ownerId, playerId),
+        eq(schema.marches.status, "IN_TRANSIT"),
+      ),
+    );
+
+  /**
+   * ★ 未結算的事件也要清掉。
+   *   不清的話，結算迴圈每一分鐘都會撿起這位玩家的到期事件、
+   *   撞上 `PlayerEliminatedError`、記一筆 failure —— 而那些事件
+   *   永遠不會消失。症狀是「cron 的失敗數每分鐘 +1，而且看不出原因」。
+   */
+  await tx
+    .delete(schema.events)
+    .where(
+      and(
+        eq(schema.events.seasonId, seasonId),
+        eq(schema.events.actorId, playerId),
+        isNull(schema.events.resolvedAt),
+      ),
+    );
+}
+
 // ─────────────────────────────────────────────────────────────
 // 守方狀態
 // ─────────────────────────────────────────────────────────────
@@ -683,6 +791,11 @@ async function defenderAt(
   y: number,
   now: number,
 ): Promise<DefenderContext | null> {
+  /**
+   * ★ 已出局的領主不再是目標 —— 他的主城已經倒了。
+   *   少了 `isNull(eliminatedAt)`，玩家會發現自己可以對著一座
+   *   廢墟反覆刷戰報。
+   */
   const [base] = await tx
     .select({ id: schema.players.id })
     .from(schema.players)
@@ -691,6 +804,7 @@ async function defenderAt(
         eq(schema.players.seasonId, seasonId),
         eq(schema.players.baseX, x),
         eq(schema.players.baseY, y),
+        isNull(schema.players.eliminatedAt),
       ),
     )
     .limit(1);

@@ -14,6 +14,7 @@ import {
   STRUCTURE,
   STRUCTURE_DAMAGE,
   STRUCTURE_REPAIR,
+  WOUNDED,
   type StructureKind,
   type Unit,
 } from "./balance";
@@ -70,10 +71,14 @@ export function hasSiegeEngine(army: Partial<Record<Unit, number>>): boolean {
 }
 
 /**
- * 建物的當下耐久：沒被打的時候自己長回來（`STRUCTURE_REPAIR`）。
+ * 建物的當下耐久：上一次被打之後**十分鐘內線性回滿**（`STRUCTURE_REPAIR`）。
  *
- * ★ 少了自我修復，「一般部隊 1 點傷害」會被時間繞過去 ——
- *   每天派一支小隊敲幾百點，一週之後石塔自己就倒了。
+ * ★ 回復量按**滿血的比例**算，不是固定值 —— 所以一座 Lv5 的石塔
+ *   （3,600）與一面旗（300）都是「十分鐘回滿」。
+ *   用固定速率的話，高等要塞會愈升級愈脆（同樣十分鐘只回一樣多）。
+ *
+ * ★ 這條規則把攻城壓縮成**十分鐘的窗口**：
+ *   跨天累積傷害完全無效，要拆就得在一次攻勢裡湊齊傷害。
  *
  * `hp === null` 表示從來沒被打過（滿血）。時間一律由呼叫端傳入（P1）。
  */
@@ -85,8 +90,26 @@ export function currentHp(
 ): number {
   const max = maxHpOf(kind, level);
   if (stored.hp === null) return max;
-  const hours = stored.hitAt === null ? 0 : Math.max(0, (now - stored.hitAt) / 3_600_000);
-  return Math.min(max, Math.max(0, Math.round(stored.hp + STRUCTURE_REPAIR.hpPerHour * hours)));
+  const elapsed = stored.hitAt === null ? 0 : Math.max(0, now - stored.hitAt);
+  const healed = (max * elapsed) / STRUCTURE_REPAIR.fullRepairMs;
+  return Math.min(max, Math.max(0, Math.round(stored.hp + healed)));
+}
+
+/**
+ * 傷兵歸隊了沒（`WOUNDED.recoverMs`）。
+ *
+ * 歸隊的**條件**（站在自己的據點或要塞）由呼叫端判斷 ——
+ * 這個函式只管時間。純函式不知道誰站在哪裡。
+ */
+export function woundedReady(woundedAt: number | null, now: number): boolean {
+  if (woundedAt === null) return false;
+  return now - woundedAt >= WOUNDED.recoverMs;
+}
+
+/** 傷兵還要多久歸隊（毫秒；已經好了就是 0）—— UI 的倒數 */
+export function woundedRemainingMs(woundedAt: number | null, now: number): number {
+  if (woundedAt === null) return 0;
+  return Math.max(0, woundedAt + WOUNDED.recoverMs - now);
 }
 
 /** 拆完這座建物還要幾波（UI 用；`Infinity` = 這支部隊拆不動） */

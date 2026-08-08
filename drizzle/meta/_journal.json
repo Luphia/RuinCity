@@ -50,6 +50,13 @@
       "when": 1786186128958,
       "tag": "0006_light_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786189108987,
+      "tag": "0007_even_ares",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,13 @@ import { and, desc, eq } from "drizzle-orm";
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
 import { resolveArrivals } from "@/lib/server/battle-ops";
-import { garrisonAt, recallMarchFor, sendMarchFor, writeGarrison } from "@/lib/server/march-ops";
+import {
+  garrisonAt,
+  recallMarchFor,
+  recoverWounded,
+  sendMarchFor,
+  writeGarrison,
+} from "@/lib/server/march-ops";
 import { settleWithin } from "@/lib/server/player-state";
 import {
   createHarness,
@@ -815,9 +821,9 @@ describe("★ 領地建物：打掉旗才算佔領", () => {
     }
   });
 
-  it("★ 要塞：三千名劍士打不下來，二十台投石機一趟就拆", async () => {
+  it("★ 要塞：一般部隊打不下來，而且十分鐘後耐久就回滿了", async () => {
     const { seasonId, attackerId, defenderId } = await neighbours({
-      attackerArmy: { SWORDSMAN: 3000, CATAPULT: 20 },
+      attackerArmy: { SWORDSMAN: 3000, CATAPULT: 40 },
     });
     const target = { x: 104, y: 100 };
     await seedTerritory(seasonId, defenderId, target, "FORTRESS", 2);
@@ -831,22 +837,44 @@ describe("★ 領地建物：打掉旗才算佔領", () => {
     expect(first.tile.playerId).toBe(defenderId);
     expect(first.tile.structureHp).toBe(800);
 
-    // 第二波：帶器械 → 20 台投石機 1,200 點，一趟拆完
     /**
-     * ★ 第二波只隔五分鐘：間隔拉到一小時的話，三千名劍士的糧耗
-     *   會在這中間把攻方吃垮（`NOT_IN_GARRISON`）—— 那是養兵成本的正常行為，
-     *   不是這個 case 要驗的事。
+     * ★ 兩分鐘後的第二波：耐久已經自己長回 1,800 × 2/10 = 360 點。
+     *   「早到就多打掉一些」在這裡是可測的 —— 20 台投石機（1,200）
+     *   打 1,160 剛好夠。
      */
     const second = await assault(
       seasonId,
       attackerId,
       target,
       { CATAPULT: 20 },
-      T0.getTime() + 5 * 60_000,
+      T0.getTime() + 2 * 60_000,
     );
-    expect(second.siege?.damage).toBeGreaterThanOrEqual(1200);
+    expect(second.siege?.hpBefore).toBe(1160); // 800 + 360
     expect(second.siege?.destroyed).toBe(true);
     expect(second.tile.playerId).toBe(attackerId);
+  });
+
+  it("★ 十分鐘一到耐久回滿 —— 跨時段的零星騷擾完全無效", async () => {
+    const { seasonId, attackerId, defenderId } = await neighbours({
+      attackerArmy: { SWORDSMAN: 3000, CATAPULT: 40 },
+    });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target, "FORTRESS", 2);
+
+    const first = await assault(seasonId, attackerId, target, { SWORDSMAN: 1000 });
+    expect(first.tile.structureHp).toBe(800);
+
+    // 隔十分鐘再來：石塔已經回滿 1,800，20 台投石機（1,200）拆不掉
+    const later = await assault(
+      seasonId,
+      attackerId,
+      target,
+      { CATAPULT: 20 },
+      T0.getTime() + 10 * 60_000,
+    );
+    expect(later.siege?.hpBefore).toBe(1800);
+    expect(later.siege?.destroyed).toBe(false);
+    expect(later.tile.playerId).toBe(defenderId);
   });
 
   it("★ 突襲不碰建物 —— 突襲的定義就是搶完就走", async () => {
@@ -894,5 +922,155 @@ describe("★ 領地建物：打掉旗才算佔領", () => {
       .from(schema.players)
       .where(eq(schema.players.id, defenderId));
     expect(player!.id).toBe(defenderId);
+  });
+});
+
+describe("★ 打爆主城 = 那位領主出局", () => {
+  it("出局後：地釋放、駐軍清空、在途行軍取消、不再結算", async () => {
+    const { seasonId, attackerId, defenderId, target } = await neighbours({
+      attackerArmy: { CATAPULT: 400 },
+      defenderCitadel: 5, // 主城 400 × 5 = 2,000
+    });
+
+    // 守方有一塊領地、一支駐軍、一支在路上的部隊
+    await seedTerritory(seasonId, defenderId, { x: 120, y: 120 }, "FARM", 3);
+    await h.tx((tx) =>
+      writeGarrison(tx, seasonId, defenderId, defenderId, 120, 120, { SPEARMAN: 50 }),
+    );
+    await h.db.insert(schema.marches).values({
+      seasonId,
+      ownerId: defenderId,
+      type: "RAID",
+      fromX: target.x,
+      fromY: target.y,
+      toX: 130,
+      toY: 130,
+      units: { SWORDSMAN: 10 } as never,
+      departedAt: T0,
+      arrivesAt: new Date(T0.getTime() + 10 * 3_600_000),
+    });
+
+    const r = await assault(seasonId, attackerId, target, { CATAPULT: 400 });
+    expect(r.siege?.kind).toBe("KEEP");
+    expect(r.siege?.destroyed).toBe(true);
+    expect(r.siege?.captured).toBe(false); // 主城不易主，是**出局**
+
+    const [player] = await h.db
+      .select({ eliminatedAt: schema.players.eliminatedAt })
+      .from(schema.players)
+      .where(eq(schema.players.id, defenderId));
+    expect(player!.eliminatedAt).not.toBeNull();
+
+    // 領地釋放成無主，設施一併消失
+    const [tile] = await h.db
+      .select()
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, 120), eq(schema.tiles.y, 120)));
+    expect(tile!.playerId).toBeNull();
+    expect(tile!.facility).toBeNull();
+
+    // 駐軍清空
+    const left = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, 120, 120));
+    expect(Object.keys(left)).toHaveLength(0);
+
+    // 在途行軍取消
+    const marches = await h.db
+      .select({ status: schema.marches.status })
+      .from(schema.marches)
+      .where(and(eq(schema.marches.ownerId, defenderId), eq(schema.marches.type, "RAID")));
+    expect(marches.every((m) => m.status === "RECALLED")).toBe(true);
+
+    // 不再結算 —— 這是所有寫入路徑的共同入口
+    await expect(h.tx((tx) => settleWithin(tx, defenderId, T0.getTime() + 3_600_000))).rejects.toThrow(
+      /出局/,
+    );
+  });
+
+  it("★ 出局的據點不能再被打 —— 不然會對著廢墟刷戰報", async () => {
+    const { seasonId, attackerId, defenderId, target } = await neighbours({
+      attackerArmy: { CATAPULT: 800 },
+      defenderCitadel: 5,
+    });
+
+    await assault(seasonId, attackerId, target, { CATAPULT: 400 });
+    const [dead] = await h.db
+      .select({ eliminatedAt: schema.players.eliminatedAt })
+      .from(schema.players)
+      .where(eq(schema.players.id, defenderId));
+    expect(dead!.eliminatedAt).not.toBeNull();
+
+    const before = await h.db.select().from(schema.battleReports);
+    // 再打一次同一格 → 沒有守方，不會再產生戰報
+    await assault(seasonId, attackerId, target, { CATAPULT: 400 }, T0.getTime() + 60_000);
+    const after = await h.db.select().from(schema.battleReports);
+    expect(after.length).toBe(before.length);
+  });
+});
+
+describe("★ 傷兵十分鐘歸隊，陣亡的回不來", () => {
+  it("守在自己據點的傷兵會站起來，而且不是全部的損失", async () => {
+    const { seasonId, attackerId, defenderId, target } = await neighbours({
+      attackerArmy: { SWORDSMAN: 600 },
+      defenderArmy: { SPEARMAN: 200 },
+      defenderCitadel: 15,
+    });
+    // 醫療帳讓守家的損失有一部分變成傷兵
+    await h.db
+      .update(schema.baseSlots)
+      .set({ building: "INFIRMARY", level: 10 })
+      .where(and(eq(schema.baseSlots.playerId, defenderId), eq(schema.baseSlots.slot, "B")));
+
+    await assault(seasonId, attackerId, target, { SWORDSMAN: 600 });
+
+    const [g] = await h.db
+      .select({ wounded: schema.garrisons.wounded, woundedAt: schema.garrisons.woundedAt })
+      .from(schema.garrisons)
+      .where(
+        and(
+          eq(schema.garrisons.seasonId, seasonId),
+          eq(schema.garrisons.ownerId, defenderId),
+          eq(schema.garrisons.atX, target.x),
+        ),
+      );
+    const wounded = (g?.wounded ?? {}) as Record<string, number>;
+    expect(g?.woundedAt).not.toBeNull();
+    expect(wounded.SPEARMAN ?? 0).toBeGreaterThan(0);
+    // ★ 陣亡的回不來：傷兵**少於**總損失
+    expect(wounded.SPEARMAN!).toBeLessThan(200);
+
+    // 九分鐘後還沒好
+    await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 9 * 60_000));
+    const stillOut = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, target.x, target.y));
+    expect(stillOut.SPEARMAN ?? 0).toBe(0);
+
+    // 十分鐘整 → 歸隊（戰鬥是在 T0+2s 結算的，所以倒數從那一刻起算）
+    await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 10 * 60_000 + 2_000));
+    const back = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, target.x, target.y));
+    expect(back.SPEARMAN ?? 0).toBe(wounded.SPEARMAN);
+  });
+
+  it("★ 野地上的傷兵站不起來 —— 沒有人替你收容傷員", async () => {
+    const { seasonId, defenderId } = await neighbours();
+    // 手動在一格野地上放傷兵
+    await h.db.insert(schema.garrisons).values({
+      seasonId,
+      ownerId: defenderId,
+      hostId: defenderId,
+      atX: 200,
+      atY: 200,
+      units: {} as never,
+      wounded: { SPEARMAN: 30 } as never,
+      woundedAt: T0,
+    });
+
+    await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 30 * 60_000));
+    const still = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, 200, 200));
+    expect(still.SPEARMAN ?? 0).toBe(0);
+
+    // 那一格變成自己的要塞之後，同一批傷兵就站得起來了
+    await seedTerritory(seasonId, defenderId, { x: 200, y: 200 }, "FORTRESS", 1);
+    await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 31 * 60_000));
+    const healed = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, 200, 200));
+    expect(healed.SPEARMAN).toBe(30);
   });
 });
