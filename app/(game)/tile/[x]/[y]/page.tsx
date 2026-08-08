@@ -58,7 +58,15 @@ export default async function TilePage({
           ({x}, {y})
         </h1>
         <span className="rounded bg-[#4a413a] px-2 py-0.5 text-xs">
-          {replay ? "最近一戰" : scene.isMine ? "我的據點" : scene.hasBase ? "敵方據點" : "曠野"}
+          {replay
+            ? replay.isSpectator
+              ? "觀戰 🔥"
+              : "最近一戰"
+            : scene.isMine
+              ? "我的據點"
+              : scene.hasBase
+                ? "敵方據點"
+                : "曠野"}
         </span>
       </header>
 
@@ -70,8 +78,12 @@ export default async function TilePage({
             defender: replay.defender,
             hasBase: scene.hasBase,
           }}
-          attackerLabel={replay.viewerIsAttacker ? "我方（攻）" : "敵方（攻）"}
-          defenderLabel={replay.viewerIsAttacker ? "敵方（守）" : "我方（守）"}
+          attackerLabel={
+            replay.isSpectator ? "攻方" : replay.viewerIsAttacker ? "我方（攻）" : "敵方（攻）"
+          }
+          defenderLabel={
+            replay.isSpectator ? "守方" : replay.viewerIsAttacker ? "敵方（守）" : "我方（守）"
+          }
           slots={scene.slots ?? undefined}
         />
       ) : (

@@ -22,6 +22,8 @@ interface Overview {
   areas: Record<string, number>;
   fairness: { key: string; label: string; pass: boolean; actual: number; format: string }[];
   spawns: { x: number; y: number; faction: 1 | 2 | 3; band: string }[];
+  /** 觀戰窗口內的交戰地點 —— 點那一格可以進去看 */
+  battles?: { id: number; x: number; y: number }[];
 }
 
 export function MapView() {
@@ -45,6 +47,7 @@ export function MapView() {
           source: { seasonId: json.seasonId, baseUrl: json.chunkBaseUrl },
           ruins: json.ruins,
           spawns: json.spawns.map((s, i) => ({ ...s, alliance: i % 5 })),
+          battles: json.battles ?? [],
         });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -103,14 +106,21 @@ export function MapView() {
           <span data-testid="selected-tile">
             {selected ? `(${selected.x}, ${selected.y})` : "點選格子查看"}
           </span>
-          {/* ★ 點了格子就給出口：展開成 50×50 的戰場視圖 */}
+          {/* ★ 點了格子就給出口：展開成 50×50 的戰場視圖。
+              交戰中的格子（地圖上脈動的紅 ✕）出口變成「觀戰」 */}
           {selected ? (
             <Link
               href={`/tile/${selected.x}/${selected.y}`}
               data-testid="expand-tile"
-              className="rounded border border-[#8a6b3a] px-2 py-0.5 text-[#d9a441]"
+              className={`rounded border px-2 py-0.5 ${
+                overview?.battles?.some((b) => b.x === selected.x && b.y === selected.y)
+                  ? "border-[#c4442f] text-[#c4442f]"
+                  : "border-[#8a6b3a] text-[#d9a441]"
+              }`}
             >
-              展開此格 ⚔
+              {overview?.battles?.some((b) => b.x === selected.x && b.y === selected.y)
+                ? "觀戰 🔥"
+                : "展開此格 ⚔"}
             </Link>
           ) : null}
           {overview ? (

@@ -251,6 +251,8 @@ export interface BattleReplay {
   readonly outcome: string;
   /** 我是攻方還是守方 —— 決定畫面上的敵我配色說明 */
   readonly viewerIsAttacker: boolean;
+  /** true = 我不是當事人,只是路過看熱鬧(觀戰窗口內) */
+  readonly isSpectator: boolean;
   readonly attacker: { army: Army; losses: Army };
   readonly defender: { army: Army; losses: Army };
 }
@@ -271,17 +273,26 @@ export async function loadBattleReplay(reportId: number): Promise<BattleReplay |
   const [r] = await getDb()
     .select()
     .from(schema.battleReports)
-    .where(
-      and(
-        eq(schema.battleReports.id, reportId),
-        or(
-          eq(schema.battleReports.attackerId, playerId),
-          eq(schema.battleReports.defenderId, playerId),
-        ),
-      ),
-    )
+    .where(eq(schema.battleReports.id, reportId))
     .limit(1);
   if (!r) return null;
+
+  const isParticipant = r.attackerId === playerId || r.defenderId === playerId;
+  if (!isParticipant) {
+    /**
+     * ★ 觀戰:窗口內、同一場賽季 → 這場戲是公開的(地圖上的交戰標示
+     *   點進來就是這裡)。窗口外回到當事人限定 —— 與戰報同一條迷霧規則。
+     */
+    const { SPECTATE_WINDOW_MS } = await import("@/lib/game/battlefield");
+    const now = await serverNow();
+    const recent = now - r.createdAt.getTime() <= SPECTATE_WINDOW_MS;
+    const [me] = await getDb()
+      .select({ seasonId: schema.players.seasonId })
+      .from(schema.players)
+      .where(eq(schema.players.id, playerId))
+      .limit(1);
+    if (!recent || me?.seasonId !== r.seasonId) return null;
+  }
 
   const s = (r.snapshot ?? {}) as Record<string, unknown>;
   if (s.kind !== "BATTLE") return null;
@@ -296,6 +307,7 @@ export async function loadBattleReplay(reportId: number): Promise<BattleReplay |
     marchType: r.marchType,
     outcome: r.outcome,
     viewerIsAttacker: r.attackerId === playerId,
+    isSpectator: !isParticipant,
     attacker: {
       army: parseArmy(attacker?.sent ?? {}),
       losses: parseArmy(attacker?.losses ?? {}),

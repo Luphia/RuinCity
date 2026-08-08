@@ -65,8 +65,12 @@ export default async function BattlePage({ params }: { params: Promise<{ id: str
           defender: replay.defender,
           hasBase: true,
         }}
-        attackerLabel={replay.viewerIsAttacker ? "我方（攻）" : "敵方（攻）"}
-        defenderLabel={replay.viewerIsAttacker ? "敵方（守）" : "我方（守）"}
+        attackerLabel={
+          replay.isSpectator ? "攻方" : replay.viewerIsAttacker ? "我方（攻）" : "敵方（攻）"
+        }
+        defenderLabel={
+          replay.isSpectator ? "守方" : replay.viewerIsAttacker ? "敵方（守）" : "我方（守）"
+        }
       />
 
       <p className="mt-3 text-[11px] leading-relaxed opacity-60">

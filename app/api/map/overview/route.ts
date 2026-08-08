@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 
 import { MAP } from "@/lib/game/balance";
+import { SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
 import { CHUNK_COLS, CHUNK_ROWS, CHUNK_SIZE } from "@/lib/render/chunks";
 
 /** `pnpm map:generate` 產的開發地圖。沒有真實賽季時的退路 */
@@ -86,6 +87,46 @@ export async function GET(request: Request) {
   }
   const isFallback = resolved !== seasonId;
 
+  /**
+   * ★ 交戰標示:觀戰窗口內的戰鬥地點,全賽季公開(烽火全世界看得到)。
+   *   只給座標與戰報 id —— 精確的數字帳目仍然只有當事人在 /war 看得到。
+   */
+  let battles: { id: number; x: number; y: number }[] = [];
+  const numericSeason = /^s(\d+)$/.exec(seasonId)?.[1];
+  if (numericSeason) {
+    try {
+      const { getDb, schema } = await import("@/lib/db");
+      const { and, desc, eq, gt } = await import("drizzle-orm");
+      const { serverNow } = await import("@/lib/time");
+      const now = await serverNow();
+      const rows = await getDb()
+        .select({
+          id: schema.battleReports.id,
+          x: schema.battleReports.atX,
+          y: schema.battleReports.atY,
+        })
+        .from(schema.battleReports)
+        .where(
+          and(
+            eq(schema.battleReports.seasonId, Number(numericSeason)),
+            gt(schema.battleReports.createdAt, new Date(now - SPECTATE_WINDOW_MS)),
+          ),
+        )
+        .orderBy(desc(schema.battleReports.createdAt))
+        .limit(200);
+      // 同一格打了好幾場 → 只留最新的一場(rows 已按時間新→舊)
+      const seen = new Set<string>();
+      for (const r of rows) {
+        const key = `${r.x},${r.y}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        battles.push(r);
+      }
+    } catch {
+      battles = []; // 沒有資料庫的環境(E2E、預覽)就沒有烽火
+    }
+  }
+
   return NextResponse.json(
     {
       seasonId: resolved,
@@ -102,6 +143,7 @@ export async function GET(request: Request) {
       areas: meta.areas,
       fairness: meta.fairness,
       spawns: meta.spawns,
+      battles,
     },
     {
       headers: {

@@ -93,6 +93,21 @@ function drawSquad(ctx: CanvasRenderingContext2D, s: Squad, frame: number) {
         ctx.fillRect(x + 3, y - 5 + bob, 1, 7); // 矛
       }
   }
+
+  // 血條 + 怒氣條：只在受過傷或怒氣累積時畫 —— idle 巡邏保持乾淨
+  if (s.hp < s.maxHp || s.rage > 0) {
+    const bw = 8;
+    const hpRatio = Math.max(0, Math.min(1, s.hp / s.maxHp));
+    ctx.fillStyle = "#1a1614";
+    ctx.fillRect(x - 4, y - 9, bw, 3);
+    ctx.fillStyle = hpRatio > 0.5 ? "#6b7f4a" : hpRatio > 0.25 ? "#d9a441" : "#c4442f";
+    ctx.fillRect(x - 4, y - 9, Math.max(1, Math.round(bw * hpRatio)), 1);
+    if (s.rage > 0) {
+      // 怒氣滿格會亮成羊皮紙白 —— 下一擊就是技能
+      ctx.fillStyle = s.rage >= 100 ? "#e8dcc0" : "#a35a3a";
+      ctx.fillRect(x - 4, y - 7, Math.max(1, Math.round((bw * s.rage) / 100)), 1);
+    }
+  }
 }
 
 export function BattlefieldView(props: BattlefieldViewProps) {
@@ -155,6 +170,17 @@ export function BattlefieldView(props: BattlefieldViewProps) {
         }
       }
       for (const s of state.squads) if (!s.dead) drawSquad(ctx, s, frame);
+      // 怒氣技的金色爆發 —— skillBurst 只亮一 tick，就是那一擊
+      for (const s of state.squads) {
+        if (s.dead || !s.skillBurst) continue;
+        const x = Math.round(s.x * PX);
+        const y = Math.round(s.y * PX);
+        ctx.fillStyle = "#d9a441";
+        ctx.fillRect(x - 8, y - 1, 16, 2);
+        ctx.fillRect(x - 1, y - 8, 2, 16);
+        ctx.fillStyle = "#e8dcc0";
+        ctx.fillRect(x - 3, y - 3, 6, 6);
+      }
     };
 
     const loop = (ts: number) => {

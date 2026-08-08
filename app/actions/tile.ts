@@ -9,12 +9,14 @@
  *   - 這一格的戰鬥 → 只有當事人看得到（與戰報同一條規則）
  */
 
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, gt, or } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
+import { SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
 import type { SceneSlot } from "@/lib/game/citadel";
+import { serverNow } from "@/lib/time";
 
 export interface TileScene {
   readonly x: number;
@@ -110,7 +112,9 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
     ];
   }
 
-  // 這一格最近一場我參與的戰鬥
+  // 這一格最近一場看得到的戰鬥:我參與的任何時候都看得到;
+  // 別人的只在觀戰窗口內公開(地圖上的交戰標示點進來)
+  const now = await serverNow();
   const [report] = await db
     .select({ id: schema.battleReports.id })
     .from(schema.battleReports)
@@ -122,6 +126,7 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
         or(
           eq(schema.battleReports.attackerId, me.playerId),
           eq(schema.battleReports.defenderId, me.playerId),
+          gt(schema.battleReports.createdAt, new Date(now - SPECTATE_WINDOW_MS)),
         ),
       ),
     )

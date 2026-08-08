@@ -139,11 +139,21 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
   }, []);
 
   // ── 資料與初始對焦 ──────────────────────────────────────────
+  /**
+   * ★ 依賴要用 focus 的**座標**，不能用物件本身。
+   *   MapView 每秒因 stats 重繪一次，每次都建一個內容相同的新 focus 物件 ——
+   *   拿物件當依賴，這個 effect 就每秒重跑一次 `centerOn`，
+   *   玩家平移到哪裡都會在一秒內被拉回出生點。
+   */
+  const focusX = focus?.x;
+  const focusY = focus?.y;
   useEffect(() => {
     if (!ready || !data) return;
     sceneRef.current?.setData(data);
-    if (focus) viewportRef.current = centerOn(viewportRef.current, focus.x, focus.y);
-  }, [ready, data, focus]);
+    if (focusX !== undefined && focusY !== undefined) {
+      viewportRef.current = centerOn(viewportRef.current, focusX, focusY);
+    }
+  }, [ready, data, focusX, focusY]);
 
   // ── 繪製迴圈 ────────────────────────────────────────────────
   useEffect(() => {

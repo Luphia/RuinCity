@@ -1,16 +1,25 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ATTACK_INTERVAL,
   battleOver,
+  BEATS,
+  counters,
   createBattlefield,
+  damageOf,
   DEFAULT_DURATION,
   isWallCell,
+  RAGE_MAX,
+  RAGE_PER_HIT,
   squadCountFor,
+  statsOf,
   stepBattlefield,
   tally,
+  threatOf,
   type BattlefieldState,
+  type Squad,
 } from "./battlefield";
-import { CAMPS, CITADEL, GATE, GRID } from "./citadel";
+import { CAMPS, CITADEL, GATE, GRID, groupOf, type TroopGroup } from "./citadel";
 
 const INPUT = {
   seed: 4217,
@@ -207,6 +216,224 @@ describe("開場位置", () => {
       const nearEdge = q.x < 5 || q.y < 5 || q.x > GRID - 5 || q.y > GRID - 5;
       expect(nearEdge, `隊 ${q.id} 沒有從邊緣進場`).toBe(true);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// v2：微觀戰鬥（相剋、怒氣、攻速、威脅度、配額）
+// ─────────────────────────────────────────────────────────────
+
+/** 手工組一隊 —— damageOf/stepBattlefield 只吃資料，不管它怎麼來 */
+function mkSquad(
+  o: Partial<Squad> & Pick<Squad, "id" | "side" | "unit">,
+  group?: TroopGroup,
+): Squad {
+  const g = group ?? o.group ?? groupOf(o.unit);
+  const hp = statsOf(o.unit, "INFANTRY").hp;
+  return {
+    soldiers: 100,
+    x: 10,
+    y: 10,
+    hp,
+    maxHp: hp,
+    rage: 0,
+    cooldown: 0,
+    dead: false,
+    fighting: false,
+    targetId: null,
+    skillBurst: false,
+    ...o,
+    group: g,
+  };
+}
+
+/** duration 拉長，讓「傷重不治」的尾聲不會混進測試窗口 */
+function mkState(
+  squads: Squad[],
+  budgets: Record<string, number> = {},
+  duration = 400,
+): BattlefieldState {
+  return { tick: 0, duration, hasBase: false, squads, budgets };
+}
+
+describe("★ 相剋：步剋騎、騎剋弓與器械、弓剋步，各 ±20%", () => {
+  it("相剋表就是規格", () => {
+    expect(BEATS.INFANTRY).toEqual(["CAVALRY"]);
+    expect(BEATS.CAVALRY).toEqual(["ARCHER", "SIEGE"]);
+    expect(BEATS.ARCHER).toEqual(["INFANTRY"]);
+    expect(BEATS.SIEGE).toEqual([]);
+    for (const g of ["INFANTRY", "CAVALRY", "ARCHER", "SIEGE"] as const) {
+      expect(counters(g, g), `${g} 不該剋自己`).toBe(false);
+    }
+  });
+
+  it("剋到 → 攻擊 +20%：同一對兵，只把守方換成被剋的兵種，傷害變高", () => {
+    const atk = mkSquad({ id: 1, side: "ATTACKER", unit: "MILITIA" }, "INFANTRY");
+    // 同一個 unit（同防禦值），只有 group 不同 → 差異只來自相剋
+    const countered = mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA" }, "CAVALRY");
+    const neutral = mkSquad({ id: 3, side: "DEFENDER", unit: "MILITIA" }, "INFANTRY");
+    expect(damageOf(atk, countered, false)).toBeGreaterThan(damageOf(atk, neutral, false));
+  });
+
+  it("被剋 → 防禦視同 −20%：守方剋攻方時，同一擊的傷害變低", () => {
+    const atk = mkSquad({ id: 1, side: "ATTACKER", unit: "RAIDER" }, "CAVALRY");
+    // SPEARMAN 的防禦值相同，group 決定它是否剋騎兵（INFANTRY 剋 CAVALRY）
+    const counteringDef = mkSquad({ id: 2, side: "DEFENDER", unit: "SPEARMAN" }, "INFANTRY");
+    const neutralDef = mkSquad({ id: 3, side: "DEFENDER", unit: "SPEARMAN" }, "CAVALRY");
+    expect(damageOf(atk, counteringDef, false)).toBeLessThan(damageOf(atk, neutralDef, false));
+  });
+
+  it("防禦是方向性的：對騎防禦用 defCavalry，對步防禦用 defInfantry", () => {
+    expect(statsOf("SPEARMAN", "CAVALRY").defense).toBe(55);
+    expect(statsOf("SPEARMAN", "INFANTRY").defense).toBe(20);
+  });
+
+  it("技能 = 3 倍傷害", () => {
+    const a = mkSquad({ id: 1, side: "ATTACKER", unit: "SWORDSMAN" });
+    const d = mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA" });
+    expect(damageOf(a, d, true)).toBe(damageOf(a, d, false) * 3);
+  });
+});
+
+describe("★ 目標選擇：射程內打威脅最高的，射程外朝最近的走", () => {
+  it("威脅度 = 對方一擊能打掉我多少（含相剋）", () => {
+    const me = mkSquad({ id: 1, side: "DEFENDER", unit: "ARCHER" });
+    const militia = mkSquad({ id: 2, side: "ATTACKER", unit: "MILITIA" });
+    const lancer = mkSquad({ id: 3, side: "ATTACKER", unit: "LANCER" });
+    expect(threatOf(lancer, me)).toBeGreaterThan(threatOf(militia, me));
+  });
+
+  it("射程內不打最近的，打威脅最高的", () => {
+    // 弓手射程 7：民兵貼臉（距離 1）、重騎在 5 格外 —— 威脅是重騎
+    const state = mkState([
+      mkSquad({ id: 1, side: "DEFENDER", unit: "ARCHER", x: 25, y: 25, hp: 1e6, maxHp: 1e6 }),
+      mkSquad({ id: 2, side: "ATTACKER", unit: "MILITIA", x: 26, y: 25, hp: 1e6, maxHp: 1e6 }),
+      mkSquad({ id: 3, side: "ATTACKER", unit: "LANCER", x: 30, y: 25, hp: 1e6, maxHp: 1e6 }),
+    ]);
+    const next = stepBattlefield(state);
+    const archer = next.squads.find((s) => s.id === 1)!;
+    expect(archer.fighting).toBe(true);
+    expect(archer.targetId).toBe(3);
+  });
+
+  it("射程外 → 朝最近的敵人縮短距離", () => {
+    const state = mkState([
+      mkSquad({ id: 1, side: "ATTACKER", unit: "SWORDSMAN", x: 5, y: 25 }),
+      mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA", x: 45, y: 25 }),
+    ]);
+    const next = stepBattlefield(state);
+    const sword = next.squads.find((s) => s.id === 1)!;
+    expect(sword.x).toBeGreaterThan(5);
+    expect(sword.fighting).toBe(false);
+  });
+});
+
+describe("★ 攻速與怒氣", () => {
+  /** 兩隊民兵貼臉互毆，血量灌到打不死 —— 只看節奏與怒氣 */
+  function duel(): BattlefieldState {
+    return mkState([
+      mkSquad({ id: 1, side: "ATTACKER", unit: "MILITIA", x: 10, y: 10, hp: 1e6, maxHp: 1e6 }),
+      mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA", x: 11, y: 10, hp: 1e6, maxHp: 1e6 }),
+    ]);
+  }
+
+  it("出手節奏 = ATTACK_INTERVAL：步兵每 3 tick 掉一次血", () => {
+    let s = duel();
+    const hitTicks: number[] = [];
+    let prevHp = 1e6;
+    for (let t = 1; t <= 12; t++) {
+      s = stepBattlefield(s);
+      const hp = s.squads.find((q) => q.id === 2)!.hp;
+      if (hp < prevHp) hitTicks.push(t);
+      prevHp = hp;
+    }
+    expect(hitTicks).toEqual([1, 4, 7, 10]);
+    expect(hitTicks[1]! - hitTicks[0]!).toBe(ATTACK_INTERVAL.INFANTRY);
+  });
+
+  it("怒氣：出手 +20、挨打 +15，滿 100 放技能（3 倍傷害）並清空", () => {
+    let s = duel();
+    let burstTick = 0;
+    let normalDelta = 0;
+    let burstDelta = 0;
+    let rageAfterBurst = -1;
+    let prevHp = 1e6;
+    for (let t = 1; t <= 15 && burstTick === 0; t++) {
+      s = stepBattlefield(s);
+      const me = s.squads.find((q) => q.id === 1)!;
+      const foe = s.squads.find((q) => q.id === 2)!;
+      const delta = prevHp - foe.hp;
+      prevHp = foe.hp;
+      if (me.skillBurst) {
+        burstTick = t;
+        burstDelta = delta;
+        rageAfterBurst = me.rage;
+      } else if (delta > 0) {
+        normalDelta = delta;
+      }
+    }
+    expect(burstTick, "15 tick 內應該打出一次技能").toBeGreaterThan(0);
+    expect(burstDelta).toBe(normalDelta * 3);
+    // 技能清空怒氣；之後最多只剩同一 tick 挨打的那一份
+    expect(rageAfterBurst).toBeLessThanOrEqual(RAGE_PER_HIT);
+    expect(rageAfterBurst).toBeLessThan(RAGE_MAX);
+  });
+});
+
+describe("★ 死亡配額：戰鬥決定誰死，戰報決定死幾個", () => {
+  it("有配額 → 血條見底就陣亡，配額 −1", () => {
+    const s = mkState(
+      [
+        mkSquad({ id: 1, side: "ATTACKER", unit: "SWORDSMAN", x: 10, y: 10 }),
+        mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA", x: 11, y: 10, hp: 5 }),
+      ],
+      { "DEFENDER:MILITIA": 1 },
+    );
+    const next = stepBattlefield(s);
+    const militia = next.squads.find((q) => q.id === 2)!;
+    expect(militia.dead).toBe(true);
+    expect(next.budgets["DEFENDER:MILITIA"]).toBe(0);
+  });
+
+  it("配額用完 → 血條見底以殘血再戰，永遠不會死", () => {
+    let s = mkState(
+      [
+        mkSquad({ id: 1, side: "ATTACKER", unit: "SWORDSMAN", x: 10, y: 10, hp: 1e6, maxHp: 1e6 }),
+        mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA", x: 11, y: 10, hp: 5 }),
+      ],
+      { "DEFENDER:MILITIA": 0 },
+    );
+    let revived = false;
+    let prevHp = 5;
+    for (let t = 0; t < 30; t++) {
+      s = stepBattlefield(s);
+      const militia = s.squads.find((q) => q.id === 2)!;
+      expect(militia.dead, `tick ${s.tick}：配額 0 卻死了`).toBe(false);
+      expect(militia.hp).toBeGreaterThan(0);
+      if (militia.hp > prevHp) revived = true;
+      prevHp = militia.hp;
+    }
+    expect(revived, "應該看得到殘血回彈（40% 血再戰）").toBe(true);
+  });
+
+  it("屍體不動也不再參戰", () => {
+    let s = mkState(
+      [
+        mkSquad({ id: 1, side: "ATTACKER", unit: "SWORDSMAN", x: 10, y: 10 }),
+        mkSquad({ id: 2, side: "DEFENDER", unit: "MILITIA", x: 11, y: 10, hp: 5 }),
+        mkSquad({ id: 3, side: "DEFENDER", unit: "MILITIA", x: 20, y: 10, hp: 1e6, maxHp: 1e6 }),
+      ],
+      { "DEFENDER:MILITIA": 1 },
+    );
+    s = stepBattlefield(s);
+    const corpse = s.squads.find((q) => q.id === 2)!;
+    expect(corpse.dead).toBe(true);
+    const { x, y } = corpse;
+    for (let t = 0; t < 10; t++) s = stepBattlefield(s);
+    const later = s.squads.find((q) => q.id === 2)!;
+    expect([later.x, later.y]).toEqual([x, y]);
+    expect(later.fighting).toBe(false);
+    expect(later.targetId).toBeNull();
   });
 });
 

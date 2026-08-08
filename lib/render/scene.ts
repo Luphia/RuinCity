@@ -56,10 +56,18 @@ export interface SpawnMarker {
   readonly alliance?: number;
 }
 
+export interface BattleMarker {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface SceneData {
   readonly source: ChunkSource;
   readonly ruins: readonly RuinMarker[];
   readonly spawns: readonly SpawnMarker[];
+  /** 觀戰窗口內的交戰地點 —— 地圖上會有脈動的紅色標示 */
+  readonly battles?: readonly BattleMarker[];
   /** 玩家自己的據點，會畫上高亮框 */
   readonly home?: { x: number; y: number };
 }
@@ -312,6 +320,35 @@ export class MapScene {
       g.rect(0, 0, s, s).stroke({ color: PALETTE.darkest, width: 2 });
       g.position.set(at.x - (s - size) / 2, at.y - (s - size) / 2);
       g.visible = true;
+    }
+
+    /**
+     * ★ 交戰標示:所有縮放層級都要看得見(與遺跡同級的醒目度)。
+     *   脈動的紅色 ✕ —— 警示紅在地圖上只留給「正在發生的戰爭」。
+     *   點下那一格 → 展開 → 觀戰。
+     */
+    if (this.data.battles?.length) {
+      const pulse = 0.5 + 0.5 * Math.abs(Math.sin(performance.now() / 350));
+      for (const b of this.data.battles) {
+        const g = this.takeStructure();
+        const at = worldToScreen(v, b.x, b.y);
+        const cx = at.x + v.tilePixels / 2;
+        const cy = at.y + v.tilePixels / 2;
+        const h = Math.max(6, v.tilePixels); // L3 下也要有 12px 的標示
+        g.clear();
+        g.moveTo(cx - h, cy - h)
+          .lineTo(cx + h, cy + h)
+          .moveTo(cx + h, cy - h)
+          .lineTo(cx - h, cy + h)
+          .stroke({ color: PALETTE.darkest, width: 5, alpha: pulse });
+        g.moveTo(cx - h, cy - h)
+          .lineTo(cx + h, cy + h)
+          .moveTo(cx + h, cy - h)
+          .lineTo(cx - h, cy + h)
+          .stroke({ color: PALETTE.alert, width: 3, alpha: pulse });
+        g.position.set(0, 0);
+        g.visible = true;
+      }
     }
 
     // 這一幀沒用到的池物件收起來（不銷毀，下一幀還要用）
