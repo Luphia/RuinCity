@@ -24,7 +24,9 @@ import {
   BufferImageSource,
 } from "pixi.js";
 
-import { MAP, REGION, RUIN_PLACEMENT } from "../game/balance";
+import { MAP, REGION, RUIN_PLACEMENT, WILDS } from "../game/balance";
+import { CODE_TERRAIN } from "../game/map/terrain";
+import { wildLevelAt } from "../game/wilds";
 import {
   CHUNK_SIZE,
   chunkOrigin,
@@ -61,6 +63,8 @@ export interface BattleMarker {
   readonly id: number;
   readonly x: number;
   readonly y: number;
+  /** true = 觀戰窗口內（脈動紅 ✕ 可點觀戰）；false = 近期戰場（暗色殘跡） */
+  readonly fresh: boolean;
 }
 
 export interface MineMarch {
@@ -84,10 +88,12 @@ export interface SceneData {
   readonly source: ChunkSource;
   readonly ruins: readonly RuinMarker[];
   readonly spawns: readonly SpawnMarker[];
-  /** 觀戰窗口內的交戰地點 —— 地圖上會有脈動的紅色標示 */
+  /** 交戰地點：fresh = 脈動紅 ✕（可觀戰），否則是暗色殘跡 */
   readonly battles?: readonly BattleMarker[];
   /** 個人圖層。沒登入就沒有 */
   readonly mine?: MineOverlay;
+  /** 世界 seed —— 野地等級的資源標示由它決定性推導（與伺服器同一個函式） */
+  readonly seed?: number;
   /** 玩家自己的據點，會畫上高亮框 */
   readonly home?: { x: number; y: number };
 }
@@ -156,6 +162,17 @@ export class MapScene {
   private mineEpoch: { server: number; perf: number } | null = null;
   /** 靜態個人圖層的重建判準：視角沒變就不重建 Graphics（省電，docs/09 §7） */
   private mineViewKey = "";
+  /**
+   * 所有玩家據點 —— 一張 Graphics、只在視角變動時重建。
+   * ★ 600 個據點走每幀重建的物件池會吃掉 frame budget（M1b 的教訓），
+   *   但**看不到其他玩家的地圖是一張死圖** —— 快取重建兩者兼得，
+   *   連 L3 都畫得起（勢力分布一眼可見）。
+   */
+  private readonly spawnsGraphics = new Graphics();
+  private spawnsViewKey = "";
+  /** 野地資源標示（等級 pips）—— 同樣視角快取；chunk 陸續載入時要跟著補 */
+  private readonly wildsGraphics = new Graphics();
+  private wildsViewKey = "";
   /** 目前選取的格子。存世界座標，每幀重畫 —— 縮放平移後選取框才跟得上 */
   private selection: { x: number; y: number } | null = null;
 
@@ -175,6 +192,8 @@ export class MapScene {
     this.layers.overlay.addChild(this.selectionGraphics);
     this.layers.territory.addChild(this.territoryGraphics);
     this.layers.march.addChild(this.marchGraphics);
+    this.layers.structure.addChild(this.spawnsGraphics);
+    this.layers.territory.addChild(this.wildsGraphics);
   }
 
   static async create(canvas: HTMLCanvasElement, width: number, height: number) {
@@ -321,32 +340,43 @@ export class MapScene {
     this.structureUsed = 0;
     if (!this.data) return;
 
-    // 據點只在 L1／L2 畫。L3 的 2px 方塊沒有資訊量，
-    // 而 600 個據點每幀重畫會直接吃掉 frame budget。
-    if (show) {
+    /**
+     * ★ 所有玩家的據點在**每一個縮放層級**都看得見 ——
+     *   「其他玩家在哪裡」是地圖的第一資訊。一張視角快取的 Graphics
+     *   畫 600 個據點（L3 是 4px 的勢力色點、L1/L2 是帶框的 2×2），
+     *   視角沒動就零成本 —— M1b「每幀重畫 600 個」的教訓不再擋路。
+     */
+    const spawnsKey = `${v.centerX},${v.centerY},${v.tilePixels},${v.screenWidth},${v.screenHeight}`;
+    if (spawnsKey !== this.spawnsViewKey) {
+      this.spawnsViewKey = spawnsKey;
+      this.spawnsGraphics.clear();
       const rect = visibleTiles(v);
       for (const spawn of this.data.spawns) {
         if (
-          spawn.x < rect.minX ||
-          spawn.x > rect.maxX ||
-          spawn.y < rect.minY ||
-          spawn.y > rect.maxY
+          spawn.x < rect.minX - 2 ||
+          spawn.x > rect.maxX + 2 ||
+          spawn.y < rect.minY - 2 ||
+          spawn.y > rect.maxY + 2
         ) {
           continue;
         }
-        const g = this.takeStructure();
         const at = worldToScreen(v, spawn.x, spawn.y);
-        const size = v.tilePixels * 2; // 核心據點是 2×2
-        g.clear();
-        g.rect(0, 0, size, size).fill({
+        const size = Math.max(4, v.tilePixels * 2); // 核心據點是 2×2；L3 最少 4px
+        this.spawnsGraphics.rect(at.x, at.y, size, size).fill({
           color: allianceColor(spawn.faction, spawn.alliance ?? 0),
-          alpha: 0.85,
+          alpha: show ? 0.9 : 0.75,
         });
-        g.rect(0, 0, size, size).stroke({ color: PALETTE.darkest, width: 1 });
-        g.position.set(at.x, at.y);
-        g.visible = true;
+        if (show) {
+          // 放大時給輪廓與「屋頂」—— 看得出是據點，不是色塊
+          this.spawnsGraphics.rect(at.x, at.y, size, size).stroke({ color: PALETTE.darkest, width: 1 });
+          this.spawnsGraphics
+            .rect(at.x + size / 4, at.y - size / 6, size / 2, size / 6)
+            .fill({ color: PALETTE.darkest, alpha: 0.9 });
+        }
       }
     }
+
+    this.drawWilds(v);
 
     // ★ 遺跡在**所有**縮放層級都要看得見 —— 它是地圖上唯一的金色，
     //   而 `docs/09` §3 說「玩家看到金色就知道那裡有重要的東西」。
@@ -365,8 +395,8 @@ export class MapScene {
 
     /**
      * ★ 交戰標示:所有縮放層級都要看得見(與遺跡同級的醒目度)。
-     *   脈動的紅色 ✕ —— 警示紅在地圖上只留給「正在發生的戰爭」。
-     *   點下那一格 → 展開 → 觀戰。
+     *   觀戰窗口內 = 脈動的紅色 ✕（點下那一格 → 展開 → 觀戰）;
+     *   窗口過了 = 暗色的戰場殘跡 —— 「這附近最近打過」本身就是情報。
      */
     if (this.data.battles?.length) {
       const pulse = 0.5 + 0.5 * Math.abs(Math.sin(performance.now() / 350));
@@ -376,17 +406,19 @@ export class MapScene {
         const cx = at.x + v.tilePixels / 2;
         const cy = at.y + v.tilePixels / 2;
         const h = Math.max(6, v.tilePixels); // L3 下也要有 12px 的標示
+        const color = b.fresh ? PALETTE.alert : PALETTE.rustDark;
+        const alpha = b.fresh ? pulse : 0.7;
         g.clear();
         g.moveTo(cx - h, cy - h)
           .lineTo(cx + h, cy + h)
           .moveTo(cx + h, cy - h)
           .lineTo(cx - h, cy + h)
-          .stroke({ color: PALETTE.darkest, width: 5, alpha: pulse });
+          .stroke({ color: PALETTE.darkest, width: 5, alpha });
         g.moveTo(cx - h, cy - h)
           .lineTo(cx + h, cy + h)
           .moveTo(cx + h, cy - h)
           .lineTo(cx - h, cy + h)
-          .stroke({ color: PALETTE.alert, width: 3, alpha: pulse });
+          .stroke({ color, width: 3, alpha });
         g.position.set(0, 0);
         g.visible = true;
       }
@@ -395,6 +427,86 @@ export class MapScene {
     // 這一幀沒用到的池物件收起來（不銷毀，下一幀還要用）
     for (let i = this.structureUsed; i < this.structurePool.length; i++) {
       this.structurePool[i]!.visible = false;
+    }
+  }
+
+  /**
+   * 野地資源標示：在資源格上畫「等級 pips」。
+   *
+   * ★「哪些位置是資源地」光靠地形色塊讀不出來 —— 色塊只說了地形，
+   *   沒說**值不值得打**。等級由 `wildLevelAt(seed,x,y,terrain)` 決定性推導
+   *   （與伺服器同一個函式，`docs/02` §2.5），所以客戶端不用多拉一筆資料。
+   *
+   * 密度控制：L1（32px/格）畫 lv≥2 的 pip 排（要打才佔得到的格子）、
+   * L2（8px/格）只把 lv5 畫成一顆點 —— 「值得專程跑一趟的在哪」，
+   * L3 不畫。★ 第一版 L2 畫 lv≥4 的 pip 排：礦脈有 +1 加成，
+   * 近兩成的格子都亮起來、而且 13px 的 pip 排溢出 8px 的格子 ——
+   * 整片變成雜訊。全圖 25 萬格都是重點就沒有一格是重點。
+   *
+   * 快取鍵包含「視野內已載入的 chunk 數」：chunk 是陸續到的，
+   * 只看視角的話，第一批 pips 畫完之後才到的地形永遠不會補畫。
+   */
+  private drawWilds(v: Viewport) {
+    const seed = this.data?.seed;
+    if (seed === undefined || v.tilePixels < 8) {
+      this.wildsGraphics.clear();
+      this.wildsViewKey = "";
+      return;
+    }
+
+    const rect = visibleTiles(v);
+    let loaded = 0;
+    for (const { cx, cy } of visibleChunks(rect)) {
+      if (peekChunk(this.data!.source, cx, cy)) loaded++;
+    }
+    const key = `${v.centerX},${v.centerY},${v.tilePixels},${v.screenWidth},${v.screenHeight},${loaded}`;
+    if (key === this.wildsViewKey) return;
+    this.wildsViewKey = key;
+    this.wildsGraphics.clear();
+
+    const detailed = v.tilePixels >= 32;
+    const minLevel = detailed ? WILDS.guardedFromLevel : WILDS.maxLevel;
+    for (let y = rect.minY; y <= rect.maxY; y++) {
+      for (let x = rect.minX; x <= rect.maxX; x++) {
+        const codes = peekChunk(
+          this.data!.source,
+          Math.floor(x / CHUNK_SIZE),
+          Math.floor(y / CHUNK_SIZE),
+        );
+        if (!codes) continue;
+        const terrain =
+          CODE_TERRAIN[codes[(y % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE)] ?? 0];
+        if (!terrain || terrain === "WASTE" || terrain === "MOUNTAIN") continue;
+        const level = wildLevelAt(seed, x, y, terrain);
+        if (level < minLevel) continue;
+
+        const at = worldToScreen(v, x, y);
+        const t = v.tilePixels;
+        if (!detailed) {
+          // L2：一顆點就好 —— 位置本身就是資訊
+          this.wildsGraphics
+            .rect(at.x + t / 2 - 2, at.y + t / 2 - 2, 5, 5)
+            .fill({ color: PALETTE.darkest, alpha: 0.7 });
+          this.wildsGraphics
+            .rect(at.x + t / 2 - 1, at.y + t / 2 - 1, 3, 3)
+            .fill({ color: PALETTE.parchment, alpha: 0.95 });
+          continue;
+        }
+        // L1：pips 排在格子下緣，黑底 + 羊皮紙點，等級幾就幾顆
+        const pip = Math.max(2, Math.floor(t / 10));
+        const gap = pip + 1;
+        const width = level * gap + 1;
+        const px = at.x + (t - width) / 2;
+        const py = at.y + t - pip - 3;
+        this.wildsGraphics
+          .rect(px - 1, py - 1, width + 1, pip + 2)
+          .fill({ color: PALETTE.darkest, alpha: 0.7 });
+        for (let i = 0; i < level; i++) {
+          this.wildsGraphics
+            .rect(px + 1 + i * gap, py, pip, pip)
+            .fill({ color: PALETTE.parchment, alpha: 0.95 });
+        }
+      }
     }
   }
 
@@ -451,13 +563,28 @@ export class MapScene {
       }
     }
 
-    // ── 每幀重畫的部分：據點框（要壓在結構上面）與移動中的部隊點 ──
+    // ── 每幀重畫的部分：據點信標（要壓在結構上面）與移動中的部隊點 ──
     this.marchGraphics.clear();
+    /**
+     * ★「我在哪裡」是地圖的第零資訊 —— 2px 的金框在 L3 上是找不到的。
+     *   信標 = 呼吸的金色雙框 + 底下一顆定位點，最小 14px，
+     *   任何縮放層級掃一眼就找得到自己。
+     */
     const home = worldToScreen(v, mine.base.x, mine.base.y);
-    const homeSize = Math.max(8, v.tilePixels * 2);
+    const core = v.tilePixels * 2;
+    const beacon = Math.max(14, core);
+    const bx = home.x - (beacon - core) / 2;
+    const by = home.y - (beacon - core) / 2;
+    const breath = 2 + 2 * Math.abs(Math.sin(performance.now() / 600));
     this.marchGraphics
-      .rect(home.x, home.y, homeSize, homeSize)
-      .stroke({ color: PALETTE.relicGold, width: 2 });
+      .rect(bx - breath, by - breath, beacon + breath * 2, beacon + breath * 2)
+      .stroke({ color: PALETTE.relicGold, width: 2, alpha: 0.55 });
+    this.marchGraphics
+      .rect(bx, by, beacon, beacon)
+      .stroke({ color: PALETTE.relicGold, width: 3 });
+    this.marchGraphics
+      .rect(bx + beacon / 2 - 2, by + beacon / 2 - 2, 4, 4)
+      .fill({ color: PALETTE.relicGold });
 
     if (mine.marches.length > 0 && this.mineEpoch) {
       const serverNowMs = this.mineEpoch.server + (performance.now() - this.mineEpoch.perf);

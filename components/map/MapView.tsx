@@ -10,7 +10,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MapCanvas } from "./MapCanvas";
 import { GameHud } from "@/components/hud/GameHud";
+import { GameNav } from "@/components/nav/GameNav";
 import { loadMyMapOverlay, type MapOverlay } from "@/app/actions/map";
+import { TERRAIN, TILE_RESOURCE } from "@/lib/game/balance";
+import { CODE_TERRAIN } from "@/lib/game/map/terrain";
+import { needsConquest, wildLevelAt } from "@/lib/game/wilds";
+import { peekChunk } from "@/lib/render/chunk-cache";
+import { CHUNK_SIZE } from "@/lib/render/chunks";
 import type { SceneData, SceneStats } from "@/lib/render/scene";
 
 interface Overview {
@@ -24,8 +30,35 @@ interface Overview {
   areas: Record<string, number>;
   fairness: { key: string; label: string; pass: boolean; actual: number; format: string }[];
   spawns: { x: number; y: number; faction: 1 | 2 | 3; band: string }[];
-  /** 觀戰窗口內的交戰地點 —— 點那一格可以進去看 */
-  battles?: { id: number; x: number; y: number }[];
+  /** 交戰地點 —— fresh = 觀戰窗口內（點那一格可以進去看） */
+  battles?: { id: number; x: number; y: number; fresh: boolean }[];
+}
+
+const RESOURCE_LABEL = { grain: "糧", timber: "木", stone: "石", iron: "鐵" } as const;
+
+/**
+ * 選取格的地形情報。**只供顯示** —— 佔領與戰鬥的判定永遠在伺服器重算。
+ * chunk 還沒載到就回 null（footer 只顯示座標），載到後下一次點擊就有了。
+ */
+function tileInfoAt(
+  data: SceneData,
+  seed: number,
+  x: number,
+  y: number,
+): { label: string; resource?: string; level: number; guarded: boolean } | null {
+  if (x < 0 || y < 0) return null;
+  const codes = peekChunk(data.source, Math.floor(x / CHUNK_SIZE), Math.floor(y / CHUNK_SIZE));
+  if (!codes) return null;
+  const terrain = CODE_TERRAIN[codes[(y % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE)] ?? 0];
+  if (!terrain) return null;
+  const res = TILE_RESOURCE[terrain];
+  const level = wildLevelAt(seed, x, y, terrain);
+  return {
+    label: TERRAIN[terrain].label,
+    resource: res ? RESOURCE_LABEL[res.resource] : undefined,
+    level,
+    guarded: needsConquest(level),
+  };
 }
 
 export function MapView() {
@@ -38,6 +71,7 @@ export function MapView() {
 
   const [overlay, setOverlay] = useState<MapOverlay | null>(null);
   const [overlayNote, setOverlayNote] = useState<string | null>(null);
+  const [recenterNonce, setRecenterNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +94,7 @@ export function MapView() {
           spawns: json.spawns.map((s, i) => ({ ...s, alliance: i % 5 })),
           battles: json.battles ?? [],
           mine: mine ?? undefined,
+          seed: json.seed,
         });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -96,8 +131,16 @@ export function MapView() {
    */
   const home = overlay?.base ?? overview?.spawns[0];
 
+  const selectedInfo =
+    selected && data && overview
+      ? tileInfoAt(data, overview.seed, selected.x, selected.y)
+      : null;
+  const selectedBattle = selected
+    ? overview?.battles?.find((b) => b.x === selected.x && b.y === selected.y)
+    : undefined;
+
   return (
-    <main className="flex h-dvh flex-col bg-[#1a1614] text-[#e8dcc0]">
+    <main className="flex h-dvh flex-col bg-[#1a1614] pb-11 text-[#e8dcc0]">
       {/**
        * ★ 拿到的不是這一場的地圖時要講出來。
        *   靜默地換一張圖比顯示錯誤更糟 —— 玩家會照著一張錯的地圖規劃行軍。
@@ -113,11 +156,23 @@ export function MapView() {
         <MapCanvas
           data={data}
           focus={home ? { x: home.x, y: home.y } : undefined}
+          recenterNonce={recenterNonce}
           onSelectTile={setSelected}
           onStats={onStats}
         />
         {/* 常駐 HUD 浮在地圖上緣（docs/09 §5.1）—— 沒登入時它什麼都不畫 */}
         <GameHud floating />
+        {/* ★ 回家鍵：平移迷路是廢土地圖的日常，一鍵回到自己的據點 */}
+        {home ? (
+          <button
+            type="button"
+            data-testid="recenter-home"
+            onClick={() => setRecenterNonce((n) => n + 1)}
+            className="absolute bottom-3 right-2 rounded border border-[#8a6b3a] bg-[#2e2723]/90 px-3 py-2 text-sm text-[#d9a441]"
+          >
+            ⌂ 回家
+          </button>
+        ) : null}
       </div>
 
       <footer className="shrink-0 border-t border-[#4a413a] bg-[#2e2723] px-3 py-2 text-xs">
@@ -125,31 +180,37 @@ export function MapView() {
           <span data-testid="selected-tile">
             {selected ? `(${selected.x}, ${selected.y})` : "點選格子查看"}
           </span>
+          {/* ★ 選了格子就講出它是什麼：地形、資源與等級、有沒有守衛。
+              「哪些位置是資源地」不能要玩家用色塊猜 */}
+          {selectedInfo ? (
+            <span data-testid="tile-info" className="text-[#d9a441]">
+              {selectedInfo.label}
+              {selectedInfo.resource
+                ? ` · ${selectedInfo.resource} Lv${selectedInfo.level}${selectedInfo.guarded ? "（有守衛）" : ""}`
+                : ""}
+            </span>
+          ) : null}
           {/* ★ 點了格子就給出口：展開成 50×50 的戰場視圖。
-              交戰中的格子（地圖上脈動的紅 ✕）出口變成「觀戰」 */}
+              觀戰窗口內的格子（地圖上脈動的紅 ✕）出口變成「觀戰」 */}
           {selected ? (
             <Link
               href={`/tile/${selected.x}/${selected.y}`}
               data-testid="expand-tile"
               className={`rounded border px-2 py-0.5 ${
-                overview?.battles?.some((b) => b.x === selected.x && b.y === selected.y)
+                selectedBattle?.fresh
                   ? "border-[#c4442f] text-[#c4442f]"
                   : "border-[#8a6b3a] text-[#d9a441]"
               }`}
             >
-              {overview?.battles?.some((b) => b.x === selected.x && b.y === selected.y)
-                ? "觀戰 🔥"
-                : "展開此格 ⚔"}
+              {selectedBattle?.fresh ? "觀戰 🔥" : "展開此格 ⚔"}
             </Link>
           ) : null}
-          {overview ? (
+          {overview && !selected ? (
             <span className="opacity-70">
-              賽季 {overview.seasonId} · seed {overview.seed} · 遺跡{" "}
-              {overview.ruins.map((r) => r.name).join("、")}
+              賽季 {overview.seasonId} · 遺跡 {overview.ruins.map((r) => r.name).join("、")}
             </span>
-          ) : (
-            <span className="opacity-70">載入中…</span>
-          )}
+          ) : null}
+          {!overview ? <span className="opacity-70">載入中…</span> : null}
           {overlayNote ? <span className="text-[#c4442f]">{overlayNote}</span> : null}
           {stats ? (
             <span data-testid="sprite-count" className="ml-auto opacity-70">
@@ -158,7 +219,32 @@ export function MapView() {
             </span>
           ) : null}
         </div>
+        {/* ★ 圖例:地圖上每一種記號一句話。看不懂的地圖等於沒有地圖 */}
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] opacity-80">
+          <span>
+            <span className="mr-1 inline-block h-2 w-2 border border-[#d9a441] align-middle" />
+            我的據點
+          </span>
+          <span>
+            <span className="mr-1 inline-block h-2 w-2 bg-[#c4442f] align-middle" />
+            <span className="mr-1 inline-block h-2 w-2 bg-[#3f9aa3] align-middle" />
+            <span className="mr-1 inline-block h-2 w-2 bg-[#7fa832] align-middle" />
+            各勢力據點
+          </span>
+          <span>
+            <span className="mr-1 inline-block h-2 w-2 bg-[#d9a441] align-middle" />
+            遺跡
+          </span>
+          <span className="text-[#c4442f]">✕ 交戰</span>
+          <span>
+            <span className="mr-0.5 inline-block h-1.5 w-1.5 bg-[#e8dcc0] align-middle" />
+            <span className="mr-1 inline-block h-1.5 w-1.5 bg-[#e8dcc0] align-middle" />
+            資源等級
+          </span>
+          <span className="text-[#4a8fa8]">─ 我的疆界</span>
+        </div>
       </footer>
+      <GameNav />
     </main>
   );
 }

@@ -27,6 +27,8 @@ export interface MapCanvasProps {
   data: SceneData | null;
   /** 初始相機位置（通常是玩家自己的據點） */
   focus?: { x: number; y: number };
+  /** 每 +1 一次就把相機拉回 focus —— 「回家」按鈕的訊號線 */
+  recenterNonce?: number;
   onSelectTile?: (tile: { x: number; y: number }) => void;
   onStats?: (stats: SceneStats) => void;
 }
@@ -35,7 +37,7 @@ export interface MapCanvasProps {
 const TAP_SLOP_PX = 8;
 const DOUBLE_TAP_MS = 280;
 
-export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps) {
+export function MapCanvas({ data, focus, recenterNonce, onSelectTile, onStats }: MapCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -153,7 +155,8 @@ export function MapCanvas({ data, focus, onSelectTile, onStats }: MapCanvasProps
     if (focusX !== undefined && focusY !== undefined) {
       viewportRef.current = centerOn(viewportRef.current, focusX, focusY);
     }
-  }, [ready, data, focusX, focusY]);
+    // recenterNonce 每 +1 就重跑一次 —— 這就是「回家」按鈕的實作
+  }, [ready, data, focusX, focusY, recenterNonce]);
 
   // ── 繪製迴圈 ────────────────────────────────────────────────
   useEffect(() => {

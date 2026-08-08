@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 
 import { MAP } from "@/lib/game/balance";
-import { SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
+import { BATTLE_TRACE_WINDOW_MS, SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
 import { CHUNK_COLS, CHUNK_ROWS, CHUNK_SIZE } from "@/lib/render/chunks";
 
 /** `pnpm map:generate` 產的開發地圖。沒有真實賽季時的退路 */
@@ -120,10 +120,12 @@ export async function GET(request: Request) {
   const isFallback = resolved !== seasonId;
 
   /**
-   * ★ 交戰標示:觀戰窗口內的戰鬥地點,全賽季公開(烽火全世界看得到)。
-   *   只給座標與戰報 id —— 精確的數字帳目仍然只有當事人在 /war 看得到。
+   * ★ 交戰標示:戰鬥地點全賽季公開(烽火全世界看得到)。
+   *   `fresh` = 還在觀戰窗口內(脈動紅 ✕、點進去可以看重播);
+   *   窗口過了的殘跡再留 6 小時 —— 「這一帶最近打得兇」本身就是
+   *   值得繞路的情報。只給座標與戰報 id,數字帳目仍然只有當事人看得到。
    */
-  let battles: { id: number; x: number; y: number }[] = [];
+  let battles: { id: number; x: number; y: number; fresh: boolean }[] = [];
   const numericSeason = /^s(\d+)$/.exec(seasonId)?.[1];
   if (numericSeason) {
     try {
@@ -136,12 +138,13 @@ export async function GET(request: Request) {
           id: schema.battleReports.id,
           x: schema.battleReports.atX,
           y: schema.battleReports.atY,
+          createdAt: schema.battleReports.createdAt,
         })
         .from(schema.battleReports)
         .where(
           and(
             eq(schema.battleReports.seasonId, Number(numericSeason)),
-            gt(schema.battleReports.createdAt, new Date(now - SPECTATE_WINDOW_MS)),
+            gt(schema.battleReports.createdAt, new Date(now - BATTLE_TRACE_WINDOW_MS)),
           ),
         )
         .orderBy(desc(schema.battleReports.createdAt))
@@ -152,7 +155,12 @@ export async function GET(request: Request) {
         const key = `${r.x},${r.y}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        battles.push(r);
+        battles.push({
+          id: r.id,
+          x: r.x,
+          y: r.y,
+          fresh: now - r.createdAt.getTime() <= SPECTATE_WINDOW_MS,
+        });
       }
     } catch {
       battles = []; // 沒有資料庫的環境(E2E、預覽)就沒有烽火
