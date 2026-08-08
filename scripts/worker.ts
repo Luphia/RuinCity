@@ -81,7 +81,13 @@ async function main() {
     const { ensureLatestTerrain } = await import("@/lib/server/terrain-files");
     await ensureLatestTerrain((line) => console.log(`[${hhmmss()}] [terrain] ${line}`));
   } catch (e) {
-    console.error(`[${hhmmss()}] ⚠ 地形啟動確保失敗：`, e instanceof Error ? e.message : e);
+    const { explainDbError, missingRelation } = await import("@/lib/db/diagnose");
+    console.error(`[${hhmmss()}] ⚠ 地形啟動確保失敗：${explainDbError(e)}`);
+    if (missingRelation(e)) {
+      // schema 落後時每一輪都會繼續炸 —— 停下來比每 60 秒刷一次錯誤誠實
+      console.error(`[${hhmmss()}] worker 停止：先把 migration 跑完再啟動。`);
+      process.exit(1);
+    }
   }
 
   while (!stop) {
@@ -93,7 +99,8 @@ async function main() {
       // ★ 失敗要看得見：區段錯誤逐條印，不收進摘要裡含糊帶過
       for (const e of tick.errors) console.error(`[${hhmmss()}] ⚠ ${e}`);
     } catch (e) {
-      console.error(`[${hhmmss()}] ⚠ 這一輪整個失敗：`, e instanceof Error ? e.message : e);
+      const { explainDbError } = await import("@/lib/db/diagnose");
+      console.error(`[${hhmmss()}] ⚠ 這一輪整個失敗：${explainDbError(e)}`);
     }
 
     if (ONCE) break;

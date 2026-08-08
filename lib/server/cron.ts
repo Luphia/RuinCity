@@ -21,6 +21,7 @@
 import { and, eq, isNull, lte } from "drizzle-orm";
 
 import { schema } from "@/lib/db";
+import { explainDbError } from "@/lib/db/diagnose";
 import { withTransaction } from "@/lib/db/tx";
 import type { TxDb } from "@/lib/db/tx";
 import { settleWithin } from "@/lib/server/player-state";
@@ -56,7 +57,9 @@ export interface CronTick {
 
 export async function runCronTick(now: number, tx: TxRunner = withTransaction): Promise<CronTick> {
   const errors: string[] = [];
-  const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  // ★ 走 cause 鏈翻譯（「資料表不存在 → 先跑 pnpm db:migrate」）——
+  //   drizzle 最外層的「Failed query」對使用者毫無行動指引
+  const msg = explainDbError;
 
   /**
    * ★ 賽季的階段推進排在最前面，而且**做了粗活就直接回傳**。

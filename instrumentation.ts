@@ -16,8 +16,10 @@ export async function register() {
     const { ensureLatestTerrain } = await import("@/lib/server/terrain-files");
     const how = await ensureLatestTerrain((line) => console.log(`[terrain] ${line}`));
     if (how !== "disk" && how !== "none") console.log(`[terrain] 啟動確保完成（${how}）`);
-  })().catch((e) => {
-    // 沒有資料庫的環境（E2E、build 預覽）走到這裡是正常的 —— 講一聲就好
-    console.warn(`[terrain] 啟動確保跳過：${e instanceof Error ? e.message : e}`);
+  })().catch(async (e) => {
+    // 沒有資料庫的環境（E2E、build 預覽）走到這裡是正常的 —— 講一聲就好。
+    // 但「資料表不存在」要翻成能照做的下一步（pnpm db:migrate）
+    const { explainDbError } = await import("@/lib/db/diagnose");
+    console.warn(`[terrain] 啟動確保跳過：${explainDbError(e)}`);
   });
 }
