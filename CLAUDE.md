@@ -74,7 +74,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 出生間距 | **全服任兩位領主 ≥ 8 格**（切比雪夫，`PLAYER_MIN_SPACING`），真人與 AI 一視同仁；小隊成員彼此豁免（自願聚落）。這是 900×900 換來的 —— 500 地圖塞不下（`docs/11` §22.1、§23.2 的算術）|
 | 出生點 | 兩點之間的切比雪夫距離**至少 2**（`HARD_MIN_SPACING`）—— 核心是 2×2，差一格就會疊到同一格 `tiles`。`poissonPick` 會被呼叫很多次，硬性下限只有靠那份跨呼叫的 blocker 才守得住 |
 | 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
-| 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |
+| 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位。而整條時間軸**只由 `registrationOpensAt` 推出來**（`scheduleOf`）—— 想改變階段就改那個時間戳，只 UPDATE `status` 會被下一次 `advanceSeasons` 推回去（`pnpm end:season` 就是這樣做的）|
 | 失敗要看得見 | 每一個 `void (async () => {})()` 都要有 catch，而 catch 裡要有 UI。只 `console.error` 不算 —— 使用者看不到 console。這個毛病在 M5b 出現三次（登入失敗、地圖場景、賽季狀態），症狀都是「按了沒反應」 |
 | useEffect 依賴 | 會高頻重繪的元件之間，props 依賴一律用**基本型別**（`focus?.x`），不要用物件 —— 每次 render 的新物件字面量會讓 effect 每次都重跑。症狀跟成因看起來毫無關係（「地圖自己跳回出生點」vs「stats 的計時器」），見 `docs/11` §20.23 |
 | 地圖 | `/api/map/overview` 依資料庫解析「現在是哪一場」。地形的**真相在 `terrain_files` 表**（封盤時與 SEALED 同交易入庫）—— 磁碟只是快取，會跟著容器蒸發。啟動時 `ensureLatestTerrain`（`instrumentation.ts` 與 `pnpm worker`）補磁碟、缺庫就以 seed 重新生成；磁碟沒有時 chunk 走 `/api/terrain`。退回 `s0` 開發地圖時 `isFallback` 會是 true，畫面要講出來 |
@@ -126,6 +126,9 @@ pnpm tsx scripts/simulate-season.ts --runs 1 --trace  # 看一位玩家的完整
 pnpm tsx scripts/simulate-season.ts --sweep           # 網格搜尋數值組合
 pnpm seed:season you@example.com                      # 開一場能真的走進去玩的賽季
 pnpm seed:season --phase REGISTRATION                 # 只開登記，讓 cron 自己推進
+pnpm end:season --dry                                 # 強制結束：先看會發生什麼
+pnpm end:season                                       # → ENDING（凍結）
+pnpm end:season --archive --next                      # → ARCHIVED，並開下一場登記
 ```
 
 模擬現在跑在**真實地圖**上：真實地形產出、地理領土上限、鄰居與掠奪、

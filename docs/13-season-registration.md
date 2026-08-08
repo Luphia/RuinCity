@@ -315,6 +315,43 @@ T + 6 小時仍未首次登入   → 該位置根本沒有領主 → 轉為 AI�
 
 這比「回收出生點為中立空地」好：**密度不會掉，回歸的玩家還有家可回。**
 
+## 5b. ★ 營運指令：強制結束賽季
+
+```bash
+pnpm end:season --dry              # 先看：會動哪些時間戳、階段會變成什麼
+pnpm end:season                    # → ENDING（凍結；12 小時後自動歸檔）
+pnpm end:season --archive          # → ARCHIVED（立刻）
+pnpm end:season --season 3         # 指定賽季
+pnpm end:season --archive --next   # 歸檔並立刻開下一場的登記
+```
+
+### 為什麼它改的是時間戳，不是 `status`
+
+賽季階段**由時間戳推導**（`phaseAt`），而整條時間軸只由**一個**欄位
+推出來 —— `registrationOpensAt`（`scheduleOf`）：
+
+```
+registrationOpensAt +3 天 → 登記截止 +12 小時 → T=0 +12 天 → 結束 +12 小時 → 歸檔
+```
+
+`seasons.status` 只是那個推導結果的**快取**。所以「UPDATE status = 'ENDING'」
+撐不過一分鐘：下一次 `advanceSeasons` 會重新推導、發現現在明明還在
+RUNNING，然後把它推回去。症狀是「我明明結束了它，一分鐘後又活過來」。
+
+`end-season.ts` 因此把 `registrationOpensAt` 往回推到「剛好越過那條線」，
+讓推導本身得到你要的答案，再走**正式的** `advanceSeasons` 路徑確認一次 ——
+與 cron 每分鐘做的事完全相同，沒有第二條後門。
+
+> 這與 `seed-season.ts` 是同一招：那支往回推是為了讓它**開賽**。
+
+### 兩個副作用（是特性，不是 bug）
+
+1. **下一場會自己開。** `ensureNextSeason` 看的是
+   `registrationOpensAt + 7 天`；時間軸往回推之後那個時刻已經過去，
+   所以下一次 cron 就會開新的一場。不跑 worker 的話用 `--next` 手動開。
+2. **`ENDING` 就是凍結。** 遊戲頁面只認 `status = RUNNING` 的賽季，
+   所以一進 ENDING，玩家看到的是「你還沒有進行中的賽季」。
+
 ## 6. 對其他文件的影響
 
 | 文件 | 變更 |
