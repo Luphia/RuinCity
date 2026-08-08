@@ -23,6 +23,7 @@ import "./load-env";
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -31,6 +32,38 @@ const DEFAULT_PORT = 5000;
 
 const hhmmss = () => new Date().toISOString().slice(11, 19);
 const log = (line: string) => console.log(`[${hhmmss()}] [start] ${line}`);
+
+/** 從轉給 next 的參數裡讀出要聽哪個埠 */
+function portOf(args: readonly string[]): number {
+  const i = args.findIndex((a) => a === "--port" || a === "-p");
+  if (i >= 0 && args[i + 1]) return Number(args[i + 1]);
+  const inline = args.find((a) => a.startsWith("--port="));
+  if (inline) return Number(inline.slice("--port=".length));
+  return Number(process.env.PORT || DEFAULT_PORT);
+}
+
+/** 這個埠現在綁得起來嗎 */
+function portFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port);
+  });
+}
+
+/** 誰占著那個埠（拿不到就回 null —— 診斷不該自己變成另一個錯誤） */
+function whoHolds(port: number): string | null {
+  try {
+    const r = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"], {
+      encoding: "utf8",
+    });
+    const out = r.stdout?.trim();
+    return out ? out : null;
+  } catch {
+    return null;
+  }
+}
 
 /** 沒設定資料庫（而不是設定壞了）的判準 —— 這是模式不是錯誤 */
 function databaseConfigured(): boolean {
@@ -42,10 +75,43 @@ function databaseConfigured(): boolean {
   return true;
 }
 
-function main() {
+async function main() {
   // ── 1. build 必須存在 ─────────────────────────────────────
   if (!existsSync(join(process.cwd(), ".next", "BUILD_ID"))) {
     console.error(`[start] 找不到 production build —— 先執行：pnpm build`);
+    process.exit(1);
+  }
+
+  /**
+   * ── 1b. 埠要先確認綁得起來 ────────────────────────────────
+   *
+   * ★ 這一步在 migration **之前**，而且要**講清楚下一步**。
+   *
+   *   少了它，流程是：跑完 migration → 起 web → 起 worker →
+   *   web 撞 `EADDRINUSE` 吐一個 Node stack trace → 連帶收掉 worker。
+   *   三行紅字裡沒有一行告訴使用者該做什麼。
+   *
+   *   而在 macOS 上這不是罕見情況：**AirPlay 接收器預設就占用 5000**
+   *   （Monterey 之後），所以每一台 Mac 第一次跑都會撞到。
+   */
+  const argv = process.argv.slice(2);
+  const port = portOf(argv);
+  if (!(await portFree(port))) {
+    console.error(`[start] 埠 ${port} 已經被占用 —— 沒有啟動任何服務。`);
+    const holder = whoHolds(port);
+    if (holder) console.error(`\n${holder}\n`);
+    if (process.platform === "darwin" && port === 5000) {
+      console.error(
+        `[start] macOS 的 AirPlay 接收器預設就聽 5000。兩種解法挑一個：\n` +
+          `  · 關掉它：系統設定 → 一般 → AirDrop 與接力 → 關閉「AirPlay 接收器」\n` +
+          `  · 換一個埠：PORT=5001 pnpm start（記得同步改 .env.local 的 AUTH_URL）`,
+      );
+    } else {
+      console.error(
+        `[start] 先收掉占用它的行程，或換一個埠：` +
+          `PORT=${port + 1} pnpm start（記得同步改 .env.local 的 AUTH_URL）`,
+      );
+    }
     process.exit(1);
   }
 
@@ -74,9 +140,9 @@ function main() {
    *   `AUTH_URL` 與 magic link 會在兩種模式之間漂移。
    *   `PORT` 環境變數優先（Docker、systemd、雲端平台都靠它）。
    */
-  const extraArgs = process.argv.slice(2);
+  const extraArgs = [...argv];
   if (!extraArgs.some((a) => a === "--port" || a === "-p" || a.startsWith("--port="))) {
-    extraArgs.push("--port", process.env.PORT || String(DEFAULT_PORT));
+    extraArgs.push("--port", String(port));
   }
   const children = new Map<string, ChildProcess>();
   let shuttingDown = false;
@@ -122,4 +188,4 @@ function main() {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
-main();
+void main();

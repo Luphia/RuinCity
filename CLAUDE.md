@@ -15,6 +15,8 @@
 pnpm install
 cp .env.example .env.local     # 填入 DATABASE_URL 與 AUTH_SECRET
 pnpm dev                       # http://localhost:5000（不是 Next 預設的 3000）
+                               # macOS 要先關掉 AirPlay 接收器 —— 它預設就占用 5000
+                               # （系統設定 → 一般 → AirDrop 與接力），或用 PORT=5001
 pnpm worker                    # 本機的結算迴圈（執政官、行軍、賽季推進）。
                                # production 由 Vercel Cron 扮演這個角色；
                                # 本機不開它的話，只剩打開頁面那一刻的惰性結算
@@ -79,6 +81,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 出生間距 | **全服任兩位領主 ≥ 8 格**（切比雪夫，`PLAYER_MIN_SPACING`），真人與 AI 一視同仁；小隊成員彼此豁免（自願聚落）。這是 900×900 換來的 —— 500 地圖塞不下（`docs/11` §22.1、§23.2 的算術）|
 | 出生點 | 兩點之間的切比雪夫距離**至少 2**（`HARD_MIN_SPACING`）—— 核心是 2×2，差一格就會疊到同一格 `tiles`。`poissonPick` 會被呼叫很多次，硬性下限只有靠那份跨呼叫的 blocker 才守得住 |
 | 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
+| 埠 | 預設 5000（`pnpm dev`／`pnpm start`／`.env.example` 的 `AUTH_URL` 三個要一致，否則 magic link 的 callback 會漂移）。`PORT` 環境變數優先，`--port` 最優先。**macOS 的 AirPlay 接收器預設就聽 5000** —— `pnpm start` 會在啟動前先探埠並把這件事講出來。E2E 用 3100，刻意不同：同號會撞掉你正開著的 dev server |
 | 我在哪一場 | **`lib/server/current-player.ts` 是唯一的實作** —— 據點、領土、軍事、集市、執政官、HUD、地圖、單格、出局判定全部呼叫它，沒有人自己寫那段 join。判準是「這個帳號在**未封存**賽季裡的 `players` 列」：`ENDING` 也算（只認 RUNNING 會讓最後兩天的每一頁說「你沒有賽季」）、出局／放棄的人也回傳（他要看得到自己的世界；寫入的守門在 `settleWithin`）。有一個測試會擋下任何第二份實作 |
 | 地圖是哪一場 | `/api/map/overview` 走 `currentPlayer()` + `pickMapSeason`，不是「最新的一場」。下一場第 7 天就開登記，而登記中的賽季**沒有地形檔**。而且**有賽季的人永遠不退回 `s0`** —— 拿不到自己那一場的地形就回 404，因為把另一個世界畫給他看比報錯更糟。客戶端另有一層對帳（`viewerSeason` ≠ `seasonId` 就出紅色橫幅）|
 | 放棄賽季 | 玩家隨時可以退出目前這一場、立刻報名另一場（`docs/13` §8）。拆除與**主城被打爆共用一份實作**（`lib/server/leave-season.ts`），差別只有 `players.exit_reason`。三個易漏：登記列**只標記 `withdrawn_at` 不刪**、「還在別場嗎」與封盤分配都要濾掉它、退出登記期的賽季後要能**復用那一列**再報名 |
