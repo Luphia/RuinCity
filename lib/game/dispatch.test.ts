@@ -83,7 +83,8 @@ describe("行軍類型", () => {
 
 describe("★ 8 小時上限是地圖設計約束", () => {
   it("太遠就派不出去", () => {
-    const p = planDispatch(state(), "ATTACK", { x: 480, y: 480 }, { SPEARMAN: 10 }, T0);
+    // 據點在 (100,100)；跨到地圖另一角是 ~1,000 格，長矛兵怎麼跑都超過 8 小時
+    const p = planDispatch(state(), "ATTACK", { x: 860, y: 860 }, { SPEARMAN: 10 }, T0);
     expect(p).toEqual({ reason: "TOO_FAR" });
   });
 

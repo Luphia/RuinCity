@@ -55,7 +55,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 本機 Postgres | `@neondatabase/serverless` 只對 Neon 端點說話，指向本機的 Postgres 會連不上（而且錯誤看起來像網路問題）。`lib/db/driver.ts` 依 URL 的 host 自動改用 node-postgres —— 兩邊都支援交易，`withTransaction` 的保證不變 |
 | 腳本的環境變數 | `scripts/*.ts` 的**第一個 import** 必須是 `./load-env`。import 會先於任何語句求值，所以「先呼叫 dotenv 再 import lib/db」是錯的 —— `lib/db` 會拿到 placeholder，然後在第一次查詢時炸成 `ENOTFOUND unset.invalid` |
 | 賽季輪替 | `ensureNextSeason` 的判準是**上一場的 `nextOpensAt`**，不是「現在有沒有人在收登記」。登記第 3 天就截止、下一場第 7 天才開，中間四天的空窗是刻意的 |
-| 時間係數 | 數值表的時間是「48 天賽季」基準，實際值要 ÷ `TIME_SCALE`(4)；速率 × 4；單位速度 × `MARCH_SCALE`(2)。成本與戰鬥數值不套用任何係數 |
+| 時間係數 | 數值表的時間是「48 天賽季」基準，實際值要 ÷ `TIME_SCALE`(4)；速率 × 4；單位速度 × `MARCH_SCALE`(3.6 = 賽季壓縮 2 × 地圖 900×900 的 1.8)。成本與戰鬥數值不套用任何係數 |
 | React Compiler | render 中不可呼叫 `Date.now()` 等不純函式。這規則與 P1 一致，別繞過它 |
 | Migration | 改 `schema.ts` 後務必 `pnpm db:generate`，CI 會擋下不同步的提交 |
 | 倒數計時器 | 客戶端一律用 `components/use-server-clock.ts` 的 `useServerClock(serverTime)`，只取客戶端時鐘的**間隔**，不取它的絕對值 |
@@ -67,7 +67,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 跨玩家事件 | 需要不只一個玩家的鎖的東西（戰鬥）**不屬於 `events` 表**。行軍由結算迴圈直接掃 `marches`，理由見 `docs/11` §19.1 |
 | 隨機性 | 結算路徑一律 `mulberry32(deriveSeed(...))`，不用 `Math.random()`。交易會重試，而重試不該變成「再擲一次骰子」 |
 | 野地等級 | 無主格的等級（1–5）由 `wildLevelAt(seed,x,y,terrain)` 決定性推導，**不入庫**；佔領時抄進 `tiles.level`（與 terrain 同模式）。lv≥2 有野生守衛：立旗回 `GUARDED_TILE`，要走 CLAIM 行軍（PvE、`skipMorale`）。執政官的候選清單已濾掉有守衛的格子 —— 不濾它會永遠嘗試一件做不到的事 |
-| 真人間距 | 「用戶之間 >10 格」只管**真人**（`users` 表）：全服 600 人一律 11 在幾何上不可行（`docs/11` §22.1 的算術）。小隊成員彼此豁免。AI 維持 `HARD_MIN_SPACING` |
+| 出生間距 | **全服任兩位領主 ≥ 8 格**（切比雪夫，`PLAYER_MIN_SPACING`），真人與 AI 一視同仁；小隊成員彼此豁免（自願聚落）。這是 900×900 換來的 —— 500 地圖塞不下（`docs/11` §22.1、§23.2 的算術）|
 | 出生點 | 兩點之間的切比雪夫距離**至少 2**（`HARD_MIN_SPACING`）—— 核心是 2×2，差一格就會疊到同一格 `tiles`。`poissonPick` 會被呼叫很多次，硬性下限只有靠那份跨呼叫的 blocker 才守得住 |
 | 沒接上的係數 | 數值表有一個係數、函式簽章有對應參數、而預設值剛好是「沒有效果」—— 這種組合會安靜地失效。加參數的同時就要把呼叫端全部接好（例：`territoryCapacity` 的 `bandBonus`，M0 寫下、M5b 才真的生效） |
 | 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |

@@ -33,7 +33,6 @@ import {
   PHASE_DURATION,
   planRegistration,
   scheduleFrom,
-  humanSoloCountsFrom,
   squadRequestsFrom,
   startingPopulationUsed,
   startingResources,
@@ -328,12 +327,12 @@ export async function lockdownSeason(
   const world = generateWorld(Number(season.seed), {
     ...opts.world,
     squads: squadRequestsFrom(regShapes),
-    // 真人間距 > 10 格（docs/11 §22.1）：小隊豁免，散客真人在這裡數
-    humanSolos: humanSoloCountsFrom(regShapes),
     onProgress: log,
   });
-  if (world.spawns.humanSpacingShort > 0) {
-    log(`⚠ ${world.spawns.humanSpacingShort} 位真人塞不進 >10 格的間距，降級為一般間距`);
+  // 全域間距 ≥ 8（docs/11 §22.1）由分配器對每一席硬性保證，
+  // 不再需要按真人數另開名單。降級席位理論上恆為 0 —— 但失敗要看得見
+  if (world.spawns.spacingShort > 0) {
+    log(`⚠ ${world.spawns.spacingShort} 席塞不進 ≥8 格的間距，降級為核心間距`);
   }
   log(
     `地圖完成（seed ${world.seed}，換了 ${world.seedAttempts - 1} 次）` +

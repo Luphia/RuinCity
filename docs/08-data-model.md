@@ -234,7 +234,7 @@ CREATE INDEX tiles_player_idx   ON tiles (player_id) WHERE player_id IS NOT NULL
 ```
 
 **設計說明**：
-`tiles` 只存**已被佔用**的格子，不是全部 250,000 列。
+`tiles` 只存**已被佔用**的格子，不是全部 810,000 列。
 賽季高峰約 600 玩家 × 平均 60 格 ≈ **36,000 列**，加上營地、遺跡與遺跡哨所約 4.8 萬列，
 在 Postgres 上小到幾乎不需要優化，viewport range query 走索引在 2ms 內完成。
 
@@ -545,7 +545,7 @@ CREATE INDEX events_actor_idx   ON events (actor_id, resolve_at) WHERE resolved_
 
 賽季結束後產生**靜態快照**供 `/seasons/{id}` 永久瀏覽：
 
-- 最終地圖點陣圖（PNG，每格 1px，500×500）
+- 最終地圖點陣圖（PNG，每格 1px，900×900）
 - 聯盟排行榜 JSON
 - 遺跡控制時間軸 JSON
 - 重大戰役 top 100 戰報

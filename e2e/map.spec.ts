@@ -135,7 +135,13 @@ test("總覽 API 回傳三座遺跡與 600 個出生點", async ({ request }) =>
   const json = await res.json();
   expect(json.ruins).toHaveLength(3);
   expect(json.spawns).toHaveLength(600);
-  expect(json.chunk).toMatchObject({ size: 64, cols: 8, rows: 8 });
+  // chunk 網格由地圖尺寸推導（900×900 → 15×15），不寫死
+  expect(json.chunk).toMatchObject({
+    size: 64,
+    cols: Math.ceil(json.width / 64),
+    rows: Math.ceil(json.height / 64),
+  });
+  expect(json.width).toBe(900);
   // 公平性驗證的數字在封盤期要公開（`docs/13` §3）
   expect(json.fairness).toHaveLength(5);
   for (const check of json.fairness) expect(check.pass).toBe(true);

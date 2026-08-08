@@ -7,9 +7,16 @@
 // 地圖
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * ★ 900×900（初版 500×500，幾何等比 ×1.8 放大）。
+ *   放大的理由是**出生間距**：500 地圖塞不下「全服任兩位領主 ≥ 8 格」
+ *   的硬性保證（`docs/11` §22.1 的算術）。改這裡的同時，
+ *   RUIN_PLACEMENT 與 SPAWN_BAND 的半徑必須跟著等比縮放 ——
+ *   只放大地圖不放大出生幾何，間距一格都不會多。
+ */
 export const MAP = {
-  width: 500,
-  height: 500,
+  width: 900,
+  height: 900,
   /** 邊界為「深淵」，不可通行、不可佔領 */
   edgeMargin: 10,
 } as const;
@@ -87,13 +94,18 @@ export const EXTRACTION = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────
-// 區域 Region（10 × 10 = 100 個 50 × 50 格）
+// 區域 Region（50 × 50 格一區；900×900 下 18 × 18 = 324 區）
+// 行列數由 MAP 推導 —— 地圖尺寸改了這裡不能還記著舊的
 // ─────────────────────────────────────────────────────────────
 
 export const REGION = {
   size: 50,
-  cols: 10,
-  rows: 10,
+  get cols() {
+    return Math.ceil(MAP.width / this.size);
+  },
+  get rows() {
+    return Math.ceil(MAP.height / this.size);
+  },
   get count() {
     return this.cols * this.rows;
   },
@@ -107,9 +119,9 @@ export const RUIN_PLACEMENT = {
   count: 3,
   /** 每座佔 3 × 3 */
   footprint: 3,
-  minDistanceToEdge: 90,
-  minPairDistance: 170,
-  maxPairDistance: 240,
+  minDistanceToEdge: 162,
+  minPairDistance: 306,
+  maxPairDistance: 432,
   /** 三點構成的三角形最小內角，避免擠成一直線 */
   minTriangleAngleDeg: 35,
   /** 禁建圈半徑：不可建據點、不可佔領為個人領土 */
@@ -165,7 +177,7 @@ export interface SpawnBandSpec {
 export const SPAWN_BAND: Record<SpawnBand, SpawnBandSpec> = {
   VANGUARD: {
     label: "前線",
-    radius: [20, 45],
+    radius: [36, 81],
     quota: 40,
     startingResourceMultiplier: 1.0,
     bonusTerritoryCapacity: 1,
@@ -173,7 +185,7 @@ export const SPAWN_BAND: Record<SpawnBand, SpawnBandSpec> = {
   },
   HEARTLAND: {
     label: "中原",
-    radius: [45, 78],
+    radius: [81, 140],
     quota: 100,
     startingResourceMultiplier: 1.0,
     bonusTerritoryCapacity: 0,
@@ -181,7 +193,7 @@ export const SPAWN_BAND: Record<SpawnBand, SpawnBandSpec> = {
   },
   FRONTIER: {
     label: "邊陲",
-    radius: [78, 105],
+    radius: [140, 189],
     quota: 60,
     startingResourceMultiplier: 1.4,
     bonusTerritoryCapacity: 0,
@@ -203,10 +215,15 @@ export const SQUAD = {
 export const FAIRNESS_THRESHOLDS = {
   /** (a) 每位玩家 15 格內可建設格數的全服標準差 */
   buildableTilesStdDev: 0.08,
-  /** (b) 同一環帶內，玩家到最近遺跡的距離極差（格） */
-  ruinDistanceRangeInBand: 20,
-  /** (c) 每位玩家 30 格內的鄰居數，全服極差 */
-  neighbourCountRange: 2,
+  /** (b) 同一環帶內，玩家到最近遺跡的距離極差（格）。環帶寬度隨 900×900 等比 ×1.8，容差跟著走 */
+  ruinDistanceRangeInBand: 36,
+  /**
+   * (c) 每位玩家 `neighbourRadius` 格內的鄰居數，全服相對標準差。
+   * 半徑隨 900×900 等比 ×1.8（30 → 54）：這把尺量的是「相對疏密」，
+   * 期望鄰居數（~22 人）要跟原設計一致，50% 這個門檻才有同樣的意義。
+   */
+  neighbourRadius: 54,
+  neighbourStdDev: 0.5,
   /** (d) 每位玩家 20 格內高價值地形（LODE + FOREST）格數的標準差 */
   valuableTerrainStdDev: 0.12,
   /** (e) 三個區域的可用總面積差異 */
@@ -290,13 +307,15 @@ export const CAMPS = {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * 真人與真人的最小出生間距（切比雪夫，>10 格）。
+ * 任兩位領主的最小出生間距（切比雪夫，≥ 8 格）——**全服一體適用**，
+ * 真人與 AI 不分（`docs/11` §22.1）。
  *
- * ★ 只管真人（`users` 表有帳號的）：全服 600 人一律 11 在幾何上不可行
- *   —— 中原帶的最密堆疊上限約 68 席，配額卻是 100（`11` §22.1 的算術）。
- *   AI 之間維持 `HARD_MIN_SPACING`。同行小隊豁免（自願聚落）。
+ * ★ 500×500 時代這裡是 HUMAN_MIN_SPACING = 11、只管真人 ——
+ *   全服一律 11 在幾何上不可行（中原帶最密堆疊 ~68 席 < 配額 100）。
+ *   900×900 之後中原帶的堆疊上限 ≈ 415 席，全域 8 是硬性保證。
+ *   同行小隊豁免（自願聚落，成員距隊長 8–15 格）。
  */
-export const HUMAN_MIN_SPACING = 11;
+export const PLAYER_MIN_SPACING = 8;
 
 /** 野地：無主格的等級、守衛與生產加成 */
 export const WILDS = {

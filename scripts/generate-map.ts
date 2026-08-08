@@ -9,7 +9,7 @@
  * ★ I/O 全部留在這一層。`/lib/game/map` 底下沒有任何檔案系統存取。
  */
 
-import { MAP, SPAWN_BANDS, TERRAINS } from "../lib/game/balance";
+import { MAP, PLAYER_MIN_SPACING, SPAWN_BANDS, TERRAINS } from "../lib/game/balance";
 import { hashSeed } from "../lib/game/rng";
 import { formatFairness } from "../lib/game/map/fairness";
 import { randomSquads } from "../lib/game/map/spawn";
@@ -95,6 +95,33 @@ async function main() {
   console.log(
     `  合計 ${world.spawns.points.length} 人 · 未能整組安置的小隊 ${world.spawns.brokenSquads} 組`,
   );
+
+  /**
+   * ★ 間距是使用者面的承諾（`docs/11` §22.1），所以要**量出來**再印，
+   *   而不是印那個常數。少了這一行，「保證 8 格」就只是註解裡的一句話。
+   */
+  {
+    const pts = world.spawns.points;
+    let worst = Infinity;
+    let worstPair = "";
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i]!;
+        const b = pts[j]!;
+        if (a.squad !== null && a.squad === b.squad) continue; // 小隊自願聚落
+        const d = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+        if (d < worst) {
+          worst = d;
+          worstPair = `(${a.x},${a.y})–(${b.x},${b.y})`;
+        }
+      }
+    }
+    const ok = worst >= PLAYER_MIN_SPACING;
+    console.log(
+      `  ${ok ? "✓" : "✗"} 最近的兩位領主相距 ${worst} 格 ${worstPair}` +
+        `（下限 ${PLAYER_MIN_SPACING}；降級席位 ${world.spawns.spacingShort}）`,
+    );
+  }
 
   console.log("\n  ── 公平性驗證（封盤期公布）──────────────────────");
   console.log(formatFairness(world.fairness));

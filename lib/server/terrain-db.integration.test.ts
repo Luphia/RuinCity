@@ -41,11 +41,15 @@ function fakeWorld(): World {
   } as unknown as World;
 }
 
+/** 整張地圖切成幾個 chunk —— 地圖尺寸改了，這裡自動跟上 */
+const chunkTotal = () => Math.ceil(MAP.width / CHUNK) * Math.ceil(MAP.height / CHUNK);
+
 describe("serializeTerrain", () => {
-  it("64 個 chunk（每個 64×64 bytes）+ meta.json，磁碟與資料庫共用同一份", () => {
+  it("整張圖切成 chunk（每個 64×64 bytes）+ meta.json，磁碟與資料庫共用同一份", () => {
     const files = serializeTerrain(fakeWorld());
     const bins = files.filter((f) => f.name.endsWith(".bin"));
-    expect(bins).toHaveLength(64);
+    // chunk 數由地圖尺寸推導（900×900 → 15×15 = 225），不寫死
+    expect(bins).toHaveLength(chunkTotal());
     for (const b of bins) expect(b.data).toHaveLength(CHUNK * CHUNK);
 
     const meta = JSON.parse(new TextDecoder().decode(files.find((f) => f.name === "meta.json")!.data));
@@ -65,7 +69,7 @@ describe("terrain_files：bytea 的存與讀", () => {
       .select()
       .from(schema.terrainFiles)
       .where(eq(schema.terrainFiles.seasonId, 77));
-    expect(rows).toHaveLength(65);
+    expect(rows).toHaveLength(chunkTotal() + 1); // + meta.json
 
     const back = await readTerrainFromDb(h.db, 77);
     const byName = new Map(back.map((f) => [f.name, f.data]));

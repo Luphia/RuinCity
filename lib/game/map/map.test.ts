@@ -24,7 +24,15 @@ import { generateWorld } from "./world";
 
 /** 生成一次就好 —— 整份測試共用，否則每個 case 都要付 0.8 秒 */
 const SEED = 99991;
-const world = generateWorld(SEED, { squads: randomSquads(SEED, 0.25) });
+/**
+ * ★ 小隊清單要**留住**，不能在比較時用 `randomSquads(world.seed, …)` 重算。
+ *   `generateWorld` 換 seed 重試時 `world.seed ≠ SEED`，重算出來的是
+ *   另一組小隊 —— 「分配是決定性的」那個 case 會因此比對到不同的輸入，
+ *   然後報一個看起來像「分配不決定性」的假陽性。
+ *   （這個潛在缺陷在第一次嘗試就過關的年代一直沒被照出來。）
+ */
+const SQUADS = randomSquads(SEED, 0.25);
+const world = generateWorld(SEED, { squads: SQUADS });
 
 describe("決定性亂數", () => {
   it("同一個 seed 產生同一個序列", () => {
@@ -198,47 +206,47 @@ describe("出生點分配", () => {
   });
 
   /**
-   * ★ 真人間距 > 10 格（docs/11 §22.1）。
-   *   散客真人排在每桶點列的**前面**（封盤依序配對），
-   *   彼此以及與小隊叢集的切比雪夫距離 > 10；小隊成員彼此豁免。
+   * ★ 全域間距 ≥ 8 格（docs/11 §22.1）：**全服 600 人**任兩位的
+   *   切比雪夫距離 ≥ 8，真人與 AI 不分 —— 900×900 把這件事從
+   *   「只保護真人的妥協」升級成硬性保證。小隊成員彼此豁免（自願聚落）。
    */
-  it("★ 散客真人彼此（與小隊）相距 > 10 格；AI 不受此限", () => {
-    const humanSolos = [
-      { faction: 1 as const, band: "HEARTLAND" as const, count: 8 },
-      { faction: 2 as const, band: "HEARTLAND" as const, count: 8 },
-      { faction: 1 as const, band: "VANGUARD" as const, count: 5 },
-    ];
+  it("★ 全服任兩位領主相距 ≥ 8 格（小隊成員彼此豁免）", () => {
     const squads = randomSquads(world.seed, 0.1);
-    const alloc = allocateSpawns(world.map, world.ruins, world.split, world.seed, {
-      squads,
-      humanSolos,
-    });
+    const alloc = allocateSpawns(world.map, world.ruins, world.split, world.seed, { squads });
 
-    // 名額一個都不能少
+    // 名額一個都不能少，而且沒有任何一席被迫降級
     for (const f of alloc.fill) expect(f.placed).toBe(f.quota);
-    expect(alloc.humanSpacingShort).toBe(0);
+    expect(alloc.spacingShort).toBe(0);
 
-    // 每桶的前段點位就是真人席：小隊叢集 + 散客真人
-    const byBucket = new Map<string, typeof alloc.points>();
-    for (const p of alloc.points) {
-      const k = `${p.faction}:${p.band}`;
-      byBucket.set(k, [...(byBucket.get(k) ?? []), p]);
-    }
-    const humans: { x: number; y: number; squad: number | null }[] = [];
-    for (const [k, list] of byBucket) {
-      const squadSeats = list.filter((p) => p.squad !== null).length;
-      const soloHumans = humanSolos.find((h) => `${h.faction}:${h.band}` === k)?.count ?? 0;
-      humans.push(...list.slice(0, squadSeats + soloHumans));
-    }
-
-    for (let i = 0; i < humans.length; i++) {
-      for (let j = i + 1; j < humans.length; j++) {
-        const a = humans[i]!;
-        const b = humans[j]!;
+    const pts = alloc.points;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i]!;
+        const b = pts[j]!;
         // 同一小隊的成員自願聚落 —— 豁免
         if (a.squad !== null && a.squad === b.squad) continue;
         const d = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-        expect(d, `真人 (${a.x},${a.y}) 與 (${b.x},${b.y}) 距離只有 ${d}`).toBeGreaterThan(10);
+        expect(
+          d,
+          `(${a.x},${a.y}) 與 (${b.x},${b.y}) 距離只有 ${d}`,
+        ).toBeGreaterThanOrEqual(8);
+      }
+    }
+  });
+
+  it("★ 無小隊時，預設分配的 600 人也全數 ≥ 8 格", () => {
+    const pts = world.spawns.points;
+    expect(world.spawns.spacingShort).toBe(0);
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i]!;
+        const b = pts[j]!;
+        if (a.squad !== null && a.squad === b.squad) continue;
+        const d = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+        expect(
+          d,
+          `(${a.x},${a.y}) 與 (${b.x},${b.y}) 距離只有 ${d}`,
+        ).toBeGreaterThanOrEqual(8);
       }
     }
   });
@@ -312,7 +320,7 @@ describe("出生點分配", () => {
 
   it("分配是決定性的", () => {
     const again = allocateSpawns(world.map, world.ruins, world.split, world.seed, {
-      squads: randomSquads(world.seed, 0.25),
+      squads: SQUADS,
     });
     expect(again.points.map((p) => `${p.x},${p.y}`)).toEqual(
       world.spawns.points.map((p) => `${p.x},${p.y}`),
@@ -393,12 +401,28 @@ describe("玩家空間資料", () => {
     for (const n of counts.values()) expect(n).toBe(ROSTER.playersPerAlliance);
   });
 
-  it("★ 可用地是有限的：有人的地圖空間遠少於主堡能給的領土容量", () => {
+  /**
+   * ★ 可用地仍然是**有限且不均**的，但 900×900 之後它不再是最緊的那道牆。
+   *
+   *   500×500 時代這個 case 斷言「最擠的那位分到的地 < 主堡 Lv27 的
+   *   81 塊容量」—— 地理是真正的天花板。全域間距 8（`11` §22.1）
+   *   把最擠的那位從 ~70 塊推到 110 塊，於是**主堡容量重新變成
+   *   先碰到的那道牆**。這是放大地圖必然的代價，不是缺陷，
+   *   但它是一個平衡面的改變，記在 `11` §22.7。
+   *
+   *   還守得住、也仍然值得釘住的性質：擴張圈（半徑 14 ≈ 615 格）被鄰居
+   *   分掉一大半，而且**人與人之間差很多** —— 空間競爭還在，
+   *   只是不再對每一個人都咬得那麼緊。
+   */
+  it("★ 可用地是有限且不均的（但 900×900 後不再比主堡容量更緊）", () => {
     const tiles = spatial.players.map((p) => p.availableTiles);
     const min = Math.min(...tiles);
+    const max = Math.max(...tiles);
     expect(min).toBeGreaterThan(0);
-    // 主堡 Lv27 給 81 塊容量，但最擠的那位周圍分不到那麼多地
-    expect(min).toBeLessThan(81);
+    // 擴張圈約 615 格，鄰居分掉之後最擠的那位剩不到四成
+    expect(min).toBeLessThan(615 * 0.4);
+    // 住得擠與住得鬆的人差距明顯 —— 出生點仍然是有價值的差異
+    expect(max - min).toBeGreaterThan(60);
   });
 
   it("地形倍率隨著要蓋的數量增加而下降 —— 好地是有限的", () => {

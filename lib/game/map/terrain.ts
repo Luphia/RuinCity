@@ -59,8 +59,16 @@ const N4: readonly (readonly [number, number])[] = [
 /** 山塊小於這個面積就抹平 —— 散落一格的障礙只會讓玩家困惑，不會產生地緣 */
 const MIN_MOUNTAIN_BLOB = 6;
 
-/** RUBBLE 的「古城遺址」中心點數量 */
-const RUBBLE_CENTRES: readonly [number, number] = [40, 60];
+/**
+ * RUBBLE 的「古城遺址」中心點數量。**依地圖面積縮放**（基準：250,000 格
+ * 配 40–60 個）—— 佔比由最後的分位數鎖死，但中心點數決定「遺址的顆粒」：
+ * 900×900 還用 40–60 個的話，每片廢墟會腫成三倍大，而不是更多座古城。
+ */
+const RUBBLE_AREA_BASE = 250_000;
+const RUBBLE_CENTRES: readonly [number, number] = [
+  Math.round((40 * MAP.width * MAP.height) / RUBBLE_AREA_BASE),
+  Math.round((60 * MAP.width * MAP.height) / RUBBLE_AREA_BASE),
+];
 
 /**
  * ★ 半徑 18–42，而不是 `docs/01` §3.1 寫的 3–8。
@@ -313,7 +321,21 @@ function ensurePassableConnectivity(map: TerrainMap): number {
   const { width, height, cells } = map;
   let carved = 0;
 
-  for (let pass = 0; pass < 12; pass++) {
+  /**
+   * ★ 每一輪只鑿開一層，所以輪數上限就是「能打通多厚的山牆」。
+   *
+   *   原本寫死 12，在 500×500 夠用；900×900 的山脈總量是 3.24 倍，
+   *   山塊也長得更厚 —— 12 輪打不穿，於是 0.08% 的可通行格被封在
+   *   口袋裡（`largestPassableShare` 0.9992）。症狀不是「地圖醜」，
+   *   是**那些格子的 Voronoi 擁有者是 −1、成本距離是 Infinity**：
+   *   一位玩家如果生在裡面，他哪裡都去不了，而開賽前沒有任何提示。
+   *
+   *   上限改成隨地圖尺寸走，並且**照樣會提早收斂**（`toCarve` 空了就 break）
+   *   —— 實測 900×900 需要 20 輪上下，這裡留兩倍餘裕。
+   */
+  const maxPasses = Math.max(12, Math.ceil(Math.max(width, height) / 16));
+
+  for (let pass = 0; pass < maxPasses; pass++) {
     const { label, sizes } = passableComponents(map);
     if (sizes.length <= 1) break;
 

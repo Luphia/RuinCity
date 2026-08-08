@@ -110,26 +110,29 @@ export function evaluateFairness(
     format: "cells",
   });
 
-  // (c) 每位玩家 30 格內的鄰居數，全服極差 ≤ 2
+  // (c) 每位玩家 `neighbourRadius` 格內的鄰居數
   //
-  // ★ 同樣改為標準差。極差 ≤ 2 表示「最擠的人與最空的人只能差兩個鄰居」，
-  //   在 Poisson-disk 分佈上不可能——邊界附近的人天生鄰居就少。
-  //   量離散程度才抓得到「有人被塞在人堆裡」這件事。
+  // ★ 原規格是「30 格內極差 ≤ 2」，兩處都改了：
+  //   極差 → 標準差（Poisson-disk 上邊緣的人天生鄰居少，極差不可能 ≤2）；
+  //   半徑 30 → 隨 900×900 等比放大（`FAIRNESS_THRESHOLDS.neighbourRadius`）——
+  //   密度降 3.24 倍後還用 30 格，期望鄰居數只剩 ~7 人，
+  //   小樣本的相對標準差天生就高，同一個 50% 門檻量的是別的東西。
+  const nr = FAIRNESS_THRESHOLDS.neighbourRadius;
   const neighbours = points.map((p) => {
     let n = 0;
     for (const q of points) {
       if (q === p) continue;
-      if (Math.hypot(q.x - p.x, q.y - p.y) <= 30) n++;
+      if (Math.hypot(q.x - p.x, q.y - p.y) <= nr) n++;
     }
     return n;
   });
   const neighbourSd = relStdDev(neighbours);
   checks.push({
     key: "c",
-    label: "30 格內鄰居數的標準差",
-    pass: neighbourSd < 0.5,
+    label: `${nr} 格內鄰居數的標準差`,
+    pass: neighbourSd < FAIRNESS_THRESHOLDS.neighbourStdDev,
     actual: neighbourSd,
-    threshold: 0.5,
+    threshold: FAIRNESS_THRESHOLDS.neighbourStdDev,
     format: "percent",
   });
 

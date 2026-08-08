@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { MAP } from "@/lib/game/balance";
 import type { MapScene, SceneData, SceneStats } from "@/lib/render/scene";
 import {
   centerOn,
@@ -44,8 +45,8 @@ export function MapCanvas({ data, focus, recenterNonce, onSelectTile, onStats }:
 
   // 相機放在 ref 而不是 state：它每幀都會變，用 state 會觸發 React 重繪
   const viewportRef = useRef<Viewport>({
-    centerX: 250,
-    centerY: 250,
+    centerX: MAP.width / 2,
+    centerY: MAP.height / 2,
     tilePixels: 8,
     screenWidth: 1,
     screenHeight: 1,

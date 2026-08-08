@@ -6,7 +6,7 @@
  * 分配必須是可驗證公平的，不能靠隨機祈禱。
  */
 
-import { HUMAN_MIN_SPACING, MAP, SPAWN_BAND, SPAWN_BANDS, SQUAD, type SpawnBand } from "../balance";
+import { MAP, PLAYER_MIN_SPACING, SPAWN_BAND, SPAWN_BANDS, SQUAD, type SpawnBand } from "../balance";
 import { deriveSeed, mulberry32, randRange, shuffle, type Rng } from "../rng";
 import { TERRAIN_CODE, idx, type TerrainMap } from "./terrain";
 import { inNoBuildZone, type RuinSite } from "./ruins";
@@ -36,8 +36,9 @@ export interface SpawnAllocation {
   readonly points: readonly SpawnPoint[];
   /** 每個 (陣營, 環帶) 實際配到的人數與名額 */
   readonly fill: { faction: FactionId; band: SpawnBand; placed: number; quota: number }[];
-  /** 有幾位真人塞不進真人間距、降級成一般間距（名額不會少，只是離得近） */
-  readonly humanSpacingShort: number;
+  /** 有幾席塞不進 `PLAYER_MIN_SPACING`、降級成核心間距（名額不會少，只是離得近）。
+      900×900 下應恆為 0 —— 這個計數存在是為了讓失敗看得見（`11` §22.1） */
+  readonly spacingShort: number;
   /** 有多少小隊沒能整組放在一起 */
   readonly brokenSquads: number;
 }
@@ -84,10 +85,33 @@ interface BandCell {
  * 實測標準差 87%。換再多 seed 也沒用，因為問題不在地形而在選點。
  *
  * 這兩項檢查管的本來就是**玩家被放在哪裡**，不是地形長什麼樣。
- * 所以分配器先把候選格篩到「鄰域統計接近全服中位數」的那一批，
- * 再做 Poisson-disk —— 地形依舊成群，但沒有人因為出生點而先贏一步。
+ *
+ * ★ 500×500 時代的做法是「容忍度閾值池」：把候選篩到中位數 ±tol 再取樣。
+ *   全域間距 8 之後那條路走不通 —— 每一席在間距 8 下消耗
+ *   ~8²/0.56 ≈ 114 格的取樣面積（貪婪序列吸附的擁塞密度），
+ *   池子要裝得下配額，容忍度就得放到接近不篩，(d) 直接炸到 40%。
+ *   改成**分數排序的貪婪取樣**：每格算「離全服中位數多遠」的公平分數，
+ *   洗牌後穩定排序、分數低的先拿、間距硬性擋 —— 公平性從二元門檻
+ *   變成最佳化目標，間距逼一席讓步時，它讓到「次接近中位數」的格子，
+ *   而不是掉進完全不篩的池子。分數量化成 0.04 的階（同分保留洗牌順序），
+ *   同分格子之間仍是藍雜訊。
  */
-const NEIGHBOURHOOD_TOLERANCE = 0.1;
+const SCORE_QUANTUM = 0.02;
+
+/**
+ * ★ 理想間距（分佈品質）與地形公平（檢查 d）是**直接對立**的兩件事：
+ *   前者要求 600 人鋪滿整個環帶，後者要求大家都住在「鄰域統計接近
+ *   中位數」的那一小撮格子上，而那撮格子是成群的。
+ *
+ *   `docs/13` §3 步驟 4 的 `sqrt(面積/人數) × 0.8`（中原帶約 16 格）
+ *   是在**沒有**全域最小間距的年代訂的 —— 那時它是唯一防止擠成一團的
+ *   機制。現在間距 8 是硬性保證（`PLAYER_MIN_SPACING`），
+ *   理想間距只剩「別讓半個環帶空著」這個較弱的目的，
+ *   所以係數從 0.8 降到 0.35（中原帶約 8.7 格，實際仍受 8 格下限保護）。
+ *
+ *   實測（seed 99991）：0.8 → 檢查 (d) 42%；0.35 → 見 `11` §22.7 的表。
+ */
+const SPREAD_FACTOR = 0.35;
 
 /**
  * ★ 出生點之間的**硬性**下限，切比雪夫距離。
@@ -163,9 +187,12 @@ function poissonPick(
   count: number,
   minSpacing: number,
   blocker: Blocker = createBlocker(),
+  score?: (c: BandCell) => number,
+  caps?: StratumCaps,
 ): BandCell[] {
   if (count <= 0) return [];
   const picked: BandCell[] = [];
+  const capUsed = caps ? new Int32Array(caps.caps.length) : null;
 
   // 空間雜湊：格寬 = 最小間距，只需檢查 3×3 個桶。
   // 格寬不得小於硬性下限，否則 3×3 的鄰域看不到該擋的那個點
@@ -191,16 +218,31 @@ function poissonPick(
     return true;
   };
 
+  /** 分層軟上限：這一層已經拿夠了就跳過（`StratumCaps` 的說明） */
+  const capOk = (c: BandCell) =>
+    !caps || capUsed![caps.keyOf(c)]! < caps.caps[caps.keyOf(c)]!;
+
   const add = (c: BandCell) => {
     picked.push(c);
     blocker.take(c.x, c.y);
+    if (caps) capUsed![caps.keyOf(c)]!++;
     const k = key(c.x, c.y);
     const list = buckets.get(k);
     if (list) list.push(c);
     else buckets.set(k, [c]);
   };
 
+  /**
+   * 洗牌決定同分格子之間的順序（藍雜訊），再依**公平分數**穩定排序 ——
+   * 分數低（離全服中位數近）的先拿。分數量化成階（`SCORE_QUANTUM`），
+   * 所以同一階內仍然是洗牌後的隨機順序：公平是目標，不是逐格的最佳化。
+   */
   const pool = shuffle(rng, cells.slice());
+  if (score) {
+    const q = new Map<BandCell, number>();
+    for (const c of pool) q.set(c, Math.round(score(c) / SCORE_QUANTUM));
+    pool.sort((a, b) => q.get(a)! - q.get(b)!);
+  }
   const used = new Set<number>();
 
   // 逐步放寬間距：先用理想間距鋪滿，不夠再降低要求。
@@ -211,6 +253,7 @@ function poissonPick(
       const k = c.y * 100000 + c.x;
       if (used.has(k)) continue;
       if (!blocker.free(c)) continue;
+      if (!capOk(c)) continue;
       if (!farEnough(c, spacing)) continue;
       used.add(k);
       add(c);
@@ -228,10 +271,20 @@ function poissonPick(
     const k = c.y * 100000 + c.x;
     if (used.has(k)) continue;
     if (!blocker.free(c)) continue;
+    if (!capOk(c)) continue;
     used.add(k);
     add(c);
   }
   return picked;
+}
+
+/**
+ * 分層軟上限。`keyOf` 把一格對應到它的分層索引，`caps[i]` 是那一層
+ * 最多能拿幾席 —— 「軟」的意思是：拿不滿時呼叫端會再跑一次不帶上限的補位。
+ */
+interface StratumCaps {
+  readonly keyOf: (c: BandCell) => number;
+  readonly caps: readonly number[];
 }
 
 /**
@@ -250,42 +303,51 @@ function pickStratified(
   count: number,
   minSpacing: number,
   blocker: Blocker = createBlocker(),
+  score?: (c: BandCell) => number,
   strata = 5,
 ): BandCell[] {
   if (count <= 0 || cells.length === 0) return [];
   const lo = Math.min(...cells.map((c) => c.d));
   const hi = Math.max(...cells.map((c) => c.d));
-  if (hi - lo < 1e-6) return poissonPick(rng, cells, count, minSpacing, blocker);
+  if (hi - lo < 1e-6) return poissonPick(rng, cells, count, minSpacing, blocker, score);
 
+  /**
+   * ★ 分層是**軟上限**，不是硬配額。
+   *
+   *   舊版把環帶切五層、每層各自取樣同樣多人。它確實壓住了檢查 (b)，
+   *   但也把公平分數的選擇權切碎了：某一層的地形若整片偏離中位數，
+   *   那一層的席位只能挑該層最不糟的格子 —— 全域間距 8 之後這個代價
+   *   直接讓檢查 (d) 從 14% 惡化到 27%（同一張圖、同一組 seed）。
+   *
+   *   改成「一次貪婪 + 每層上限 `SLACK` 倍的均分」：分數低的先拿，
+   *   但沒有任何一層能吃掉超過 1.5 倍的份額 —— 距離分佈仍然鋪得開
+   *   （檢查 b 的三陣營均距差維持在 3 格以內），地形選擇卻回到全域最佳。
+   */
+  const SLACK = 1.5;
   const width = (hi - lo) / strata;
-  const groups: BandCell[][] = Array.from({ length: strata }, () => []);
-  for (const c of cells) {
-    const g = Math.min(strata - 1, Math.floor((c.d - lo) / width));
-    groups[g]!.push(c);
-  }
+  const keyOf = (c: BandCell) => Math.min(strata - 1, Math.floor((c.d - lo) / width));
+  const caps = Array.from({ length: strata }, () => Math.ceil((count / strata) * SLACK));
 
   const out: BandCell[] = [];
   const seen = new Set<number>();
-  for (let g = 0; g < strata; g++) {
-    // 前面若有分層抽不滿，缺額往後面的層補
-    const want = Math.round(((g + 1) * count) / strata) - out.length;
-    for (const c of poissonPick(rng, groups[g]!, want, minSpacing, blocker)) {
-      const k = c.y * 100000 + c.x;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(c);
-    }
-  }
-
-  // 還是不夠就從整個環帶補
-  if (out.length < count) {
-    for (const c of poissonPick(rng, cells, count * 2, minSpacing * 0.5)) {
+  const take = (list: readonly BandCell[]) => {
+    for (const c of list) {
       if (out.length >= count) break;
       const k = c.y * 100000 + c.x;
       if (seen.has(k)) continue;
       seen.add(k);
       out.push(c);
     }
+  };
+
+  take(poissonPick(rng, cells, count, minSpacing, blocker, score, { keyOf, caps }));
+
+  // 上限擋掉之後還不夠 → 放掉上限再補（名額優先於分佈品質）。
+  // ★ 這裡也要用**同一份**跨呼叫佔位表 —— 早期版本在這條保底路徑
+  //   忘了傳 blocker（用了函式簽章的預設新表），就是 §20.4
+  //   「600 人裡有人核心重疊」那一類靜默資料損壞的溫床。
+  if (out.length < count) {
+    take(poissonPick(rng, cells, count - out.length, minSpacing * 0.5, blocker, score));
   }
   return out.slice(0, count);
 }
@@ -293,13 +355,6 @@ function pickStratified(
 export interface AllocateOptions {
   /** 同行小隊。未指定時全部視為散客 */
   readonly squads?: readonly SquadRequest[];
-  /**
-   * 每個 (陣營, 環帶) 的**散客真人**數（`docs/11` §22.1）。
-   * 這些席位彼此（以及與小隊）保持 `HUMAN_MIN_SPACING` 的硬性間距，
-   * 而且排在該桶點列的**前面** —— 封盤的依序配對會讓真人拿到它們。
-   * AI 之間維持 `HARD_MIN_SPACING`：全服 600 人一律 11 在幾何上不可行。
-   */
-  readonly humanSolos?: readonly { faction: FactionId; band: SpawnBand; count: number }[];
 }
 
 /**
@@ -378,33 +433,21 @@ export function allocateSpawns(
   const targetValuable = median(allCells.map((c) => c.valuable));
 
   /**
-   * 把候選格篩到接近中位數的那一批。逐步放寬容忍度，
-   * 直到剩下的候選**塞得下**這麼多人。
+   * 公平分數：這一格的鄰域統計離**全服中位數**有多遠（相對誤差）。
+   * 0 = 完全在中位數上。取樣時分數低的先拿 —— 見 `SCORE_QUANTUM`。
    *
-   * ★ 「塞得下」的門檻是 `HARD_MIN_SPACING` 推出來的，不是隨手挑的倍數。
-   *   切比雪夫下限 d 表示每個人至少獨佔一個 d×d 的格子，
-   *   而候選區是被 Voronoi 與山脈裁得坑坑疤疤的不規則形狀、又是貪婪取樣，
-   *   所以再留 1.5 倍餘裕。d = 2 時剛好是 6 —— 與這裡原本寫死的 6 一致，
-   *   那個常數本來就隱含著「核心 2×2 不能疊」這件事，只是沒寫出來。
-   *
-   * 回傳的是一**階梯**：最緊的池子在前，逐步放寬，最後一階是完全不篩。
-   * 取樣先從最緊的那一階拿，拿不滿才往下一階要 —— 所以只有真的塞不下的
-   * 那幾個人會落到比較鬆的池子裡，而不是整個環帶一起放寬。
+   * ★ 兩項**不是等權**。高價值地形（LODE/FOREST）是雜訊的高分位數、
+   *   天生成群，全候選格的相對標準差 97%；可建設格數則平坦得多
+   *   （檢查 a 實測 2%，門檻 8%）。等權相加的話，可建設那一項的
+   *   小抖動會把高價值那一項的排序打散 —— 明明只有 (d) 是瓶頸，
+   *   卻讓不是瓶頸的那一項決定誰先拿。權重 0.15 讓它只當同分時的鑑別。
    */
-  const minPoolMultiple = HARD_MIN_SPACING * HARD_MIN_SPACING * 1.5;
-  const fairPools = (cells: BandCell[], quota: number): BandCell[][] => {
-    const pools: BandCell[][] = [];
-    for (let tol = NEIGHBOURHOOD_TOLERANCE; tol <= 1.5 && pools.length < 3; tol *= 1.35) {
-      const kept = cells.filter(
-        (c) =>
-          Math.abs(c.buildable - targetBuildable) <= targetBuildable * tol &&
-          Math.abs(c.valuable - targetValuable) <= targetValuable * tol,
-      );
-      if (kept.length >= quota * minPoolMultiple) pools.push(kept);
-    }
-    pools.push(cells);
-    return pools;
-  };
+  const BUILDABLE_WEIGHT = 0.15;
+  const fairScore = (c: BandCell): number =>
+    (targetValuable > 0 ? Math.abs(c.valuable - targetValuable) / targetValuable : 0) +
+    (targetBuildable > 0
+      ? (BUILDABLE_WEIGHT * Math.abs(c.buildable - targetBuildable)) / targetBuildable
+      : 0);
 
   // ── 每桶各自取樣 ─────────────────────────────────────────
   const points: SpawnPoint[] = [];
@@ -414,39 +457,47 @@ export function allocateSpawns(
   const blocker = createBlocker();
 
   /**
-   * ★ 真人間距（`docs/11` §22.1）：真人與真人 > 10 格（切比雪夫），
-   *   跨桶共用一份佔位表。AI 不進這份表 —— 全服 600 人一律 11
-   *   在幾何上塞不下（中原帶上限 ~68 席 < 配額 100）。
-   *   小隊成員彼此豁免：叢集先擺好、再整組記進表裡。
+   * ★ 全域間距（`docs/11` §22.1）：任兩位領主 ≥ `PLAYER_MIN_SPACING`（8，
+   *   切比雪夫），真人與 AI 一視同仁，跨桶共用一份佔位表。
+   *   小隊成員彼此豁免（自願聚落）：叢集先擺好、再整組記進表裡 ——
+   *   陌生人與小隊成員之間仍然 ≥ 8，只有隊友彼此可以更近。
+   *   500×500 時代這裡只保護真人（HUMAN_MIN_SPACING = 11，全服一律 11
+   *   幾何上塞不下）；900×900 之後全域 8 是硬性保證，人機之別退役。
    */
-  const humanBlocker = createBlocker(HUMAN_MIN_SPACING - 1);
-  const humanPick = composeBlockers(blocker, humanBlocker);
-  let humanSpacingShort = 0;
-  const humanSoloCount = (f: FactionId, b: SpawnBand) =>
-    (opts.humanSolos ?? []).find((h) => h.faction === f && h.band === b)?.count ?? 0;
+  const spacingBlocker = createBlocker(PLAYER_MIN_SPACING - 1);
+  const spaced = composeBlockers(blocker, spacingBlocker);
+  let spacingShort = 0;
 
   for (const f of [1, 2, 3] as const) {
     for (const b of SPAWN_BANDS) {
       const quota = SPAWN_BAND[b].quota;
-      const pools = fairPools(buckets.get(bucketKey(f, b))!, quota);
-      const cells = pools[0]!;
+      /**
+       * 整個環帶都是候選 —— 公平性由 `fairScore` 的排序負責，
+       * 不再先篩掉一批格子。舊的「容忍度池階梯」在全域間距 8 下
+       * 會讓緊的池子整層開不了，席位直接漏到不篩的那一階（(d) 炸到 40%）。
+       */
+      const cells = buckets.get(bucketKey(f, b))!;
 
       // docs/13 §3 步驟 4：r = sqrt(可用面積 / 人數) × 0.8
-      const spacing = Math.sqrt(cells.length / Math.max(1, quota)) * 0.8;
+      const spacing = Math.max(
+        PLAYER_MIN_SPACING,
+        Math.sqrt(cells.length / Math.max(1, quota)) * SPREAD_FACTOR,
+      );
 
       const squads = (opts.squads ?? []).filter((s) => s.faction === f && s.band === b);
       const squadSeats = squads.reduce((s, q) => s + Math.min(SQUAD.maxMembers, q.size), 0);
       const soloSeats = Math.max(0, quota - squadSeats);
 
       // 先放小隊的「隊長」，彼此拉開；再放散客。
-      // 小隊是真人：隊長的落點要避開其他真人（humanBlocker.free），
-      // 但整個叢集**擺好之後**才記進真人佔位表 —— 隊員彼此豁免（自願聚落）
+      // 隊長本身是一席，走全域間距（複合佔位表）；
+      // 隊員在叢集**擺好之後**才整組記進間距表 —— 隊友彼此豁免（自願聚落）
       const anchors = pickStratified(
         rng,
-        cells.filter((c) => humanBlocker.free(c)),
+        cells.filter(spacingBlocker.free),
         squads.length,
         spacing * 1.4,
-        blocker,
+        spaced,
+        fairScore,
       );
       const taken: BandCell[] = [];
 
@@ -458,16 +509,16 @@ export function allocateSpawns(
         }
         const code = ++squadCounter;
         const size = Math.min(SQUAD.maxMembers, squad.size);
-        // 隊員落在隊長周圍 8–15 格 —— 一起開始，但不是一支軍隊
+        // 隊員落在隊長周圍 8–15 格 —— 一起開始，但不是一支軍隊。
+        // 對**陌生人**仍要守全域間距（spacingBlocker.free），只對隊友豁免
         const near = cells.filter((c) => {
-          if (!blocker.free(c) || !humanBlocker.free(c)) return false;
+          if (!blocker.free(c) || !spacingBlocker.free(c)) return false;
           const dd = Math.hypot(c.x - anchor.x, c.y - anchor.y);
           return dd >= SQUAD.clusterSpacing[0] && dd <= SQUAD.clusterSpacing[1];
         });
-        const members = poissonPick(rng, near, size - 1, 4, blocker);
+        const members = poissonPick(rng, near, size - 1, 4, blocker, fairScore);
         if (members.length < size - 1) brokenSquads++;
         for (const c of [anchor, ...members]) {
-          humanBlocker.take(c.x, c.y);
           taken.push(c);
           points.push({
             x: c.x,
@@ -479,50 +530,45 @@ export function allocateSpawns(
             squad: code,
           });
         }
+        // 叢集擺好，整組記進間距表 —— 之後的每一席都離他們 ≥ 8
+        for (const c of [anchor, ...members]) spacingBlocker.take(c.x, c.y);
       });
 
-      /**
-       * ★ 散客真人先挑（複合佔位表：一般間距 + 真人間距），
-       *   而且**排在點列前面** —— 封盤依序配對，真人席位在前，
-       *   自然拿到這些點。塞不下的降級成一般間距（名額不能少人）。
-       */
-      const wantHumans = Math.min(humanSoloCount(f, b), soloSeats);
-      const humanSolos =
-        wantHumans > 0
-          ? pickStratified(rng, cells.filter(humanBlocker.free), wantHumans, spacing, humanPick)
-          : [];
-      humanSpacingShort += Math.max(0, wantHumans - humanSolos.length);
-      for (const c of humanSolos) {
-        points.push({
-          x: c.x,
-          y: c.y,
-          faction: f,
-          band: b,
-          ruinDistance: c.d,
-          region: regionOf(c.x, c.y),
-          squad: null,
-        });
-      }
-
-      // 其餘散客（AI 與塞不下的真人）：排除已被佔掉的位置附近
-      const free = cells.filter(blocker.free);
-      const solos = pickStratified(rng, free, soloSeats - humanSolos.length, spacing, blocker);
+      // 散客：真人與 AI 同一條規則，一律走全域間距（核心 2 + 間距 8）。
+      // 分層取樣照顧遺跡距離（檢查 b），fairScore 照顧地形（檢查 a、d）
+      const solos = pickStratified(
+        rng,
+        cells.filter(spaced.free),
+        soloSeats,
+        spacing,
+        spaced,
+        fairScore,
+      );
 
       /**
-       * ★ 最緊的池子不一定塞得下整個環帶（不規則形狀 + 貪婪取樣的末端會卡住）。
-       *   缺的人往階梯的下一階要，一階一階放寬，而不是一次跳到完全不篩 ——
-       *   跳到底會讓公平性檢查 (d) 從 8.6% 惡化到 12.2%，剛好壓線失敗。
+       * 保底：塞不進全域間距時，逐席降級成核心間距 ——
+       * 名額永遠不能少人（少一席 = 換 seed 白跑一整輪世界生成）。
+       * 降級席位計數（spacingShort），封盤 log 要講出來；
+       * 降級的席位仍記進間距表，後面的席位照樣離他 ≥ 8。
        *
-       *   放寬的是**公平性篩選**，不是硬性下限。少一個人會讓
-       *   `generateWorld` 白白換 seed 重跑一次；兩個人疊在一起則是靜默的資料損壞。
+       * ★ 900×900 下這條路徑不該被走到（每帶有 3–4 倍的幾何餘裕，
+       *   `11` §22.1）。它存在只是為了讓「塞不下」變成一個看得見的數字，
+       *   而不是靜默地少人或靜默地擠在一起。
        */
       const extra: BandCell[] = [];
-      for (let p = 1; p < pools.length; p++) {
-        const short = quota - taken.length - humanSolos.length - solos.length - extra.length;
-        if (short <= 0) break;
-        // 仍然走分層取樣 —— 補位的人也要照遺跡距離鋪開，
-        // 否則公平性檢查 (b) 的環帶平均距離會被這幾個人拉歪
-        extra.push(...pickStratified(rng, pools[p]!.filter(blocker.free), short, spacing, blocker));
+      const stillShort = quota - taken.length - solos.length;
+      if (stillShort > 0) {
+        const degraded = pickStratified(
+          rng,
+          cells.filter(blocker.free),
+          stillShort,
+          spacing,
+          blocker,
+          fairScore,
+        );
+        spacingShort += degraded.length;
+        for (const c of degraded) spacingBlocker.take(c.x, c.y);
+        extra.push(...degraded);
       }
 
       for (const c of [...solos, ...extra]) {
@@ -540,13 +586,13 @@ export function allocateSpawns(
       fill.push({
         faction: f,
         band: b,
-        placed: taken.length + humanSolos.length + solos.length + extra.length,
+        placed: taken.length + solos.length + extra.length,
         quota,
       });
     }
   }
 
-  return { points, fill, brokenSquads, humanSpacingShort };
+  return { points, fill, brokenSquads, spacingShort };
 }
 
 /** 依 `SQUAD` 上限隨機產生一批同行小隊（測試與模擬用） */

@@ -51,7 +51,7 @@ function marchCostTable(): Float64Array {
 /**
  * 多源 Dijkstra。
  *
- * 250,000 格 × 8 鄰居用二元堆積約 30–60 ms，不需要更複雜的結構。
+ * 810,000 格 × 8 鄰居用二元堆積約 100–200 ms，不需要更複雜的結構。
  * 堆積用兩個平行的 typed array 手寫，避免每個節點都配置一個物件。
  */
 export function splitRegions(map: TerrainMap, sites: readonly RuinSite[]): RegionSplit {

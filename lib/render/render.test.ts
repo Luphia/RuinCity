@@ -31,8 +31,8 @@ import {
 
 /** 一支典型的手機（iPhone 14 的 CSS 像素） */
 const phone = (over: Partial<Viewport> = {}): Viewport => ({
-  centerX: 250,
-  centerY: 250,
+  centerX: MAP.width / 2,
+  centerY: MAP.height / 2,
   tilePixels: 8,
   screenWidth: 390,
   screenHeight: 844,
@@ -119,9 +119,15 @@ describe("相機邊界", () => {
   });
 
   it("★ 地圖比畫面小的時候鎖在正中央", () => {
-    // L3 全圖只有 1000×1000 px，比 1600 寬的桌機視窗窄
+    // L3 全圖 1800×1800 px 仍比視窗大，所以這裡刻意把每格縮到 1px 以下的等效情境：
+    // 用一個比整張圖還寬的視窗（tilePixels 2 → 需要 > 1800px 才裝得下）
     const v = clampViewport(
-      phone({ tilePixels: 2, screenWidth: 1600, screenHeight: 1200, centerX: 10 }),
+      phone({
+        tilePixels: 2,
+        screenWidth: MAP.width * 2 + 100,
+        screenHeight: MAP.height * 2 + 100,
+        centerX: 10,
+      }),
     );
     expect(v.centerX).toBe(MAP.width / 2);
     expect(v.centerY).toBe(MAP.height / 2);
@@ -145,9 +151,9 @@ describe("座標轉換", () => {
   it("world → screen → world 來回一致", () => {
     const v = phone();
     for (const [tx, ty] of [
-      [250, 250],
+      [Math.floor(MAP.width / 2), Math.floor(MAP.height / 2)],
       [0, 0],
-      [499, 499],
+      [MAP.width - 1, MAP.height - 1],
     ] as const) {
       const s = worldToScreen(v, tx, ty);
       // 加半格避免落在邊界上被 floor 到前一格
@@ -187,20 +193,25 @@ describe("視野剔除", () => {
     const tilesL1 = (l1.maxX - l1.minX + 1) * (l1.maxY - l1.minY + 1);
     expect(tilesL1).toBeLessThan(1000);
 
-    const l3 = visibleTiles(phone({ tilePixels: 2, screenWidth: 1200, screenHeight: 1200 }));
+    // 每格 2px 時整張圖是 1800×1800 —— 視窗給滿才看得到全圖
+    const l3 = visibleTiles(
+      phone({ tilePixels: 2, screenWidth: MAP.width * 2, screenHeight: MAP.height * 2 }),
+    );
     expect(l3.minX).toBe(0);
     expect(l3.maxX).toBe(MAP.width - 1);
   });
 
-  it("★ 不論縮放到哪一級，chunk 數都遠小於 250,000 格", () => {
+  it("★ 不論縮放到哪一級，chunk 數都遠小於整張地圖的格數", () => {
     // 這正是「一格一 sprite 不可行、一 chunk 一 sprite 可行」的量化證據
     for (const tilePixels of [2, 8, 32]) {
       const chunks = visibleChunks(visibleTiles(phone({ tilePixels })));
       expect(chunks.length).toBeLessThanOrEqual(CHUNK_COUNT);
       expect(chunks.length).toBeGreaterThan(0);
     }
-    // 全圖也只有 64 個
-    expect(CHUNK_COUNT).toBe(64);
+    // 全圖的 chunk 數由地圖尺寸決定（900×900 → 15×15 = 225），
+    // 而格數是 810,000 —— 差了三個數量級，這就是分 chunk 的全部理由
+    expect(CHUNK_COUNT).toBe(Math.ceil(MAP.width / CHUNK_SIZE) * Math.ceil(MAP.height / CHUNK_SIZE));
+    expect(CHUNK_COUNT * 1000).toBeLessThan(MAP.width * MAP.height);
   });
 
   it("L1 在手機上只需要 1–4 個 chunk", () => {
@@ -212,11 +223,14 @@ describe("視野剔除", () => {
     expect(chunkOfTile(0, 0)).toEqual({ cx: 0, cy: 0 });
     expect(chunkOfTile(63, 63)).toEqual({ cx: 0, cy: 0 });
     expect(chunkOfTile(64, 64)).toEqual({ cx: 1, cy: 1 });
-    expect(chunkOfTile(MAP.width - 1, MAP.height - 1)).toEqual({ cx: 7, cy: 7 });
+    expect(chunkOfTile(MAP.width - 1, MAP.height - 1)).toEqual({
+      cx: Math.floor((MAP.width - 1) / CHUNK_SIZE),
+      cy: Math.floor((MAP.height - 1) / CHUNK_SIZE),
+    });
   });
 
   it("靠近畫面中心的 chunk 排在前面（先載入重要的）", () => {
-    const all = visibleChunks({ minX: 0, minY: 0, maxX: 499, maxY: 499 });
+    const all = visibleChunks({ minX: 0, minY: 0, maxX: MAP.width - 1, maxY: MAP.height - 1 });
     const sorted = sortByDistanceToCenter(all, 32, 32);
     expect(sorted[0]).toEqual({ cx: 0, cy: 0 });
   });
@@ -242,14 +256,15 @@ describe("chunk 貼圖", () => {
   });
 
   it("超出地圖的部分是全透明（邊界是深淵）", () => {
-    // 500 / 64 = 7.8，所以第 7 個 chunk 有一部分在界外
+    // 最後一欄的 chunk 有一部分在界外（900 / 64 = 14.06 → cx = 14 只有 4 格在界內）
+    const last = Math.floor((MAP.width - 1) / CHUNK_SIZE);
+    const insideSpan = MAP.width - last * CHUNK_SIZE; // 界內還剩幾格
+    expect(insideSpan).toBeLessThan(CHUNK_SIZE); // 否則這個 case 沒有意義
     const codes = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE).fill(TERRAIN_CODE.PLAIN);
-    const rgba = chunkToRGBA(codes, 7, 7);
-    // 世界座標 (7*64+20, 7*64) = (468, 448) 在界內
-    const inside = (0 * CHUNK_SIZE + 20) * 4;
+    const rgba = chunkToRGBA(codes, last, 0);
+    const inside = (0 * CHUNK_SIZE + insideSpan - 1) * 4;
     expect(rgba[inside + 3]).toBe(255);
-    // (7*64+60, 448) = (508, 448) 在界外
-    const outside = (0 * CHUNK_SIZE + 60) * 4;
+    const outside = (0 * CHUNK_SIZE + insideSpan) * 4;
     expect(rgba[outside + 3]).toBe(0);
   });
 

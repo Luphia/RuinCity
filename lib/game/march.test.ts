@@ -12,13 +12,18 @@ function minutes(seconds: number) {
 
 describe("行軍時間", () => {
   it("符合 docs/04 §2.3 的實例表", () => {
+    /**
+     * ★ 距離是 900×900 的（500×500 的舊表 ×1.8），**時間一格沒動** ——
+     *   `MARCH_SCALE` 同步 2 → 3.6，所以每一種情境花的真實時間不變。
+     *   這正是「地圖放大只改幾何、不改節奏」的可測形式（`11` §22.7）。
+     */
     const cases: [string, number, Parameters<typeof marchTime>[0]["army"], number][] = [
-      ["打隔壁鄰居（劍士）", 10, { SWORDSMAN: 100 }, 15],
-      ["打隔壁鄰居（掠奪騎兵）", 10, { RAIDER: 100 }, 7.5],
-      ["區域衝突（劍士）", 40, { SWORDSMAN: 100 }, 60],
-      ["區域衝突（帶攻城車）", 40, { SWORDSMAN: 100, RAM: 10 }, 100],
-      ["打自家遺跡", 80, { SWORDSMAN: 100 }, 120],
-      ["跨陣營遺跡", 200, { SWORDSMAN: 100 }, 300],
+      ["打隔壁鄰居（劍士）", 18, { SWORDSMAN: 100 }, 15],
+      ["打隔壁鄰居（掠奪騎兵）", 18, { RAIDER: 100 }, 7.5],
+      ["區域衝突（劍士）", 72, { SWORDSMAN: 100 }, 60],
+      ["區域衝突（帶攻城車）", 72, { SWORDSMAN: 100, RAM: 10 }, 100],
+      ["打自家遺跡", 144, { SWORDSMAN: 100 }, 120],
+      ["跨陣營遺跡", 360, { SWORDSMAN: 100 }, 300],
     ];
 
     for (const [label, d, army, expectedMinutes] of cases) {
@@ -28,21 +33,21 @@ describe("行軍時間", () => {
   });
 
   it("跨陣營攻城遠征在物理上不可能直達", () => {
-    // 200 格帶投石機 → 10 小時 → 超過 8 小時上限
+    // 360 格帶投石機 → 10 小時 → 超過 8 小時上限
     const siege = marchTime({
       from: at(0, 0),
-      to: at(200, 0),
+      to: at(360, 0),
       army: { SWORDSMAN: 100, CATAPULT: 20 },
     });
     expect(minutes(siege.seconds)).toBeCloseTo(600, 0);
     expect(siege.exceedsLimit).toBe(true);
 
-    // 跨圖 350 格連純劍士都超過
-    const crossMap = marchTime({ from: at(0, 0), to: at(350, 0), army: { SWORDSMAN: 100 } });
+    // 跨圖 630 格連純劍士都超過
+    const crossMap = marchTime({ from: at(0, 0), to: at(630, 0), army: { SWORDSMAN: 100 } });
     expect(crossMap.exceedsLimit).toBe(true);
 
-    // 但同樣的部隊在 200 格內可以直達 → 前哨營是唯一解
-    expect(marchTime({ from: at(0, 0), to: at(200, 0), army: { SWORDSMAN: 100 } }).exceedsLimit)
+    // 但同樣的部隊在 360 格內可以直達 → 前哨營是唯一解
+    expect(marchTime({ from: at(0, 0), to: at(360, 0), army: { SWORDSMAN: 100 } }).exceedsLimit)
       .toBe(false);
   });
 
@@ -63,10 +68,10 @@ describe("行軍時間", () => {
 
   it("冬季行軍變慢，會讓臨界的遠征退出射程", () => {
     const army = { SWORDSMAN: 100 };
-    const summer = marchTime({ from: at(0, 0), to: at(300, 0), army });
+    const summer = marchTime({ from: at(0, 0), to: at(540, 0), army });
     const winter = marchTime({
       from: at(0, 0),
-      to: at(300, 0),
+      to: at(540, 0),
       army,
       season: SEASON_MODIFIERS.WINTER,
     });
@@ -79,15 +84,15 @@ describe("行軍時間", () => {
   it("純騎兵部隊才吃獸廄加成", () => {
     const bonus = { stableBonus: 0.2 };
     const pureCav = marchTime({
-      from: at(0, 0), to: at(40, 0), army: { RAIDER: 10 }, speedBonus: bonus,
+      from: at(0, 0), to: at(72, 0), army: { RAIDER: 10 }, speedBonus: bonus,
     });
     const mixed = marchTime({
-      from: at(0, 0), to: at(40, 0), army: { RAIDER: 10, SWORDSMAN: 1 }, speedBonus: bonus,
+      from: at(0, 0), to: at(72, 0), army: { RAIDER: 10, SWORDSMAN: 1 }, speedBonus: bonus,
     });
-    const pureCavNoBonus = marchTime({ from: at(0, 0), to: at(40, 0), army: { RAIDER: 10 } });
+    const pureCavNoBonus = marchTime({ from: at(0, 0), to: at(72, 0), army: { RAIDER: 10 } });
 
     expect(pureCav.speed).toBeCloseTo(pureCavNoBonus.speed * 1.2, 5);
-    expect(mixed.speed).toBe(40); // 劍士 20 × MARCH_SCALE，無加成
+    expect(mixed.speed).toBe(72); // 劍士 20 × MARCH_SCALE(3.6)，無加成
   });
 
   it("空部隊回傳 Infinity 而不是 NaN", () => {

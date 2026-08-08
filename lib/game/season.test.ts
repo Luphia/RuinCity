@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { SPAWN_BAND, SQUAD } from "./balance";
 import {
-  humanSoloCountsFrom,
   BASE_STARTING_RESOURCES,
   bonusTerritoryCapacity,
   FACTION_CAPACITY,
@@ -277,17 +276,5 @@ describe("registrationOpen", () => {
   });
 });
 
-describe("humanSoloCountsFrom：散客真人的間距名單", () => {
-  it("小隊成員不算散客；不足 2 人的小隊算散客", () => {
-    const counts = humanSoloCountsFrom([
-      { faction: 1, band: "VANGUARD", squadCode: "AAA" },
-      { faction: 1, band: "VANGUARD", squadCode: "AAA" },
-      { faction: 1, band: "VANGUARD", squadCode: null },
-      { faction: 1, band: "VANGUARD", squadCode: "SOLO" }, // 一人小隊 = 散客
-      { faction: 2, band: "FRONTIER", squadCode: null },
-    ]);
-    expect(counts).toContainEqual({ faction: 1, band: "VANGUARD", count: 2 });
-    expect(counts).toContainEqual({ faction: 2, band: "FRONTIER", count: 1 });
-    expect(counts).toHaveLength(2);
-  });
-});
+// humanSoloCountsFrom 已退役：900×900 之後全域間距 8 一體適用（docs/11 §22.1），
+// 分配器不再需要「散客真人」名單。間距保證的測試在 lib/game/map/map.test.ts。

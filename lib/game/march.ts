@@ -27,7 +27,7 @@ export function distance(a: Point, b: Point): number {
  * 沿起訖直線等距取樣，回傳平均行軍係數。
  *
  * 山脈以 ×2.5 計，抽象表示繞路 —— **v1 不做真實 A\* 尋路**。
- * 這是刻意的簡化：250,000 格的路徑計算太貴，而地形係數的平均值
+ * 這是刻意的簡化：810,000 格的路徑計算太貴，而地形係數的平均值
  * 已經足以讓「穿越山區很慢」這件事在遊戲裡成立。
  */
 export function sampleTerrainFactor(
