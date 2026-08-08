@@ -24,6 +24,16 @@ import {
   type Squad,
 } from "@/lib/game/battlefield";
 import { citadelSceneSvg, GRID, type SceneSlot } from "@/lib/game/citadel";
+import {
+  pickAnim,
+  renderSoldier,
+  SOLDIER_SIZE,
+  type AnimEvents,
+  type SoldierAnim,
+  type SoldierSide,
+} from "@/lib/game/soldier";
+import { SPRITE_PALETTE } from "@/lib/game/sprite";
+import type { TroopGroup } from "@/lib/game/citadel";
 
 /** 一 tick 幾毫秒（1× 速度）。120 tick ≈ 36 秒的一場戲 */
 const TICK_MS = 300;
@@ -45,68 +55,86 @@ const DEFAULT_SLOTS: readonly SceneSlot[] = [
   { slot: "D", building: null, level: 0, busy: false },
 ];
 
-// 攻方鏽紅、守方生機藍 —— 都取自 docs/09 §3 的調色盤
-const SIDE_BODY = { ATTACKER: "#a35a3a", DEFENDER: "#4a8fa8" } as const;
-const SIDE_EDGE = { ATTACKER: "#6e3a26", DEFENDER: "#33454f" } as const;
+/**
+ * 士兵 sprite 的快取：(兵種, 陣營, 動畫, 幀) → 畫好的 25×25 canvas。
+ * `renderSoldier` 是決定性的純函式，所以第一次要到就烘一張、永遠重用 ——
+ * 全部組合也就 152 張小圖。模組層級的 Map：跨戰場、跨重播共用。
+ */
+const spriteCache = new Map<string, HTMLCanvasElement>();
 
-function drawSquad(ctx: CanvasRenderingContext2D, s: Squad, frame: number) {
+function soldierSprite(
+  group: TroopGroup,
+  side: SoldierSide,
+  anim: SoldierAnim,
+  frame: number,
+): HTMLCanvasElement {
+  const key = `${group}:${side}:${anim}:${frame}`;
+  const hit = spriteCache.get(key);
+  if (hit) return hit;
+
+  const g = renderSoldier(group, side, anim, frame);
+  const c = document.createElement("canvas");
+  c.width = SOLDIER_SIZE;
+  c.height = SOLDIER_SIZE;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(SOLDIER_SIZE, SOLDIER_SIZE);
+  for (let i = 0; i < g.length; i++) {
+    const v = g[i]!;
+    if (v === 0) continue;
+    const hex = SPRITE_PALETTE[v]!;
+    img.data[i * 4] = parseInt(hex.slice(1, 3), 16);
+    img.data[i * 4 + 1] = parseInt(hex.slice(3, 5), 16);
+    img.data[i * 4 + 2] = parseInt(hex.slice(5, 7), 16);
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  spriteCache.set(key, c);
+  return c;
+}
+
+/**
+ * 畫一隊士兵：25×25 sprite + 血條/怒氣條。
+ * 動畫的選擇（`pickAnim`）是純函式；這裡只餵它「什麼時候發生的」。
+ */
+function drawSquad(ctx: CanvasRenderingContext2D, s: Squad, ev: AnimEvents, tick: number) {
   const x = Math.round(s.x * PX);
   const y = Math.round(s.y * PX);
-  const body = SIDE_BODY[s.side];
-  const edge = SIDE_EDGE[s.side];
+  const pick = pickAnim(s, ev, tick, s.id);
+  // sprite 的地面在第 23 列 —— 讓腳踩在隊伍的座標上
+  ctx.drawImage(soldierSprite(s.group, s.side, pick.anim, pick.frame), x - 12, y - 22);
 
-  if (s.dead) {
-    // 屍體：一個暗色的叉，留在原地
-    ctx.fillStyle = "#2e2723";
-    ctx.fillRect(x - 3, y - 1, 6, 2);
-    ctx.fillRect(x - 1, y - 3, 2, 6);
-    return;
-  }
-
-  const bob = s.fighting ? 0 : frame % 2; // 行進時上下顛一格
-  ctx.fillStyle = "#1a1614";
-  switch (s.group) {
-    case "CAVALRY":
-      ctx.fillRect(x - 5, y - 3 + bob, 10, 7);
-      ctx.fillStyle = body;
-      ctx.fillRect(x - 4, y - 2 + bob, 8, 5);
-      ctx.fillStyle = edge;
-      ctx.fillRect(x + 2, y - 4 + bob, 3, 3); // 馬頭
-      break;
-    case "SIEGE":
-      ctx.fillRect(x - 6, y - 3, 12, 7);
-      ctx.fillStyle = body;
-      ctx.fillRect(x - 5, y - 2, 10, 5);
-      ctx.fillStyle = "#1a1614";
-      ctx.fillRect(x - 4, y + 3, 2, 2);
-      ctx.fillRect(x + 2, y + 3, 2, 2); // 輪
-      break;
-    default:
-      ctx.fillRect(x - 3, y - 4 + bob, 6, 8);
-      ctx.fillStyle = body;
-      ctx.fillRect(x - 2, y - 3 + bob, 4, 6);
-      if (s.group === "ARCHER") {
-        ctx.fillStyle = "#e8dcc0";
-        ctx.fillRect(x + 3, y - 2 + bob, 1, 4); // 弓
-      } else {
-        ctx.fillStyle = edge;
-        ctx.fillRect(x + 3, y - 5 + bob, 1, 7); // 矛
-      }
-  }
+  if (s.dead) return;
 
   // 血條 + 怒氣條：只在受過傷或怒氣累積時畫 —— idle 巡邏保持乾淨
   if (s.hp < s.maxHp || s.rage > 0) {
-    const bw = 8;
+    const bw = 10;
     const hpRatio = Math.max(0, Math.min(1, s.hp / s.maxHp));
     ctx.fillStyle = "#1a1614";
-    ctx.fillRect(x - 4, y - 9, bw, 3);
+    ctx.fillRect(x - 5, y - 26, bw, 3);
     ctx.fillStyle = hpRatio > 0.5 ? "#6b7f4a" : hpRatio > 0.25 ? "#d9a441" : "#c4442f";
-    ctx.fillRect(x - 4, y - 9, Math.max(1, Math.round(bw * hpRatio)), 1);
+    ctx.fillRect(x - 5, y - 26, Math.max(1, Math.round(bw * hpRatio)), 1);
     if (s.rage > 0) {
       // 怒氣滿格會亮成羊皮紙白 —— 下一擊就是技能
       ctx.fillStyle = s.rage >= 100 ? "#e8dcc0" : "#a35a3a";
-      ctx.fillRect(x - 4, y - 7, Math.max(1, Math.round((bw * s.rage) / 100)), 1);
+      ctx.fillRect(x - 5, y - 24, Math.max(1, Math.round((bw * s.rage) / 100)), 1);
     }
+  }
+}
+
+/** 每一隊的「什麼時候發生的」—— 掉血、放技、倒下。畫面層的記憶，不進 sim */
+type EventMap = Map<number, { deathTick: number | null; skillTick: number | null; hitTick: number | null }>;
+
+function trackEvents(prev: BattlefieldState, next: BattlefieldState, events: EventMap) {
+  for (const s of next.squads) {
+    let ev = events.get(s.id);
+    if (!ev) {
+      ev = { deathTick: null, skillTick: null, hitTick: null };
+      events.set(s.id, ev);
+    }
+    const before = prev.squads.find((q) => q.id === s.id);
+    if (s.dead && ev.deathTick === null) ev.deathTick = next.tick;
+    if (s.skillBurst) ev.skillTick = next.tick;
+    if (before && s.hp < before.hp && !s.dead) ev.hitTick = next.tick;
   }
 }
 
@@ -142,6 +170,8 @@ export function BattlefieldView(props: BattlefieldViewProps) {
 
     let state = createBattlefield(props.input);
     stateRef.current = state;
+    // 每一隊的動畫事件（掉血/放技/倒下的 tick）—— 重播重置時跟著重生
+    const events: EventMap = new Map();
     let raf = 0;
     let last = 0;
     let acc = 0;
@@ -149,38 +179,32 @@ export function BattlefieldView(props: BattlefieldViewProps) {
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // 先畫屍體（在活人下面）
-      for (const s of state.squads) if (s.dead) drawSquad(ctx, s, frame);
-      // 弓箭與交戰特效
+      const evOf = (id: number) =>
+        events.get(id) ?? { deathTick: null, skillTick: null, hitTick: null };
+
+      // 先畫屍體（在活人下面）—— DEATH 動畫的最後一幀就是永久的屍體
+      for (const s of state.squads) if (s.dead) drawSquad(ctx, s, evOf(s.id), state.tick);
+
+      // 弓箭與投石：沿線的一個亮點，位置由 frame 決定（無狀態）
       for (const s of state.squads) {
         if (s.dead || !s.fighting || s.targetId === null) continue;
         const t = state.squads.find((q) => q.id === s.targetId);
         if (!t || t.dead) continue;
         if (s.group === "ARCHER" || s.group === "SIEGE") {
-          // 箭／石：沿線的一個亮點，位置由 frame 決定（無狀態）
           const k = ((frame + s.id) % 6) / 6;
           const px = s.x * PX + (t.x - s.x) * PX * k;
           const py = s.y * PX + (t.y - s.y) * PX * k;
           ctx.fillStyle = s.group === "SIEGE" ? "#c4442f" : "#e8dcc0";
           ctx.fillRect(Math.round(px), Math.round(py), 2, 2);
         } else if ((frame + s.id) % 4 < 2) {
-          // 近戰：交戰處閃刀光
           ctx.fillStyle = "#e8dcc0";
           ctx.fillRect(Math.round(((s.x + t.x) / 2) * PX), Math.round(((s.y + t.y) / 2) * PX), 2, 2);
         }
       }
-      for (const s of state.squads) if (!s.dead) drawSquad(ctx, s, frame);
-      // 怒氣技的金色爆發 —— skillBurst 只亮一 tick，就是那一擊
-      for (const s of state.squads) {
-        if (s.dead || !s.skillBurst) continue;
-        const x = Math.round(s.x * PX);
-        const y = Math.round(s.y * PX);
-        ctx.fillStyle = "#d9a441";
-        ctx.fillRect(x - 8, y - 1, 16, 2);
-        ctx.fillRect(x - 1, y - 8, 2, 16);
-        ctx.fillStyle = "#e8dcc0";
-        ctx.fillRect(x - 3, y - 3, 6, 6);
-      }
+
+      // 活人依 y 排序（下面的畫在上面）—— 25px 的小人會互相重疊
+      const alive = state.squads.filter((s) => !s.dead).sort((a, b) => a.y - b.y);
+      for (const s of alive) drawSquad(ctx, s, evOf(s.id), state.tick);
     };
 
     const loop = (ts: number) => {
@@ -192,7 +216,9 @@ export function BattlefieldView(props: BattlefieldViewProps) {
       acc += dt * speedRef.current;
       let stepped = false;
       while (acc >= TICK_MS && !battleOver(state)) {
+        const prev = state;
         state = stepBattlefield(state);
+        trackEvents(prev, state, events);
         acc -= TICK_MS;
         stepped = true;
       }
