@@ -12,6 +12,7 @@ import {
   acknowledgeBriefing,
   loadStewardBriefing,
 } from "@/app/actions/steward";
+import { requirePlayerId } from "@/lib/server/current-player";
 import { loadAndSettle } from "@/lib/server/player-state";
 import { zeroAmounts } from "@/lib/game/settle";
 import { formatGameDateWithSeason, toGameDate } from "@/lib/game/calendar";
@@ -191,25 +192,5 @@ function trainQueueViews(
   return out;
 }
 
-async function currentPlayerId(): Promise<number> {
-  const { auth } = await import("@/auth");
-  const { getDb, schema } = await import("@/lib/db");
-  const { and, eq } = await import("drizzle-orm");
-
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) throw new Error("尚未登入");
-
-  const [row] = await getDb()
-    .select({ playerId: schema.players.id })
-    .from(schema.players)
-    .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(
-      and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")),
-    )
-    .limit(1);
-
-  if (!row) throw new Error("找不到進行中的賽季角色");
-  return row.playerId;
-}
+/** ★ 「我在哪一場」只有一份實作（`lib/server/current-player.ts`） */
+const currentPlayerId = requirePlayerId;

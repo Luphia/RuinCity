@@ -11,10 +11,7 @@
  *   客戶端 catch 之後要顯示同步失敗，不准吞掉。
  */
 
-import { and, eq } from "drizzle-orm";
 
-import { auth } from "@/auth";
-import { schema } from "@/lib/db";
 import { SEASON_MODIFIERS, type Season } from "@/lib/game/balance";
 import { formatGameDateWithSeason, toGameDate } from "@/lib/game/calendar";
 import { deriveRates, outpostUpkeep } from "@/lib/game/economy-state";
@@ -22,6 +19,7 @@ import { nearestCompletion, type NextCompletion } from "@/lib/game/hud";
 import { zeroAmounts, type Amounts } from "@/lib/game/settle";
 import { slotLabel } from "@/lib/game/sprite";
 import { loadAndSettle } from "@/lib/server/player-state";
+import { currentPlayer } from "@/lib/server/current-player";
 import { serverNow } from "@/lib/time";
 
 export interface HudState {
@@ -37,21 +35,10 @@ export interface HudState {
 }
 
 export async function loadHud(): Promise<HudState | null> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return null;
+  const me = await currentPlayer();
+  if (!me) return null;
 
-  const { getDb } = await import("@/lib/db");
-  const [row] = await getDb()
-    .select({ playerId: schema.players.id })
-    .from(schema.players)
-    .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")))
-    .limit(1);
-  if (!row) return null;
-
-  const state = await loadAndSettle(row.playerId);
+  const state = await loadAndSettle(me.playerId);
   const now = await serverNow();
 
   const derived = deriveRates({

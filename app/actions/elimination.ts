@@ -8,11 +8,12 @@
  * 每一頁都會走到，因此刻意不碰 `settleWithin`（那個對出局者會丟例外）。
  */
 
-import { and, eq, isNotNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { formatGameDate, toGameDate } from "@/lib/game/calendar";
+import { currentPlayerByEmail } from "@/lib/server/current-player";
 
 export interface Elimination {
   /** 離開那一刻的廢曆日期，給結束畫面用 */
@@ -31,29 +32,19 @@ export async function loadElimination(): Promise<Elimination | null> {
   if (!email) return null;
 
   try {
-    const { getDb } = await import("@/lib/db");
-    const [row] = await getDb()
-      .select({
-        eliminatedAt: schema.players.eliminatedAt,
-        exitReason: schema.players.exitReason,
-        startedAt: schema.seasons.startedAt,
-      })
-      .from(schema.players)
-      .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-      .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-      .where(
-        and(
-          eq(schema.users.email, email),
-          eq(schema.seasons.status, "RUNNING"),
-          isNotNull(schema.players.eliminatedAt),
-        ),
-      )
-      .limit(1);
+    const me = await currentPlayerByEmail(email);
+    if (!me?.eliminatedAt) return null;
 
-    if (!row?.eliminatedAt || !row.startedAt) return null;
+    const { getDb } = await import("@/lib/db");
+    const [season] = await getDb()
+      .select({ startedAt: schema.seasons.startedAt })
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, me.seasonId));
+    if (!season?.startedAt) return null;
+
     return {
-      at: formatGameDate(toGameDate(row.startedAt.getTime(), row.eliminatedAt.getTime())),
-      reason: row.exitReason === "ABANDONED" ? "ABANDONED" : "KEEP_DESTROYED",
+      at: formatGameDate(toGameDate(season.startedAt.getTime(), me.eliminatedAt)),
+      reason: me.exitReason === "ABANDONED" ? "ABANDONED" : "KEEP_DESTROYED",
     };
   } catch {
     /**

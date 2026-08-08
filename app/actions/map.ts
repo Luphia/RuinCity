@@ -15,6 +15,7 @@ import { and, eq } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { schema } from "@/lib/db";
+import { currentPlayerByEmail } from "@/lib/server/current-player";
 import { serverNow } from "@/lib/time";
 
 export interface MyMarch {
@@ -41,18 +42,7 @@ export async function loadMyMapOverlay(): Promise<MapOverlay | null> {
 
   const { getDb } = await import("@/lib/db");
   const db = getDb();
-  const [me] = await db
-    .select({
-      playerId: schema.players.id,
-      seasonId: schema.players.seasonId,
-      baseX: schema.players.baseX,
-      baseY: schema.players.baseY,
-    })
-    .from(schema.players)
-    .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")))
-    .limit(1);
+  const me = await currentPlayerByEmail(email);
   if (!me) return null;
 
   const tiles = await db

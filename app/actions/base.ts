@@ -14,7 +14,6 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 
-import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import {
@@ -25,6 +24,7 @@ import {
   type CoreSlot,
 } from "@/lib/game/build";
 import { ISOLATION_GRACE_MS, recomputeIsolation } from "@/lib/game/territory";
+import { requirePlayerId as currentPlayerId } from "@/lib/server/current-player";
 import { serverNow } from "@/lib/time";
 import { scheduleEvent, settleWithin, spendAmounts } from "@/lib/server/player-state";
 import { buildTerritoryBoard, type TerritoryBoard } from "@/lib/server/territory-board";
@@ -36,30 +36,6 @@ export interface ActionResult {
   readonly doneAt?: number;
 }
 
-/**
- * 目前登入者在**本賽季**的玩家 ID。
- *
- * ★ 要跳兩層：Auth.js 的身分（`auth_users`，text id）與遊戲的帳號
- *   （`users`，bigserial）是分開的兩張表，**以 email 對應**
- *   —— Auth.js 管身分，`users` 管跨賽季的傳承與頭銜（見 `auth-schema.ts`）。
- */
-async function currentPlayerId(): Promise<number> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) throw new Error("UNAUTHENTICATED");
-
-  const { getDb } = await import("@/lib/db");
-  const [row] = await getDb()
-    .select({ playerId: schema.players.id })
-    .from(schema.players)
-    .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")))
-    .limit(1);
-
-  if (!row) throw new Error("NO_PLAYER");
-  return row.playerId;
-}
 
 /** 升級主堡或 B/C/D 的核心建築 */
 export async function upgradeCore(target: "CITADEL" | CoreSlot): Promise<ActionResult> {

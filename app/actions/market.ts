@@ -9,10 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
 
-import { auth } from "@/auth";
-import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import {
   acceptListingFor,
@@ -22,27 +19,11 @@ import {
   type MarketBoard,
   type MarketResult,
 } from "@/lib/server/market-ops";
+import { requirePlayerId as currentPlayerId } from "@/lib/server/current-player";
 import { serverNow } from "@/lib/time";
 
 export type { ListingView, MarketBoard, MarketResult } from "@/lib/server/market-ops";
 
-async function currentPlayerId(): Promise<number> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) throw new Error("UNAUTHENTICATED");
-
-  const { getDb } = await import("@/lib/db");
-  const [row] = await getDb()
-    .select({ playerId: schema.players.id })
-    .from(schema.players)
-    .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")))
-    .limit(1);
-
-  if (!row) throw new Error("NO_PLAYER");
-  return row.playerId;
-}
 
 /** 掛一張單。賣方當下扣款，資源進入託管 */
 export async function createListing(

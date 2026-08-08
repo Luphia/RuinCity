@@ -39,29 +39,30 @@ const FALLBACK_SEASON = "s0";
  * 正確的判準是**這位觀看者現在在哪一場裡**：
  *
  *   1. 明確指定 → 照做（開發與除錯用）
- *   2. 這位觀看者的 player 所在的那一場（出局的也算 —— 他要看的仍是那張圖）
+ *   2. 這位觀看者的 player 所在的那一場 —— 由 `lib/server/current-player.ts`
+ *      解析，**與遊戲其他每一頁同一份實作**（出局的也算，他要看的仍是那張圖）
  *   3. 沒登入／不在任何一場 → 最新的**有地圖**的一場（RUNNING/ENDING/SEALED）
  *   4. 都沒有 → 開發地圖
+ *
+ * 而**有賽季的人永遠不會退回開發地圖**：拿不到自己那一場的地形就回 404。
  */
-async function resolveSeason(explicit: string | null): Promise<string> {
-  if (explicit) return explicit;
+async function resolveSeason(
+  explicit: string | null,
+): Promise<{ seasonId: string; viewerSeason: string | null }> {
   try {
     const { getDb, schema } = await import("@/lib/db");
-    const { desc, eq, ne } = await import("drizzle-orm");
+    const { desc, ne } = await import("drizzle-orm");
     const db = getDb();
 
-    const { auth } = await import("@/auth");
-    const email = (await auth())?.user?.email;
-    const [mine] = email
-      ? await db
-          .select({ id: schema.players.seasonId, status: schema.seasons.status })
-          .from(schema.players)
-          .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-          .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-          .where(eq(schema.users.email, email))
-          .orderBy(desc(schema.players.seasonId))
-          .limit(1)
-      : [];
+    /**
+     * ★ 「我在哪一場」與遊戲其他每一頁**走同一份實作**
+     *   （`lib/server/current-player.ts`）。這一點不能為了少一次 join 而放棄：
+     *   地圖與據點對同一位玩家給出不同的賽季，就是「開錯賽季地圖」。
+     */
+    const { currentPlayer } = await import("@/lib/server/current-player");
+    const me = await currentPlayer();
+    const viewerSeason = me ? `s${me.seasonId}` : null;
+    if (explicit) return { seasonId: explicit, viewerSeason };
 
     const seasons = await db
       .select({ id: schema.seasons.id, status: schema.seasons.status })
@@ -70,11 +71,19 @@ async function resolveSeason(explicit: string | null): Promise<string> {
       .orderBy(desc(schema.seasons.id))
       .limit(10);
 
-    return pickMapSeason(null, mine ?? null, seasons, FALLBACK_SEASON);
+    return {
+      seasonId: pickMapSeason(
+        null,
+        me ? { id: me.seasonId, status: me.seasonStatus } : null,
+        seasons,
+        FALLBACK_SEASON,
+      ),
+      viewerSeason,
+    };
   } catch {
     // 沒有資料庫的環境（E2E、預覽）就用開發地圖
   }
-  return FALLBACK_SEASON;
+  return { seasonId: explicit ?? FALLBACK_SEASON, viewerSeason: null };
 }
 
 /** 每次請求都要問資料庫「現在是哪一場」，所以不能整路由靜態化 */
@@ -82,7 +91,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const explicit = new URL(request.url).searchParams.get("season");
-  const seasonId = await resolveSeason(explicit);
+  const { seasonId, viewerSeason } = await resolveSeason(explicit);
   if (!/^[a-z0-9-]{1,32}$/.test(seasonId)) {
     return NextResponse.json({ error: "invalid season id" }, { status: 400 });
   }
@@ -128,25 +137,27 @@ export async function GET(request: Request) {
     }
 
     /**
-     * 資料庫也沒有 → 退回開發地圖，但**要讓呼叫端知道這不是你那一局
-     * 的地圖** —— 靜默地換一張圖比顯示錯誤更糟。
+     * 資料庫也沒有 → 退回開發地圖。
+     *
+     * ★★ 但**只給沒有賽季的訪客**。一位真的在打的玩家拿到另一場的地形，
+     *   就是「開錯賽季地圖」：他的據點、領土、行軍會畫在一個
+     *   跟他無關的世界上，而畫面上只有一行小字說明。
+     *   對他來說**報錯比換一張圖誠實** —— 而且地形本來就補得回來
+     *   （`ensureLatestTerrain` 會以 seed 重新生成）。
      */
     if (!meta) {
-      if (explicit || seasonId === FALLBACK_SEASON) {
-        return NextResponse.json(
-          { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
-          { status: 404 },
-        );
-      }
+      const missing = NextResponse.json(
+        { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
+        { status: 404 },
+      );
+      if (explicit || seasonId === FALLBACK_SEASON) return missing;
+      if (viewerSeason === seasonId) return missing;
       try {
         meta = await load(FALLBACK_SEASON);
         resolved = FALLBACK_SEASON;
         chunkBaseUrl = `/terrain/${FALLBACK_SEASON}`;
       } catch {
-        return NextResponse.json(
-          { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
-          { status: 404 },
-        );
+        return missing;
       }
     }
   }
@@ -226,6 +237,12 @@ export async function GET(request: Request) {
       /** true = 這不是你那一局的地圖，是開發用的替代品 */
       isFallback,
       requestedSeason: seasonId,
+      /**
+       * ★ 這位觀看者自己那一場（沒有就是 null）。
+       *   客戶端拿它與 `seasonId` 對一次帳 —— 伺服器已經保證了，
+       *   但「開錯賽季地圖」的代價高到值得在畫面上再擋一層。
+       */
+      viewerSeason,
       seed: meta.seed,
       width: MAP.width,
       height: MAP.height,

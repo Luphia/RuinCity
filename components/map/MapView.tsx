@@ -26,6 +26,8 @@ interface Overview {
   /** 這不是目前這一場的地形，是開發用的替代品 */
   isFallback?: boolean;
   requestedSeason?: string;
+  /** 這位觀看者自己那一場。與 seasonId 不同就是看錯了 */
+  viewerSeason?: string | null;
   seed: number;
   chunkBaseUrl: string;
   ruins: { id: number; name: string; x: number; y: number }[];
@@ -166,6 +168,22 @@ export function MapView() {
         <div className="shrink-0 border-b border-[#8a6b3a] bg-[#2e2723] px-3 py-2 text-xs text-[#d9a441]">
           這是開發用的示範地形，<b>不是賽季 {overview.requestedSeason} 的地圖</b> ——
           該場的地形檔還沒產生（封盤時會自動寫出）。
+        </div>
+      ) : null}
+      {/**
+       * ★ 最後一道防線：畫的不是我那一場就講出來。
+       *   伺服器已經保證了（`current-player.ts` 是唯一的判準），
+       *   會走到這裡只剩一種情形 —— 有人手動帶了 `?season=`。
+       *   但「開錯賽季地圖」的代價高到值得在畫面上再擋一層：
+       *   靜默地畫另一個世界，玩家會照著它規劃一整晚的行軍。
+       */}
+      {overview?.viewerSeason && overview.viewerSeason !== overview.seasonId ? (
+        <div className="shrink-0 border-b border-[#c4442f] bg-[#2e2723] px-3 py-2 text-xs text-[#c4442f]">
+          你在<b>賽季 {overview.viewerSeason}</b>，但這張圖是{" "}
+          <b>{overview.seasonId}</b> —— 上面的一切都與你那一場無關。
+          <Link href="/map" className="ml-1 underline">
+            回到我的地圖
+          </Link>
         </div>
       ) : null}
 

@@ -11,7 +11,6 @@
 
 import { and, desc, eq, gt, inArray, or } from "drizzle-orm";
 
-import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
 import { SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
@@ -19,6 +18,7 @@ import { STRUCTURE } from "@/lib/game/balance";
 import { armyPopulation } from "@/lib/game/formulas";
 import { currentHp, maxHpOf } from "@/lib/game/structures";
 import type { SceneSlot } from "@/lib/game/citadel";
+import { currentPlayer } from "@/lib/server/current-player";
 import { serverNow } from "@/lib/time";
 
 export interface TileScene {
@@ -74,20 +74,9 @@ export interface TileScene {
   } | null;
 }
 
+/** ★ 「我在哪一場」只有一份實作（`lib/server/current-player.ts`） */
 async function viewer(): Promise<{ playerId: number; seasonId: number } | null> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return null;
-
-  const { getDb } = await import("@/lib/db");
-  const [row] = await getDb()
-    .select({ playerId: schema.players.id, seasonId: schema.players.seasonId })
-    .from(schema.players)
-    .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(and(eq(schema.users.email, email), eq(schema.seasons.status, "RUNNING")))
-    .limit(1);
-  return row ?? null;
+  return currentPlayer();
 }
 
 export async function loadTileScene(x: number, y: number): Promise<TileScene | null> {

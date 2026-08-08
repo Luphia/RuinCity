@@ -26,6 +26,7 @@ import {
 import { serverNow } from "@/lib/time";
 import { phaseOf, registerFor, scheduleOf } from "@/lib/server/season-ops";
 import { currentGameUserId as currentUserId } from "@/lib/server/account";
+import { currentLivePlayer } from "@/lib/server/current-player";
 
 export interface QuotaView {
   readonly faction: FactionId;
@@ -225,18 +226,12 @@ export async function loadEntryPoint(): Promise<EntryPoint> {
   const { getDb } = await import("@/lib/db");
   const db = getDb();
 
-  const [player] = await db
-    .select({ id: schema.players.id })
-    .from(schema.players)
-    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
-    .where(
-      and(
-        eq(schema.players.userId, userId),
-        eq(schema.seasons.status, "RUNNING"),
-        isNull(schema.players.eliminatedAt),
-      ),
-    )
-    .limit(1);
+  /**
+   * ★ 「有沒有據點可以走進去」要的是**還在場上**的玩家 ——
+   *   出局／放棄的人有 `players` 列，但他該被送去 `/seasons` 報下一場。
+   *   查詢本身仍然只有一份（`lib/server/current-player.ts`）。
+   */
+  const player = await currentLivePlayer();
 
   if (player) {
     return { signedIn: true, hasPlayer: true, email, registered: true };
@@ -255,6 +250,8 @@ export async function loadEntryPoint(): Promise<EntryPoint> {
       and(
         eq(schema.seasonRegistrations.userId, userId),
         ne(schema.seasons.status, "ARCHIVED"),
+        // 退出的登記不算「已登記」（`docs/13` §8）
+        isNull(schema.seasonRegistrations.withdrawnAt),
       ),
     )
     .limit(1);
