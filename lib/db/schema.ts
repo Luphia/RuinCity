@@ -425,6 +425,15 @@ export const tiles = pgTable(
     level: smallint("level").notNull().default(1),
     state: tileStateEnum("state").notNull().default("NORMAL"),
     stateUntil: timestamp("state_until", { withTimezone: true }),
+    /**
+     * 領地建物（旗／要塞石塔）的當下耐久（`docs/02` §2.6）。
+     * `null` = 從沒被打過（滿血）—— 不預先寫滿血是刻意的：
+     * 滿血值是等級的函式，寫進資料庫就變成第二份真相，
+     * 升級要塞時兩邊會分岔。
+     */
+    structureHp: integer("structure_hp"),
+    /** 最後一次被打的時刻，自我修復由它與 `now` 推出來（不排程） */
+    structureHitAt: timestamp("structure_hit_at", { withTimezone: true }),
   },
   (t) => [
     primaryKey({ columns: [t.seasonId, t.x, t.y] }),

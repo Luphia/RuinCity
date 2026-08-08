@@ -15,6 +15,8 @@ import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
 import { SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
+import { STRUCTURE } from "@/lib/game/balance";
+import { currentHp, maxHpOf } from "@/lib/game/structures";
 import type { SceneSlot } from "@/lib/game/citadel";
 import { serverNow } from "@/lib/time";
 
@@ -28,6 +30,21 @@ export interface TileScene {
   readonly slots: readonly SceneSlot[] | null;
   /** 這一格最近一場我參與的戰鬥；null = 沒打過或看不到 */
   readonly latestBattleId: number | null;
+  /**
+   * 領地建物（`docs/02` §2.6）。據點那一格是 null —— 據點畫的是城。
+   * 這是**顯示用**的快照；耐久的真相在伺服器，攻擊時重算。
+   */
+  readonly structure: {
+    readonly kind: "FLAG" | "TOWER";
+    readonly label: string;
+    readonly level: number;
+    readonly hp: number;
+    readonly maxHp: number;
+    /** 這一格是不是我的 */
+    readonly mine: boolean;
+    /** 誰都沒佔的野地 */
+    readonly unclaimed: boolean;
+  } | null;
 }
 
 async function viewer(): Promise<{ playerId: number; seasonId: number } | null> {
@@ -69,6 +86,20 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
 
   const ownerId = core?.playerId ?? null;
   const isMine = ownerId === me.playerId;
+
+  // 這一格的領地狀態（不是據點才有意義）
+  const [tile] = await db
+    .select({
+      playerId: schema.tiles.playerId,
+      facility: schema.tiles.facility,
+      facilityLevel: schema.tiles.facilityLevel,
+      kind: schema.tiles.kind,
+      structureHp: schema.tiles.structureHp,
+      structureHitAt: schema.tiles.structureHitAt,
+    })
+    .from(schema.tiles)
+    .where(and(eq(schema.tiles.seasonId, me.seasonId), eq(schema.tiles.x, x), eq(schema.tiles.y, y)))
+    .limit(1);
 
   let garrison: Army = {};
   let slots: SceneSlot[] | null = null;
@@ -133,6 +164,33 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
     .orderBy(desc(schema.battleReports.createdAt))
     .limit(1);
 
+  /**
+   * ★ 領地建物：無主的野地也畫一面旗（灰的）——
+   *   玩家要看得出「這一格能不能佔」，而不是只有一片草。
+   */
+  const isTerritory = ownerId === null;
+  const kind = tile?.facility === "FORTRESS" ? ("TOWER" as const) : ("FLAG" as const);
+  const level = kind === "TOWER" ? (tile?.facilityLevel ?? 0) : 0;
+  const structure = isTerritory
+    ? {
+        kind,
+        label: STRUCTURE[kind].label,
+        level,
+        hp: currentHp(
+          kind,
+          level,
+          {
+            hp: tile?.structureHp ?? null,
+            hitAt: tile?.structureHitAt ? tile.structureHitAt.getTime() : null,
+          },
+          now,
+        ),
+        maxHp: maxHpOf(kind, level),
+        mine: tile?.playerId === me.playerId,
+        unclaimed: !tile || tile.playerId === null,
+      }
+    : null;
+
   return {
     x,
     y,
@@ -141,5 +199,6 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
     garrison,
     slots,
     latestBattleId: report?.id ?? null,
+    structure,
   };
 }

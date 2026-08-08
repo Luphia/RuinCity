@@ -3,6 +3,7 @@ import Link from "next/link";
 import { loadTileScene } from "@/app/actions/tile";
 import { loadBattleReplay } from "@/app/actions/war";
 import { BattlefieldView } from "@/components/battle/BattlefieldView";
+import { MAP } from "@/lib/game/balance";
 
 export const metadata = { title: "戰場 · RuinCity" };
 export const dynamic = "force-dynamic";
@@ -23,7 +24,15 @@ export default async function TilePage({
   const p = await params;
   const x = Number(p.x);
   const y = Number(p.y);
-  const valid = Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < 500 && y < 500;
+  // ★ 界線由 MAP 推導。寫死 500 的那一版在地圖放大到 900 之後，
+  //   東半邊與南半邊的每一格都會回「座標超出地圖範圍」
+  const valid =
+    Number.isInteger(x) &&
+    Number.isInteger(y) &&
+    x >= 0 &&
+    y >= 0 &&
+    x < MAP.width &&
+    y < MAP.height;
 
   let scene: Awaited<ReturnType<typeof loadTileScene>> = null;
   let error: string | null = null;
@@ -66,7 +75,11 @@ export default async function TilePage({
               ? "我的據點"
               : scene.hasBase
                 ? "敵方據點"
-                : "曠野"}
+                : scene.structure?.mine
+                  ? "我的領地"
+                  : scene.structure?.unclaimed
+                    ? "無主野地"
+                    : "敵方領地"}
         </span>
       </header>
 
@@ -78,6 +91,7 @@ export default async function TilePage({
             defender: replay.defender,
             hasBase: scene.hasBase,
           }}
+          structure={scene.structure}
           attackerLabel={
             replay.isSpectator ? "攻方" : replay.viewerIsAttacker ? "我方（攻）" : "敵方（攻）"
           }
@@ -95,11 +109,28 @@ export default async function TilePage({
             defender: { army: scene.garrison, losses: {} },
             hasBase: scene.hasBase,
           }}
+          structure={scene.structure}
           attackerLabel="—"
           defenderLabel={scene.isMine ? "我方駐軍" : "守軍不明"}
           slots={scene.slots ?? undefined}
         />
       )}
+
+      {/* ★ 領地建物的耐久：玩家要看得出「這一格要打幾波」。
+          一般部隊 1 點／人、器械才算數（`docs/04` §5），所以這個數字
+          直接就是「需要多少人或多少台器械」 */}
+      {scene.structure ? (
+        <p className="mt-3 rounded border border-[#4a413a] bg-[#2e2723] p-3 text-xs">
+          <span className="text-[#d9a441]">{scene.structure.label}</span>
+          {scene.structure.kind === "TOWER" ? ` Lv${scene.structure.level}` : ""} · 耐久{" "}
+          <b>
+            {scene.structure.hp}/{scene.structure.maxHp}
+          </b>
+          <span className="ml-2 opacity-70">
+            一般部隊 1 點／人，攻城車 40／台、投石機 60／台
+          </span>
+        </p>
+      ) : null}
 
       {!scene.isMine && scene.hasBase && !replay ? (
         <p className="mt-3 rounded border border-[#4a413a] bg-[#2e2723] p-3 text-xs opacity-80">

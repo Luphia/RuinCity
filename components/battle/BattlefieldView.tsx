@@ -23,7 +23,7 @@ import {
   type BattlefieldState,
   type Squad,
 } from "@/lib/game/battlefield";
-import { citadelSceneSvg, GRID, type SceneSlot } from "@/lib/game/citadel";
+import { citadelSceneSvg, territorySceneSvg, GRID, type SceneSlot } from "@/lib/game/citadel";
 import {
   pickAnim,
   renderSoldier,
@@ -46,6 +46,15 @@ export interface BattlefieldViewProps {
   readonly defenderLabel: string;
   /** 底圖的建築配置；不知道（敵方據點）就給預設 */
   readonly slots?: readonly SceneSlot[];
+  /**
+   * 領地建物（`docs/02` §2.6）。給了就畫**領地場景**（中央一面旗或一座石塔），
+   * 不畫城 —— 資源地不是「沒蓋東西的據點」，它是另一種地方。
+   */
+  readonly structure?: {
+    readonly kind: "FLAG" | "TOWER";
+    readonly level: number;
+    readonly mine: boolean;
+  } | null;
 }
 
 const DEFAULT_SLOTS: readonly SceneSlot[] = [
@@ -157,9 +166,23 @@ export function BattlefieldView(props: BattlefieldViewProps) {
   }, [speed]);
 
   // 底圖只算一次：地形 + 城牆 + 建築（士兵不在底圖上，由 canvas 畫）
+  const structure = props.structure ?? null;
   const background = useMemo(
-    () => citadelSceneSvg({ slots: props.slots ?? DEFAULT_SLOTS, garrison: {}, frame: 0 }, 1),
-    [props.slots],
+    () =>
+      structure
+        ? territorySceneSvg(
+            {
+              structure: structure.kind,
+              level: structure.level,
+              owned: structure.mine,
+              garrison: {},
+              frame: 0,
+            },
+            1,
+          )
+        : citadelSceneSvg({ slots: props.slots ?? DEFAULT_SLOTS, garrison: {}, frame: 0 }, 1),
+    // ★ 依賴用基本型別，不要用 structure 物件本身（`11` §20.23 的教訓）
+    [props.slots, structure?.kind, structure?.level, structure?.mine, structure],
   );
 
   useEffect(() => {

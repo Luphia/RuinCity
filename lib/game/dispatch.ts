@@ -13,6 +13,7 @@
 
 import { MARCH, UNIT, type Unit } from "./balance";
 import { marchTime, type MarchTime, type Point } from "./march";
+import { roadMultiplier, type RoadNetwork } from "./structures";
 import { armyPopulation } from "./formulas";
 import { isEmptyArmy, subtractArmy, type Army } from "./army";
 import type { SeasonModifiers } from "./balance";
@@ -37,6 +38,11 @@ export interface DispatchState {
   readonly speedBonus?: { techBonus?: number; stableBonus?: number; ruinBonus?: number };
   /** 沿途地形的平均行軍係數，由呼叫端取樣 */
   readonly terrainFactor?: number;
+  /**
+   * 自己的要塞路網（`docs/02` §2.6）。起訖都在網上時速度 ×4。
+   * 沒傳就是沒有路網加速 —— 舊的呼叫端不會因此變快或變慢。
+   */
+  readonly road?: RoadNetwork | null;
 }
 
 export type DispatchRejection =
@@ -102,6 +108,7 @@ export function planDispatch(
     terrainFactor: state.terrainFactor,
     season: state.season,
     speedBonus: state.speedBonus,
+    roadMultiplier: roadMultiplier(state.from, to, state.road),
   });
 
   /**
@@ -139,9 +146,11 @@ export function planReturn(
     season?: SeasonModifiers;
     terrainFactor?: number;
     speedBonus?: DispatchState["speedBonus"];
+    road?: RoadNetwork | null;
   } = {},
 ): { readonly arrivesAt: number; readonly seconds: number } | null {
   if (isEmptyArmy(survivors)) return null;
+  // 回程一樣吃路網 —— 打完仗撤回自己的驛道上本來就該快
   const time = marchTime({
     from,
     to,
@@ -149,6 +158,7 @@ export function planReturn(
     terrainFactor: opts.terrainFactor,
     season: opts.season,
     speedBonus: opts.speedBonus,
+    roadMultiplier: roadMultiplier(from, to, opts.road),
   });
   const seconds = Math.min(time.seconds, MARCH.maxSeconds);
   return { arrivesAt: now + Math.round(seconds * 1000), seconds };

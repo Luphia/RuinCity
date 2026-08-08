@@ -19,6 +19,7 @@ export * from "./time";
 export * from "./world";
 export * from "./economy";
 export * from "./buildings";
+export * from "./structures";
 export * from "./units";
 export * from "./combat";
 export * from "./ruins";

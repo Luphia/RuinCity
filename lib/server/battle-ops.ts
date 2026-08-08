@@ -19,7 +19,7 @@ import "server-only";
 
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 
-import { SEASON_MODIFIERS } from "@/lib/game/balance";
+import { CLAIM, SEASON_MODIFIERS, STRUCTURE } from "@/lib/game/balance";
 import {
   applyCarryLimit,
   carryOf,
@@ -28,6 +28,7 @@ import {
   lootableOf,
   mergeArmies,
   parseArmy,
+  armyPopulation,
   RAID_WINDOW_MS,
   type Army,
   type Lootable,
@@ -44,11 +45,18 @@ import {
   tileInnateDefense,
   watchtowerDefenseOf,
 } from "@/lib/game/dispatch";
+import {
+  currentHp,
+  maxHpOf,
+  structureDamage,
+  structureOf,
+  type StructureKind,
+} from "@/lib/game/structures";
 import { deriveSeed, mulberry32 } from "@/lib/game/rng";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import { settleWithin } from "@/lib/server/player-state";
-import { garrisonAt, landReturn, writeGarrison } from "@/lib/server/march-ops";
+import { garrisonAt, landReturn, roadNetworkFor, writeGarrison } from "@/lib/server/march-ops";
 
 /** 一次最多結算幾支行軍 */
 const BATCH = 100;
@@ -384,8 +392,13 @@ async function resolveAssault(tx: TxDb, march: MarchRow, now: number): Promise<b
     season.vault,
   );
 
+  const siegeBonus =
+    attackerState.build.slots.C.building === "WORKSHOP"
+      ? 0.04 * attackerState.build.slots.C.level
+      : 0;
+
   const battle = resolveBattle(
-    { army: attackerArmy, siegeBonus: attackerState.build.slots.C.building === "WORKSHOP" ? 0.04 * attackerState.build.slots.C.level : 0 },
+    { army: attackerArmy, siegeBonus },
     {
       army: defender.garrison,
       wallLevel: defender.wallLevel,
@@ -454,6 +467,24 @@ async function resolveAssault(tx: TxDb, march: MarchRow, now: number): Promise<b
       .where(eq(schema.playerResources.playerId, defender.playerId));
   }
 
+  /**
+   * ── 攻城階段（`docs/02` §2.6、`docs/04` §5）────────────────
+   *
+   * ★ 順序是規則的一部分：**領地內有防守軍隊時只能先攻擊軍隊**。
+   *   守軍還活著（或攻方沒打贏）就碰不到建物 —— 建物不是第二個血條，
+   *   它是「軍隊清空之後才輪得到」的第二階段。
+   *
+   * ★ 突襲（RAID）永遠不碰建物：突襲的定義就是搶完就走。
+   */
+  const siege = await resolveSiege(tx, march, defender, {
+    attackerSurvivors,
+    defenderSurvivors,
+    won: battle.outcome === "ATTACKER_WIN",
+    isRaid,
+    siegeBonus,
+    now,
+  });
+
   // ── 戰報 ────────────────────────────────────────────────
   await tx.insert(schema.battleReports).values({
     seasonId: march.seasonId,
@@ -472,6 +503,7 @@ async function resolveAssault(tx: TxDb, march: MarchRow, now: number): Promise<b
       decay,
       priorRaids,
       isRaid,
+      siege,
     }) as never,
     createdAt: new Date(now),
   });
@@ -483,6 +515,142 @@ async function resolveAssault(tx: TxDb, march: MarchRow, now: number): Promise<b
 
   await sendHome(tx, march, attackerSurvivors, lootTotal > 0 ? loot : null, now);
   return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 攻城：建物、佔領
+// ─────────────────────────────────────────────────────────────
+
+/** 戰報裡的攻城段落（沒發生就是 null）*/
+export interface SiegeOutcome {
+  readonly kind: StructureKind;
+  readonly label: string;
+  readonly hpBefore: number;
+  readonly hpAfter: number;
+  readonly maxHp: number;
+  readonly damage: number;
+  readonly destroyed: boolean;
+  /** 這一擊之後這一格易主了 */
+  readonly captured: boolean;
+  /** 為什麼沒打到建物（守軍還在／突襲／攻方輸了）*/
+  readonly blockedBy: "GARRISON" | "RAID" | "REPELLED" | null;
+}
+
+/**
+ * 攻城階段。**在守軍結算之後**跑，因為順序本身就是規則：
+ * 領地內有防守軍隊時只能先攻擊軍隊（`docs/04` §5）。
+ *
+ * 一般部隊每人 1 點、器械才算數（`lib/game/structures.ts`）——
+ * 所以「沒帶器械就搶不走別人的要塞」是算術上的事實，不是提示文字。
+ */
+async function resolveSiege(
+  tx: TxDb,
+  march: MarchRow,
+  defender: DefenderContext,
+  ctx: {
+    attackerSurvivors: Army;
+    defenderSurvivors: Army;
+    won: boolean;
+    isRaid: boolean;
+    siegeBonus: number;
+    now: number;
+  },
+): Promise<SiegeOutcome | null> {
+  const kind = structureOf({ isBase: defender.isBase, facility: defender.facility });
+  const level =
+    kind === "KEEP"
+      ? defender.citadelLevel
+      : kind === "TOWER"
+        ? defender.facilityLevel
+        : 0;
+  const maxHp = maxHpOf(kind, level);
+  const hpBefore = currentHp(
+    kind,
+    level,
+    { hp: defender.structureHp, hitAt: defender.structureHitAt },
+    ctx.now,
+  );
+
+  const base = {
+    kind,
+    label: STRUCTURE[kind].label,
+    hpBefore,
+    hpAfter: hpBefore,
+    maxHp,
+    damage: 0,
+    destroyed: false,
+    captured: false,
+  };
+
+  // 突襲搶完就走，不碰建物
+  if (ctx.isRaid) return { ...base, blockedBy: "RAID" };
+  // 攻方沒打贏 → 連走近建物的機會都沒有
+  if (!ctx.won) return { ...base, blockedBy: "REPELLED" };
+  // ★ 守軍還有活口 → 只能先攻擊軍隊
+  if (armyPopulation(ctx.defenderSurvivors) > 0) return { ...base, blockedBy: "GARRISON" };
+
+  const damage = structureDamage(ctx.attackerSurvivors, { siegeBonus: ctx.siegeBonus });
+  const hpAfter = Math.max(0, hpBefore - damage);
+  const destroyed = hpAfter <= 0;
+
+  /**
+   * ★ 主城不會易主（斬首是聯盟主旗的事，`docs/06` §4）。
+   *   打爆主城的效果是**破城**：那一次掠奪不再受地窖保護 ——
+   *   不過掠奪在上游已經算完了，所以 v1 只記在戰報上，
+   *   讓「破城」看得見；實際的掠奪加成留給 M4（見 `11` §24.4）。
+   */
+  const captured = destroyed && kind !== "KEEP";
+
+  if (kind === "KEEP") {
+    // 主城的耐久不入庫 —— 每一波都是完整的一次攻城
+    return { ...base, hpAfter, damage, destroyed, captured: false, blockedBy: null };
+  }
+
+  if (captured) {
+    /**
+     * 佔領：這一格連同設施整個易主。
+     * ★ 設施留著不拆 —— 打下一座 Lv8 的農田本來就該是戰利品，
+     *   而「拆掉重蓋」只會讓佔領變成不划算的破壞行為。
+     *   建物耐久重置成滿血（新主人的旗是新的）。
+     */
+    const [attacker] = await tx
+      .select({ allianceId: schema.players.allianceId })
+      .from(schema.players)
+      .where(eq(schema.players.id, march.ownerId))
+      .limit(1);
+
+    await tx
+      .update(schema.tiles)
+      .set({
+        playerId: march.ownerId,
+        allianceId: attacker?.allianceId ?? null,
+        structureHp: null,
+        structureHitAt: null,
+        // 易主後有一段動盪期，與拓荒下來的格子同一條規則
+        state: "CONTESTED",
+        stateUntil: new Date(ctx.now + CLAIM.contestedMs),
+      })
+      .where(
+        and(
+          eq(schema.tiles.seasonId, march.seasonId),
+          eq(schema.tiles.x, march.toX),
+          eq(schema.tiles.y, march.toY),
+        ),
+      );
+  } else {
+    await tx
+      .update(schema.tiles)
+      .set({ structureHp: hpAfter, structureHitAt: new Date(ctx.now) })
+      .where(
+        and(
+          eq(schema.tiles.seasonId, march.seasonId),
+          eq(schema.tiles.x, march.toX),
+          eq(schema.tiles.y, march.toY),
+        ),
+      );
+  }
+
+  return { ...base, hpAfter, damage, destroyed, captured, blockedBy: null };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -501,7 +669,11 @@ interface DefenderContext {
   readonly watchtowerLevel: number;
   readonly infirmaryLevel: number;
   readonly facilityLevel: number;
+  readonly facility: string | null;
   readonly isBase: boolean;
+  /** 領地建物的存檔（`null` = 從沒被打過）—— 修復由 `currentHp` 推 */
+  readonly structureHp: number | null;
+  readonly structureHitAt: number | null;
 }
 
 async function defenderAt(
@@ -560,7 +732,10 @@ async function defenderAt(
     watchtowerLevel: tile?.facility === "WATCHTOWER" ? tile.facilityLevel : 0,
     infirmaryLevel: slotLevel("INFIRMARY"),
     facilityLevel: tile?.facilityLevel ?? 0,
+    facility: tile?.facility ?? null,
     isBase,
+    structureHp: tile?.structureHp ?? null,
+    structureHitAt: tile?.structureHitAt ? tile.structureHitAt.getTime() : null,
   };
 }
 
@@ -577,11 +752,14 @@ async function sendHome(
 ) {
   if (isEmptyArmy(survivors)) return;
 
+  // 回程一樣吃自己的路網（`docs/02` §2.6）—— 撤回驛道上本來就該快
+  const road = await roadNetworkFor(tx, march.seasonId, march.ownerId);
   const back = planReturn(
     survivors,
     { x: march.toX, y: march.toY },
     { x: march.fromX, y: march.fromY },
     now,
+    { road },
   );
   if (!back) return;
 
@@ -622,6 +800,8 @@ function snapshotOf(
     decay: number;
     priorRaids: number;
     isRaid: boolean;
+    /** 攻城段落（沒發生 = null）。戰報要說得出「為什麼沒打到建物」 */
+    siege?: SiegeOutcome | null;
   },
 ) {
   return {
@@ -639,5 +819,6 @@ function snapshotOf(
       ? { lossMultiplier: RAID_LOSS_MULTIPLIER, decay: extra.decay, priorRaids: extra.priorRaids }
       : null,
     breakdown: battle.breakdown,
+    siege: extra.siege ?? null,
   };
 }

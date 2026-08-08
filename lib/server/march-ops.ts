@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { SEASON_MODIFIERS, type Terrain } from "@/lib/game/balance";
 import { isEmptyArmy, mergeArmies, parseArmy, type Army } from "@/lib/game/army";
 import { planDispatch, type DispatchType } from "@/lib/game/dispatch";
+import type { RoadNetwork } from "@/lib/game/structures";
 import { sampleTerrainFactor } from "@/lib/game/march";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
@@ -123,6 +124,38 @@ export { garrisonAt, writeGarrison };
  * ★ 部隊在出發那一刻就離開駐軍。「軍隊在路上就不能防守」是這個遊戲
  *   所有攻防取捨的基礎 —— 你派出去打人的那支部隊，同時也是你家的守軍。
  */
+/**
+ * 玩家的要塞路網（`docs/02` §2.6）：主城 + 所有蓋了要塞的格子。
+ *
+ * ★ 每次派兵讀一次。要塞數量是個位數，而「路網有沒有變」
+ *   本來就要在派兵那一刻決定 —— 快取它會讓剛蓋好的要塞不生效，
+ *   而那種 bug 的症狀是「我明明蓋了要塞，行軍還是一樣慢」。
+ */
+export async function roadNetworkFor(
+  tx: TxDb,
+  seasonId: number,
+  playerId: number,
+): Promise<RoadNetwork> {
+  const [base] = await tx
+    .select({ x: schema.players.baseX, y: schema.players.baseY })
+    .from(schema.players)
+    .where(eq(schema.players.id, playerId))
+    .limit(1);
+
+  const forts = await tx
+    .select({ x: schema.tiles.x, y: schema.tiles.y })
+    .from(schema.tiles)
+    .where(
+      and(
+        eq(schema.tiles.seasonId, seasonId),
+        eq(schema.tiles.playerId, playerId),
+        eq(schema.tiles.facility, "FORTRESS"),
+      ),
+    );
+
+  return { citadel: base ? { x: base.x, y: base.y } : null, fortresses: forts };
+}
+
 export async function sendMarchFor(
   tx: TxDb,
   playerId: number,
@@ -143,6 +176,7 @@ export async function sendMarchFor(
 
   const garrison = await garrisonAt(tx, state.seasonId, playerId, from.x, from.y);
   const terrainFactor = await terrainFactorBetween(state.seasonId, from, to);
+  const road = await roadNetworkFor(tx, state.seasonId, playerId);
 
   const plan = planDispatch(
     {
@@ -150,6 +184,7 @@ export async function sendMarchFor(
       garrison,
       season: SEASON_MODIFIERS[state.season],
       terrainFactor,
+      road,
     },
     input.type,
     to,

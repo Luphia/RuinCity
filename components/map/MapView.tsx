@@ -45,7 +45,15 @@ function tileInfoAt(
   seed: number,
   x: number,
   y: number,
-): { label: string; resource?: string; level: number; guarded: boolean } | null {
+  mine?: MapOverlay | null,
+): {
+  label: string;
+  resource?: string;
+  level: number;
+  guarded: boolean;
+  /** 這一格是我的什麼（沒有就是別人的地或無主野地）*/
+  owned: "BASE" | "TERRITORY" | null;
+} | null {
   if (x < 0 || y < 0) return null;
   const codes = peekChunk(data.source, Math.floor(x / CHUNK_SIZE), Math.floor(y / CHUNK_SIZE));
   if (!codes) return null;
@@ -53,11 +61,20 @@ function tileInfoAt(
   if (!terrain) return null;
   const res = TILE_RESOURCE[terrain];
   const level = wildLevelAt(seed, x, y, terrain);
+  /**
+   * ★ 「這是不是我的地」要先講。
+   *   只報地形的話，點自己的據點會看到「有守衛」—— 那是**野地**的屬性，
+   *   對一格已經插著自己旗子的地來說完全是誤導。
+   */
+  const isBase =
+    !!mine && x >= mine.base.x && x <= mine.base.x + 1 && y >= mine.base.y && y <= mine.base.y + 1;
+  const isTerritory = !!mine?.tiles.some((t) => t.x === x && t.y === y);
   return {
     label: TERRAIN[terrain].label,
     resource: res ? RESOURCE_LABEL[res.resource] : undefined,
     level,
     guarded: needsConquest(level),
+    owned: isBase ? "BASE" : isTerritory ? "TERRITORY" : null,
   };
 }
 
@@ -133,7 +150,7 @@ export function MapView() {
 
   const selectedInfo =
     selected && data && overview
-      ? tileInfoAt(data, overview.seed, selected.x, selected.y)
+      ? tileInfoAt(data, overview.seed, selected.x, selected.y, overlay)
       : null;
   const selectedBattle = selected
     ? overview?.battles?.find((b) => b.x === selected.x && b.y === selected.y)
@@ -184,9 +201,16 @@ export function MapView() {
               「哪些位置是資源地」不能要玩家用色塊猜 */}
           {selectedInfo ? (
             <span data-testid="tile-info" className="text-[#d9a441]">
+              {selectedInfo.owned === "BASE" ? (
+                <b className="text-[#4a8fa8]">我的據點 · </b>
+              ) : selectedInfo.owned === "TERRITORY" ? (
+                <b className="text-[#4a8fa8]">我的領地 · </b>
+              ) : null}
               {selectedInfo.label}
               {selectedInfo.resource
-                ? ` · ${selectedInfo.resource} Lv${selectedInfo.level}${selectedInfo.guarded ? "（有守衛）" : ""}`
+                ? ` · ${selectedInfo.resource} Lv${selectedInfo.level}` +
+                  // 守衛是**無主野地**的屬性 —— 已經是誰的地就不該再講
+                  (selectedInfo.guarded && !selectedInfo.owned ? "（有守衛）" : "")
                 : ""}
             </span>
           ) : null}

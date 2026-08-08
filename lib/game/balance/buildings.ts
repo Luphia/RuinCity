@@ -148,6 +148,7 @@ export const FACILITIES = [
   "WATCHTOWER",
   "OUTPOST",
   "MARKET",
+  "FORTRESS",
 ] as const;
 export type Facility = (typeof FACILITIES)[number];
 
@@ -179,6 +180,13 @@ export const FACILITY: Record<Facility, FacilitySpec> = {
   WATCHTOWER: { label: "哨塔", cost: { timber: 200, stone: 200 }, yields: null, yieldCoefficient: 0 },
   OUTPOST: { label: "前哨營", cost: { timber: 500, stone: 500, iron: 300 }, yields: null, yieldCoefficient: 0 },
   MARKET: { label: "集市", cost: { timber: 300, stone: 200 }, yields: null, yieldCoefficient: 0 },
+  /**
+   * ★ 要塞（`docs/02` §2.6）：把領地旗換成要塞石塔，並成為路網節點。
+   *   它不產出任何東西 —— 它買的是**耐久**與**速度**。
+   *   造價刻意比前哨營便宜、比哨塔貴：每一格都想蓋要塞會破產，
+   *   但守住幾條要道是負擔得起的。
+   */
+  FORTRESS: { label: "要塞", cost: { timber: 400, stone: 600, iron: 200 }, yields: null, yieldCoefficient: 0 },
 } as const;
 
 export const FACILITY_SCALING = {

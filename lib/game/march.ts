@@ -57,6 +57,15 @@ export interface MarchTimeInput {
   terrainFactor?: number;
   season?: SeasonModifiers;
   speedBonus?: { techBonus?: number; stableBonus?: number; ruinBonus?: number };
+  /**
+   * 要塞路網加速（`lib/game/structures.ts` 的 `roadMultiplier`）。
+   * 起訖都在自己的路網上時是 4，否則 1。
+   *
+   * ★ 刻意**不**混進 `speedBonus`：那一組是「部隊本身跑多快」
+   *   （科技、獸廄、遺跡），路網是「這條路好不好走」。
+   *   混在一起的話，戰報上就分不出「我的騎兵快」與「我鋪了路」。
+   */
+  roadMultiplier?: number;
 }
 
 export interface MarchTime {
@@ -64,6 +73,8 @@ export interface MarchTime {
   distance: number;
   speed: number;
   terrainFactor: number;
+  /** 這一趟吃到的路網加速（1 = 沒吃到）*/
+  roadMultiplier: number;
   /** 超過 8 小時上限 → 不可派遣，UI 直接禁用 */
   exceedsLimit: boolean;
 }
@@ -77,11 +88,19 @@ export interface MarchTime {
  */
 export function marchTime(input: MarchTimeInput): MarchTime {
   const d = distance(input.from, input.to);
-  const speed = armySpeed(input.army, input.speedBonus ?? {});
+  const road = Math.max(1, input.roadMultiplier ?? 1);
+  const speed = armySpeed(input.army, input.speedBonus ?? {}) * road;
   const terrainFactor = input.terrainFactor ?? 1;
 
   if (speed <= 0) {
-    return { seconds: Infinity, distance: d, speed: 0, terrainFactor, exceedsLimit: true };
+    return {
+      seconds: Infinity,
+      distance: d,
+      speed: 0,
+      terrainFactor,
+      roadMultiplier: road,
+      exceedsLimit: true,
+    };
   }
 
   const raw =
@@ -93,6 +112,7 @@ export function marchTime(input: MarchTimeInput): MarchTime {
     distance: d,
     speed,
     terrainFactor,
+    roadMultiplier: road,
     exceedsLimit: seconds > MARCH.maxSeconds,
   };
 }

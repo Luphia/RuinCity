@@ -674,9 +674,128 @@ export function renderCitadelScene(input: CitadelSceneInput): Uint8Array {
   return c.g;
 }
 
+// ─────────────────────────────────────────────────────────────
+// 領地場景：旗幟 → 要塞石塔（docs/02 §2.6）
+// ─────────────────────────────────────────────────────────────
+
+/** 領地建物畫在畫面正中央 */
+const STRUCTURE_AT = { cx: GRID / 2, cy: GRID / 2 } as const;
+
+/**
+ * 領地旗：一根桿子 + 一面會飄的旗。
+ *
+ * ★ 它是這一格的**所有權標記**，也是攻方的目標 ——
+ *   `docs/02` §2.6 說「破壞後即佔領該領地」，
+ *   所以它必須在畫面上大到一眼看見，而不是一個角落的小圖示。
+ */
+function paintFlag(c: Canvas, frame: 0 | 1, owned: boolean) {
+  const x = STRUCTURE_AT.cx * TILE;
+  const y = STRUCTURE_AT.cy * TILE;
+
+  // 夯實的土台，把旗從草地上抬起來
+  c.rect(x - 20, y + 16, 40, 10, 13);
+  c.rect(x - 17, y + 12, 34, 6, 12);
+  c.frame(x - 20, y + 12, 40, 14, 1, 1);
+
+  // 旗桿
+  c.rect(x - 2, y - 34, 4, 50, 7);
+  c.rect(x - 2, y - 34, 2, 50, 6);
+
+  // 旗面：兩幀之間換一個形狀 —— 靜止的旗看起來像壞掉的貼圖
+  const flagColor = owned ? 18 : 8; // 自己的是生機藍，別人的是鏽紅
+  const w = frame === 0 ? 22 : 19;
+  c.rect(x + 2, y - 33, w, 14, flagColor);
+  c.rect(x + 2, y - 33, w, 3, 19);
+  c.frame(x + 2, y - 33, w, 14, 1, 1);
+  if (frame === 1) c.rect(x + 2 + w, y - 28, 3, 5, flagColor);
+
+  // 桿頂的尖
+  c.rect(x - 2, y - 38, 4, 4, 16);
+}
+
+/**
+ * 要塞石塔：旗升級之後的樣子。
+ *
+ * 石塔要**明顯比旗貴重**（`docs/11` §24）：它的耐久是旗的四倍，
+ * 而畫面上的體積差不多也是那個比例 —— 玩家不該需要讀數字
+ * 才知道這一格難打。
+ */
+function paintTower(c: Canvas, level: number, frame: 0 | 1, owned: boolean) {
+  const x = STRUCTURE_AT.cx * TILE;
+  const y = STRUCTURE_AT.cy * TILE;
+  const h = 46 + Math.min(24, level * 3); // 等級越高塔越高
+
+  // 基座
+  c.rect(x - 26, y + 14, 52, 14, 11);
+  c.rect(x - 23, y + 10, 46, 8, 10);
+  c.frame(x - 26, y + 10, 52, 18, 1, 1);
+
+  // 塔身：兩層石色交錯出砌塊感
+  c.rect(x - 15, y + 14 - h, 30, h, 10);
+  for (let i = 0; i < h; i += 7) {
+    c.rect(x - 15, y + 14 - h + i, 30, 3, 11);
+  }
+  c.frame(x - 15, y + 14 - h, 30, h, 1, 1);
+
+  // 箭窗
+  c.rect(x - 4, y + 14 - h + 12, 7, 10, 2);
+  c.rect(x - 4, y + 14 - h + 30, 7, 10, 2);
+
+  // 雉堞
+  for (let i = -15; i < 15; i += 10) {
+    c.rect(x + i, y + 6 - h, 6, 9, 10);
+    c.frame(x + i, y + 6 - h, 6, 9, 1, 1);
+  }
+
+  // 塔頂的旗 —— 佔領的標記還在，只是現在插在石頭上
+  const flagColor = owned ? 18 : 8;
+  c.rect(x - 2, y - 12 - h, 3, 18, 7);
+  const w = frame === 0 ? 15 : 12;
+  c.rect(x + 1, y - 11 - h, w, 10, flagColor);
+  c.frame(x + 1, y - 11 - h, w, 10, 1, 1);
+}
+
+export interface TerritorySceneInput {
+  /** FLAG = 領地旗；TOWER = 要塞石塔 */
+  readonly structure: "FLAG" | "TOWER";
+  /** 要塞等級（旗用不到） */
+  readonly level: number;
+  /** 是不是自己的地（決定旗色） */
+  readonly owned: boolean;
+  readonly garrison: Readonly<Partial<Record<Unit, number>>>;
+  readonly frame: 0 | 1;
+}
+
+/**
+ * 一格**領地**的 50×50 場景 —— 沒有城，中央是旗或石塔。
+ *
+ * ★ 與 `renderCitadelScene` 分開是刻意的：資源地不是「沒蓋東西的據點」，
+ *   它是另一種地方。共用一個函式再用 flag 切換，兩邊的構圖遲早互相牽制。
+ */
+export function renderTerritoryScene(input: TerritorySceneInput): Uint8Array {
+  const c = canvas();
+  paintTerrain(c);
+
+  if (input.structure === "TOWER") paintTower(c, input.level, input.frame, input.owned);
+  else paintFlag(c, input.frame, input.owned);
+
+  for (const g of garrisonGroups(input.garrison)) {
+    paintCamp(c, g.group, g.total, input.frame);
+  }
+  return c.g;
+}
+
 /** 調色盤索引 → SVG（同一列連續同色合併成一個 rect） */
 export function citadelSceneSvg(input: CitadelSceneInput, pixelSize = 2): string {
-  const g = renderCitadelScene(input);
+  return sceneSvg(renderCitadelScene(input), pixelSize);
+}
+
+/** 領地場景（旗／石塔）的 SVG —— 與據點場景共用同一個編碼器 */
+export function territorySceneSvg(input: TerritorySceneInput, pixelSize = 2): string {
+  return sceneSvg(renderTerritoryScene(input), pixelSize);
+}
+
+function sceneSvg(g: Uint8Array, pixelSize: number): string {
   const rects: string[] = [];
 
   for (let y = 0; y < SCENE_SIZE; y++) {

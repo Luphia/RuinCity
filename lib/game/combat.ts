@@ -139,7 +139,20 @@ function hasSiegeUnit(army: Army): boolean {
  */
 export function moraleFactor(defenderPop: number, attackerPop: number): number {
   if (attackerPop <= 0) return 1;
-  if (defenderPop <= 0) return 0; // 守方沒人，攻方也拿不到什麼
+  /**
+   * ★ 守方一個人都沒有 = **無人抵抗**，不是「攻方戰力歸零」。
+   *
+   *   舊版這裡回 0，註解寫「守方沒人，攻方也拿不到什麼」——
+   *   那句話講的是**掠奪**，但這個係數同時乘在**戰力**上。
+   *   後果是：攻擊一格沒有駐軍的敵方領地，攻方戰力被歸零、
+   *   判定成 DEFENDER_WIN、**整支部隊全滅**。
+   *
+   *   這個缺陷從 M3 就存在，一直沒被照出來是因為「打空地」在
+   *   領地佔領（`docs/02` §2.6）之前根本沒有意義 —— 而現在它是核心動作。
+   *   反霸凌的職責仍然在：真正的新手有人口、有地窖保護，
+   *   士氣照樣把大打小的收益壓下去。
+   */
+  if (defenderPop <= 0) return 1;
   return Math.min(1, (defenderPop / attackerPop) ** COMBAT.moraleExponent);
 }
 

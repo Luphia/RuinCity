@@ -43,6 +43,13 @@
       "when": 1786170542509,
       "tag": "0005_condemned_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786186128958,
+      "tag": "0006_light_weapon_omega",
+      "breakpoints": true
     }
   ]
 }

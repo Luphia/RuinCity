@@ -125,7 +125,10 @@ export function parseDirectives(raw: unknown): Directives {
   const lev = (p.levy ?? {}) as Record<string, unknown>;
 
   const priority = Array.isArray(dev.priority)
-    ? dev.priority.filter((f): f is Facility => typeof f === "string" && f in FACILITY)
+    ? dev.priority.filter(
+        (f): f is Facility =>
+          typeof f === "string" && f in FACILITY && !STEWARD_FORBIDDEN_FACILITIES.has(f),
+      )
     : DEFAULT_PRIORITY;
 
   const mix: Partial<Record<Unit, number>> = {};
@@ -500,6 +503,14 @@ function planTerritory(
  * ★ 刻意次優：依優先序找**第一個**符合的格，不看地形適配。
  *   親自操作的玩家會把農田放在非森林格、哨塔放在細頸（`18` §5）。
  */
+/**
+ * ★ 執政官的軍事禁區（`docs/18` §3）延伸到要塞。
+ *   要塞是防禦工事 + 路網節點，蓋在哪裡是**戰略決定**，
+ *   不是「把空地填滿」那種瑣事 —— 而且它會改變玩家的行軍地圖。
+ *   禁區的做法一律是「讓它不存在」，不是事後檢查。
+ */
+const STEWARD_FORBIDDEN_FACILITIES = new Set<string>(["FORTRESS"]);
+
 function pickFacility(
   input: StewardInput,
   used: ReadonlySet<string>,

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
@@ -679,5 +679,220 @@ describe("★ 征服（CLAIM 行軍）", () => {
       .from(schema.battleReports)
       .where(and(eq(schema.battleReports.seasonId, seasonId), eq(schema.battleReports.marchType, "CLAIM")));
     expect(report!.outcome).toBe("CLAIM_FAILED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 領地建物與佔領（docs/02 §2.6、docs/04 §5）
+// ─────────────────────────────────────────────────────────────
+
+/** 在 (x,y) 放一格屬於 owner 的領地 */
+async function seedTerritory(
+  seasonId: number,
+  owner: number,
+  at: { x: number; y: number },
+  facility: string | null = null,
+  facilityLevel = 0,
+) {
+  await h.db.insert(schema.tiles).values({
+    seasonId,
+    x: at.x,
+    y: at.y,
+    kind: "TERRITORY",
+    playerId: owner,
+    facility,
+    facilityLevel,
+    terrain: "PLAIN",
+    level: 1,
+    state: "NORMAL",
+  });
+}
+
+/** 派一支部隊去打 target，並把它的抵達時間拉到現在 */
+async function assault(
+  seasonId: number,
+  attackerId: number,
+  target: { x: number; y: number },
+  army: Army,
+  at = T0.getTime(),
+) {
+  const sent = await h.tx((tx) =>
+    sendMarchFor(
+      tx,
+      attackerId,
+      { type: "ATTACK", fromX: 100, fromY: 100, toX: target.x, toY: target.y, army },
+      at,
+    ),
+  );
+  expect(sent.ok, "reason" in sent ? String(sent.reason) : "").toBe(true);
+  await h.db
+    .update(schema.marches)
+    .set({ arrivesAt: new Date(at + 1000) })
+    .where(eq(schema.marches.id, sent.marchId!));
+  await h.tx((tx) => resolveArrivals(tx, seasonId, at + 2000));
+
+  const [tile] = await h.db
+    .select()
+    .from(schema.tiles)
+    .where(
+      and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, target.x), eq(schema.tiles.y, target.y)),
+    );
+  const [report] = await h.db
+    .select()
+    .from(schema.battleReports)
+    .where(eq(schema.battleReports.seasonId, seasonId))
+    .orderBy(desc(schema.battleReports.id))
+    .limit(1);
+  return { tile: tile!, siege: (report!.snapshot as { siege: SiegeSnapshot | null }).siege };
+}
+
+interface SiegeSnapshot {
+  kind: string;
+  hpBefore: number;
+  hpAfter: number;
+  damage: number;
+  destroyed: boolean;
+  captured: boolean;
+  blockedBy: string | null;
+}
+
+describe("★ 領地建物：打掉旗才算佔領", () => {
+  it("沒有守軍時，一波三百人剛好拆掉領地旗 → 這一格易主", async () => {
+    const { seasonId, attackerId, defenderId } = await neighbours({
+      attackerArmy: { SWORDSMAN: 300 },
+    });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target);
+
+    const { tile, siege } = await assault(seasonId, attackerId, target, { SWORDSMAN: 300 });
+
+    expect(siege?.kind).toBe("FLAG");
+    expect(siege?.damage).toBe(300); // 一般部隊 1 點／人
+    expect(siege?.destroyed).toBe(true);
+    expect(siege?.captured).toBe(true);
+    expect(tile.playerId).toBe(attackerId); // ★ 易主
+    expect(tile.structureHp).toBeNull(); // 新主人的旗是新的
+  });
+
+  it("★ 領地內有守軍時只能先攻擊軍隊 —— 建物一點傷都沒受", async () => {
+    const { seasonId, attackerId, defenderId } = await neighbours({
+      attackerArmy: { SWORDSMAN: 300 },
+    });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target);
+    // 守軍很強：攻方打不贏，連走近旗子的機會都沒有
+    await h.tx((tx) =>
+      writeGarrison(tx, seasonId, defenderId, defenderId, target.x, target.y, { SPEARMAN: 3000 }),
+    );
+
+    const { tile, siege } = await assault(seasonId, attackerId, target, { SWORDSMAN: 300 });
+
+    expect(siege?.damage).toBe(0);
+    expect(siege?.blockedBy).toBe("REPELLED");
+    expect(tile.playerId).toBe(defenderId);
+  });
+
+  it("★ 打贏了但守軍還有活口 → 仍然碰不到建物", async () => {
+    const { seasonId, attackerId, defenderId } = await neighbours({
+      attackerArmy: { SWORDSMAN: 3000 },
+    });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target);
+    // 少量守軍：攻方會贏，但一輪打不乾淨
+    await h.tx((tx) =>
+      writeGarrison(tx, seasonId, defenderId, defenderId, target.x, target.y, { SPEARMAN: 400 }),
+    );
+
+    const { tile, siege } = await assault(seasonId, attackerId, target, { SWORDSMAN: 3000 });
+
+    // 守軍沒被清空 → blockedBy GARRISON；清空了才輪得到建物
+    if (siege?.blockedBy === "GARRISON") {
+      expect(siege.damage).toBe(0);
+      expect(tile.playerId).toBe(defenderId);
+    } else {
+      expect(siege?.destroyed).toBe(true);
+      expect(tile.playerId).toBe(attackerId);
+    }
+  });
+
+  it("★ 要塞：三千名劍士打不下來，二十台投石機一趟就拆", async () => {
+    const { seasonId, attackerId, defenderId } = await neighbours({
+      attackerArmy: { SWORDSMAN: 3000, CATAPULT: 20 },
+    });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target, "FORTRESS", 2);
+
+    // 第一波：只帶步兵 → 石塔 Lv2（1,800）扣 1,000，還站著
+    const first = await assault(seasonId, attackerId, target, { SWORDSMAN: 1000 });
+    expect(first.siege?.kind).toBe("TOWER");
+    expect(first.siege?.hpBefore).toBe(1800);
+    expect(first.siege?.damage).toBe(1000);
+    expect(first.siege?.destroyed).toBe(false);
+    expect(first.tile.playerId).toBe(defenderId);
+    expect(first.tile.structureHp).toBe(800);
+
+    // 第二波：帶器械 → 20 台投石機 1,200 點，一趟拆完
+    /**
+     * ★ 第二波只隔五分鐘：間隔拉到一小時的話，三千名劍士的糧耗
+     *   會在這中間把攻方吃垮（`NOT_IN_GARRISON`）—— 那是養兵成本的正常行為，
+     *   不是這個 case 要驗的事。
+     */
+    const second = await assault(
+      seasonId,
+      attackerId,
+      target,
+      { CATAPULT: 20 },
+      T0.getTime() + 5 * 60_000,
+    );
+    expect(second.siege?.damage).toBeGreaterThanOrEqual(1200);
+    expect(second.siege?.destroyed).toBe(true);
+    expect(second.tile.playerId).toBe(attackerId);
+  });
+
+  it("★ 突襲不碰建物 —— 突襲的定義就是搶完就走", async () => {
+    const { seasonId, attackerId, defenderId } = await neighbours({
+      attackerArmy: { SWORDSMAN: 3000 },
+    });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target);
+
+    const sent = await h.tx((tx) =>
+      sendMarchFor(
+        tx,
+        attackerId,
+        { type: "RAID", fromX: 100, fromY: 100, toX: target.x, toY: target.y, army: { SWORDSMAN: 3000 } },
+        T0.getTime(),
+      ),
+    );
+    expect(sent.ok).toBe(true);
+    await h.db
+      .update(schema.marches)
+      .set({ arrivesAt: new Date(T0.getTime() + 1000) })
+      .where(eq(schema.marches.id, sent.marchId!));
+    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+
+    const [tile] = await h.db
+      .select()
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, target.x), eq(schema.tiles.y, target.y)));
+    expect(tile!.playerId).toBe(defenderId);
+  });
+
+  it("★ 主城不會易主 —— 打爆的是「破城」，不是換旗", async () => {
+    const { seasonId, attackerId, defenderId, target } = await neighbours({
+      attackerArmy: { CATAPULT: 400 },
+      defenderCitadel: 5,
+    });
+
+    const r = await assault(seasonId, attackerId, target, { CATAPULT: 400 });
+    expect(r.siege?.kind).toBe("KEEP");
+    expect(r.siege?.destroyed).toBe(true);
+    expect(r.siege?.captured).toBe(false); // 主城永遠不易主
+
+    const [player] = await h.db
+      .select({ id: schema.players.id })
+      .from(schema.players)
+      .where(eq(schema.players.id, defenderId));
+    expect(player!.id).toBe(defenderId);
   });
 });
