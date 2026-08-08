@@ -76,6 +76,14 @@ async function main() {
       (ONCE ? "（--once：只跑一輪）" : "，Ctrl-C 結束"),
   );
 
+  // ★ 啟動時先確保最新一季的地形檔可用（磁碟 → 資料庫 → 重新生成）
+  try {
+    const { ensureLatestTerrain } = await import("@/lib/server/terrain-files");
+    await ensureLatestTerrain((line) => console.log(`[${hhmmss()}] [terrain] ${line}`));
+  } catch (e) {
+    console.error(`[${hhmmss()}] ⚠ 地形啟動確保失敗：`, e instanceof Error ? e.message : e);
+  }
+
   while (!stop) {
     const startedAt = Date.now();
     try {

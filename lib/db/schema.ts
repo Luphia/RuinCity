@@ -13,6 +13,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -27,6 +28,13 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+
+/** Postgres `bytea`。drizzle 沒有內建，地形 chunk 檔（每個 4 KB）用它 */
+const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 // ─────────────────────────────────────────────────────────────
 // Enums
@@ -377,7 +385,28 @@ export const stewardLog = pgTable(
 // 地圖
 // ─────────────────────────────────────────────────────────────
 
-/** 地形不入庫：由 seed 決定性生成，以靜態 chunk 檔提供。只有「被誰佔用」需要持久化。 */
+/**
+ * 賽季的地形檔：64 個 chunk（`{cx}_{cy}.bin`，每格 1 byte）+ `meta.json`。
+ *
+ * ★ 原本的決定是「地形不入庫，由 seed 決定性生成、以靜態檔提供」——
+ *   但靜態檔活在**會蒸發的檔案系統**上：serverless 的每個新實例、
+ *   每次重新部署，封盤時寫出的檔案都不在了，/map 只能退回開發地圖。
+ *   資料庫才是不會蒸發的那一層：封盤時存進來（與 SEALED 同一個交易），
+ *   啟動時 `ensureLatestTerrain` 補齊磁碟快取或直接由 API 供檔。
+ *   一個賽季 65 列、約 260 KB —— 這是資產不是資料，但它得活得夠久。
+ */
+export const terrainFiles = pgTable(
+  "terrain_files",
+  {
+    seasonId: integer("season_id").notNull(),
+    /** `meta.json` 或 `{cx}_{cy}.bin` —— 與磁碟上的檔名一字不差 */
+    name: text("name").notNull(),
+    data: bytea("data").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.seasonId, t.name] })],
+);
+
+/** 格子的「被誰佔用」才需要逐格持久化；地形本身在 terrain_files */
 export const tiles = pgTable(
   "tiles",
   {

@@ -68,7 +68,7 @@ AI 玩家、遺跡軍團、執政官都走**與真人完全相同的 Server Acti
 | 賽季階段 | 由時間戳推導（`phaseAt`），`seasons.status` 只是那個推導的快取。要判斷「現在是哪個階段」一律問 `phaseOf(season, now)`，不要讀欄位 |
 | 失敗要看得見 | 每一個 `void (async () => {})()` 都要有 catch，而 catch 裡要有 UI。只 `console.error` 不算 —— 使用者看不到 console。這個毛病在 M5b 出現三次（登入失敗、地圖場景、賽季狀態），症狀都是「按了沒反應」 |
 | useEffect 依賴 | 會高頻重繪的元件之間，props 依賴一律用**基本型別**（`focus?.x`），不要用物件 —— 每次 render 的新物件字面量會讓 effect 每次都重跑。症狀跟成因看起來毫無關係（「地圖自己跳回出生點」vs「stats 的計時器」），見 `docs/11` §20.23 |
-| 地圖 | `/api/map/overview` 依資料庫解析「現在是哪一場」，地形檔在封盤時寫出（`lib/server/terrain-files.ts`，與 `pnpm map:generate` 共用）。退回 `s0` 開發地圖時 `isFallback` 會是 true，畫面要講出來 |
+| 地圖 | `/api/map/overview` 依資料庫解析「現在是哪一場」。地形的**真相在 `terrain_files` 表**（封盤時與 SEALED 同交易入庫）—— 磁碟只是快取，會跟著容器蒸發。啟動時 `ensureLatestTerrain`（`instrumentation.ts` 與 `pnpm worker`）補磁碟、缺庫就以 seed 重新生成；磁碟沒有時 chunk 走 `/api/terrain`。退回 `s0` 開發地圖時 `isFallback` 會是 true，畫面要講出來 |
 | 本機登入 | 沒設 `EMAIL_SERVER` 時，開發模式會把 magic link 印在終端機上（`usesDevMailbox()`）。token 仍是 Auth.js 發的、只能用一次、會過期 —— 換掉的只有投遞管道。production 一律關閉 |
 
 ## 目前進度

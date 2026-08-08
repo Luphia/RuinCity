@@ -385,13 +385,31 @@ export async function lockdownSeason(
    *   寫檔失敗不該讓封盤整個失敗（例如唯讀的檔案系統）：地圖畫不出來
    *   很糟，但比整場賽季開不成好。失敗只記一筆。
    */
-  try {
-    const { terrainDirName, terrainRoot, writeTerrainFiles } = await import("./terrain-files");
-    const { join } = await import("node:path");
-    const out = await writeTerrainFiles(world, join(terrainRoot(), terrainDirName(seasonId)));
-    log(`地形檔 ${out.chunks} 個 chunk（${(out.bytes / 1024).toFixed(0)} KB）→ ${out.dir}`);
-  } catch (e) {
-    log(`⚠ 地形檔寫入失敗，/map 會退回開發地圖：${e instanceof Error ? e.message : String(e)}`);
+  {
+    const { serializeTerrain, storeTerrainInDb, terrainDirName, terrainRoot } = await import(
+      "./terrain-files"
+    );
+    const files = serializeTerrain(world);
+
+    /**
+     * ★ 資料庫那一份與 SEALED 在**同一個交易**裡 —— 它是地形的真相，
+     *   不會跟著容器蒸發。存不進去就讓封盤失敗重試，
+     *   「賽季封盤了但地形不見了」這種半套狀態從此不存在。
+     */
+    await storeTerrainInDb(tx, seasonId, files);
+    log(`地形入庫：${files.length} 檔（${(files.reduce((s, f) => s + f.data.length, 0) / 1024).toFixed(0)} KB）`);
+
+    // 磁碟只是快取：寫失敗（唯讀檔案系統）就交給啟動時實體化或 /api/terrain
+    try {
+      const { join } = await import("node:path");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const dir = join(terrainRoot(), terrainDirName(seasonId));
+      await mkdir(dir, { recursive: true });
+      for (const f of files) await writeFile(join(dir, f.name), f.data);
+      log(`地形磁碟快取 → ${dir}`);
+    } catch (e) {
+      log(`磁碟快取寫入失敗（改由啟動實體化或 API 供檔）：${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   await tx

@@ -59,30 +59,62 @@ export async function GET(request: Request) {
     return JSON.parse(raw.toString()) as Record<string, unknown>;
   };
 
-  let meta: Record<string, unknown>;
+  let meta: Record<string, unknown> | null = null;
   let resolved = seasonId;
+  let chunkBaseUrl = `/terrain/${seasonId}`;
   try {
     meta = await load(seasonId);
   } catch {
     /**
-     * 這一場的地形還沒寫出來（封盤前，或寫檔失敗）。退回開發地圖，
-     * 但**要讓呼叫端知道這不是你那一局的地圖** —— 靜默地換一張圖比
-     * 顯示錯誤更糟。
+     * 磁碟上沒有（新實例、唯讀檔案系統）→ 問資料庫。
+     * `terrain_files` 是地形的真相（封盤時入庫，啟動時 `ensureLatestTerrain`
+     * 會補磁碟快取）；還在補的空窗期，chunk 直接走 `/api/terrain`。
      */
-    if (explicit || seasonId === FALLBACK_SEASON) {
-      return NextResponse.json(
-        { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
-        { status: 404 },
-      );
-    }
     try {
-      meta = await load(FALLBACK_SEASON);
-      resolved = FALLBACK_SEASON;
+      const numeric = /^s(\d+)$/.exec(seasonId)?.[1];
+      if (numeric) {
+        const { getDb, schema } = await import("@/lib/db");
+        const { and, eq } = await import("drizzle-orm");
+        const [row] = await getDb()
+          .select({ data: schema.terrainFiles.data })
+          .from(schema.terrainFiles)
+          .where(
+            and(
+              eq(schema.terrainFiles.seasonId, Number(numeric)),
+              eq(schema.terrainFiles.name, "meta.json"),
+            ),
+          )
+          .limit(1);
+        if (row) {
+          meta = JSON.parse(Buffer.from(row.data).toString()) as Record<string, unknown>;
+          chunkBaseUrl = `/api/terrain/${seasonId}`;
+        }
+      }
     } catch {
-      return NextResponse.json(
-        { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
-        { status: 404 },
-      );
+      // 沒有資料庫的環境（E2E、預覽）—— 往下走磁碟的退路
+    }
+
+    /**
+     * 資料庫也沒有 → 退回開發地圖，但**要讓呼叫端知道這不是你那一局
+     * 的地圖** —— 靜默地換一張圖比顯示錯誤更糟。
+     */
+    if (!meta) {
+      if (explicit || seasonId === FALLBACK_SEASON) {
+        return NextResponse.json(
+          { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
+          { status: 404 },
+        );
+      }
+      try {
+        meta = await load(FALLBACK_SEASON);
+        resolved = FALLBACK_SEASON;
+        chunkBaseUrl = `/terrain/${FALLBACK_SEASON}`;
+      } catch {
+        return NextResponse.json(
+          { error: `賽季 ${seasonId} 的地形尚未生成，執行 pnpm map:generate` },
+          { status: 404 },
+        );
+      }
     }
   }
   const isFallback = resolved !== seasonId;
@@ -137,7 +169,7 @@ export async function GET(request: Request) {
       width: MAP.width,
       height: MAP.height,
       chunk: { size: CHUNK_SIZE, cols: CHUNK_COLS, rows: CHUNK_ROWS },
-      chunkBaseUrl: `/terrain/${resolved}`,
+      chunkBaseUrl,
       terrainCodes: meta.terrainCodes,
       ruins: meta.ruins,
       areas: meta.areas,
