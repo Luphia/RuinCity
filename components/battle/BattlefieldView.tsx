@@ -55,6 +55,14 @@ export interface BattlefieldViewProps {
     readonly level: number;
     readonly mine: boolean;
   } | null;
+  /**
+   * ★ 現場模式（`docs/04` §3d）：這一場**還沒結算**。
+   *
+   * 沒有進度可言 —— 進度條量的是「重播播到哪」，而現場的終點
+   * 是伺服器的倒數，不是這支動畫。所以百分比換成「即時」、
+   * 結束橫幅不出現，士兵就這麼一直打下去。
+   */
+  readonly live?: boolean;
 }
 
 const DEFAULT_SLOTS: readonly SceneSlot[] = [
@@ -182,7 +190,7 @@ export function BattlefieldView(props: BattlefieldViewProps) {
           )
         : citadelSceneSvg({ slots: props.slots ?? DEFAULT_SLOTS, garrison: {}, frame: 0 }, 1),
     // ★ 依賴用基本型別，不要用 structure 物件本身（`11` §20.23 的教訓）
-    [props.slots, structure?.kind, structure?.level, structure?.mine, structure],
+    [props.slots, structure?.kind, structure?.level, structure?.mine],
   );
 
   useEffect(() => {
@@ -273,7 +281,7 @@ export function BattlefieldView(props: BattlefieldViewProps) {
           className="absolute inset-0 h-full w-full"
           style={{ imageRendering: "pixelated" }}
         />
-        {hud.over ? (
+        {hud.over && !props.live ? (
           <div className="absolute inset-x-0 bottom-0 bg-[#1a1614]/85 px-3 py-2 text-center text-xs">
             重播結束 —— 帳目以戰報為準
           </div>
@@ -285,14 +293,16 @@ export function BattlefieldView(props: BattlefieldViewProps) {
         <span className="text-[#a35a3a]">
           ⚔ {props.attackerLabel} <b>{hud.a.toLocaleString()}</b>
         </span>
-        <span className="opacity-60">{progress}%</span>
+        <span className="opacity-60">{props.live ? "即時" : `${progress}%`}</span>
         <span className="text-[#4a8fa8]">
           <b>{hud.d.toLocaleString()}</b> {props.defenderLabel} 🛡
         </span>
       </div>
-      <div className="mt-1 h-1 overflow-hidden rounded bg-[#2e2723]">
-        <div className="h-full bg-[#8a6b3a]" style={{ width: `${progress}%` }} />
-      </div>
+      {props.live ? null : (
+        <div className="mt-1 h-1 overflow-hidden rounded bg-[#2e2723]">
+          <div className="h-full bg-[#8a6b3a]" style={{ width: `${progress}%` }} />
+        </div>
+      )}
 
       <div className="mt-2 flex gap-1.5 text-xs">
         <button

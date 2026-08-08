@@ -31,7 +31,7 @@ interface Overview {
   fairness: { key: string; label: string; pass: boolean; actual: number; format: string }[];
   spawns: { x: number; y: number; faction: 1 | 2 | 3; band: string }[];
   /** 交戰地點 —— fresh = 觀戰窗口內（點那一格可以進去看） */
-  battles?: { id: number; x: number; y: number; fresh: boolean }[];
+  battles?: { id: number; x: number; y: number; fresh: boolean; live?: boolean }[];
 }
 
 const RESOURCE_LABEL = { grain: "糧", timber: "木", stone: "石", iron: "鐵" } as const;
@@ -226,7 +226,7 @@ export function MapView() {
                   : "border-[#8a6b3a] text-[#d9a441]"
               }`}
             >
-              {selectedBattle?.fresh ? "觀戰 🔥" : "展開此格 ⚔"}
+              {selectedBattle?.live ? "交戰中 ⚔" : selectedBattle?.fresh ? "觀戰 🔥" : "展開此格 ⚔"}
             </Link>
           ) : null}
           {overview && !selected ? (
@@ -260,6 +260,11 @@ export function MapView() {
             遺跡
           </span>
           <span className="text-[#c4442f]">✕ 交戰</span>
+          {/* ★ 打完的與正在打的要分得開：後者還來得及派兵加入 */}
+          <span className="text-[#c4442f]">
+            <span className="mr-0.5 inline-block h-2 w-2 rounded-full border border-[#e8dcc0] align-middle" />
+            進行中
+          </span>
           <span>
             <span className="mr-0.5 inline-block h-1.5 w-1.5 bg-[#e8dcc0] align-middle" />
             <span className="mr-1 inline-block h-1.5 w-1.5 bg-[#e8dcc0] align-middle" />

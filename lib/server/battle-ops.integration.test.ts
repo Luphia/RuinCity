@@ -3,7 +3,9 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
-import { resolveArrivals } from "@/lib/server/battle-ops";
+import { BATTLE } from "@/lib/game/balance";
+import { resolveArrivals, resolveEngagements } from "@/lib/server/battle-ops";
+import { liveEngagementAt } from "@/lib/server/engagement-ops";
 import {
   garrisonAt,
   recallMarchFor,
@@ -42,6 +44,24 @@ beforeAll(async () => {
 afterAll(async () => {
   await h?.close();
 });
+
+
+/**
+ * ★ 新模型的「打完一場仗」是**兩步**（`docs/04` §3d）：
+ *   抵達 → 進場（開一場交戰）→ 兩分鐘後結算。
+ *   測試裡把時鐘往前撥到交戰結束再收尾。
+ */
+async function settleBattle(seasonId: number, arriveAt: number) {
+  const arrivals = await h.tx((tx) => resolveArrivals(tx, seasonId, arriveAt));
+  const at = arriveAt + BATTLE.durationMs + 1000;
+  const engagements = await h.tx((tx) => resolveEngagements(tx, seasonId, at));
+  return {
+    at,
+    /** 真正打起來的場數 = 交戰結算數（突襲仍走抵達即結算） */
+    battles: arrivals.battles + engagements.resolved,
+    failures: arrivals.failures + engagements.failures,
+  };
+}
 
 /** 兩位鄰居，攻方有一支軍隊 */
 async function neighbours(opts: {
@@ -193,7 +213,7 @@ describe("★ 抵達結算：跨玩家，離線的守方也算得到", () => {
     expect(sent.ok).toBe(true);
 
     const at = sent.arrivesAt! + 1000;
-    const summary = await h.tx((tx) => resolveArrivals(tx, seasonId, at));
+    const summary = await settleBattle(seasonId, at);
     expect(summary.battles).toBe(1);
     expect(summary.failures).toBe(0);
 
@@ -246,7 +266,7 @@ describe("★ 抵達結算：跨玩家，離線的守方也算得到", () => {
         now,
       ),
     );
-    await h.tx((tx) => resolveArrivals(tx, seasonId, sent.arrivesAt! + 1000));
+    await settleBattle(seasonId, sent.arrivesAt! + 1000);
 
     const after = await readResources(h, defenderId);
     for (const r of ["grain", "timber", "stone", "iron"] as const) {
@@ -269,7 +289,7 @@ describe("★ 抵達結算：跨玩家，離線的守方也算得到", () => {
         now,
       ),
     );
-    await h.tx((tx) => resolveArrivals(tx, seasonId, sent.arrivesAt! + 1000));
+    await settleBattle(seasonId, sent.arrivesAt! + 1000);
 
     const [report] = await h.db
       .select()
@@ -295,7 +315,7 @@ describe("★ 抵達結算：跨玩家，離線的守方也算得到", () => {
           now,
         ),
       );
-      await h.tx((tx) => resolveArrivals(tx, seasonId, sent.arrivesAt! + 1000));
+      await settleBattle(seasonId, sent.arrivesAt! + 1000);
       const [report] = await h.db
         .select()
         .from(schema.battleReports)
@@ -320,7 +340,7 @@ describe("★ 抵達結算：跨玩家，離線的守方也算得到", () => {
         now,
       ),
     );
-    const summary = await h.tx((tx) => resolveArrivals(tx, seasonId, sent.arrivesAt! + 1000));
+    const summary = await settleBattle(seasonId, sent.arrivesAt! + 1000);
     expect(summary.battles).toBe(0);
 
     const [ret] = await h.db
@@ -345,7 +365,7 @@ describe("偵查", () => {
         now,
       ),
     );
-    await h.tx((tx) => resolveArrivals(tx, seasonId, sent.arrivesAt! + 1000));
+    await settleBattle(seasonId, sent.arrivesAt! + 1000);
 
     const [report] = await h.db
       .select()
@@ -394,7 +414,7 @@ describe("增援與召回", () => {
         now,
       ),
     );
-    await h.tx((tx) => resolveArrivals(tx, seasonId, sent.arrivesAt! + 1000));
+    await settleBattle(seasonId, sent.arrivesAt! + 1000);
 
     const stationed = await h.tx((tx) =>
       garrisonAt(tx, seasonId, attackerId, target.x, target.y),
@@ -568,7 +588,8 @@ describe("★ 征服（CLAIM 行軍）", () => {
       .update(schema.marches)
       .set({ arrivesAt: new Date(T0.getTime() + 1000) })
       .where(eq(schema.marches.id, sent.marchId!));
-    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+    // 征服現在與 PvP 走同一條路：抵達進場 → 兩分鐘後結算（`docs/04` §3d）
+    await settleBattle(seasonId, T0.getTime() + 2000);
     return sent;
   }
 
@@ -600,9 +621,14 @@ describe("★ 征服（CLAIM 行軍）", () => {
       .where(and(eq(schema.battleReports.seasonId, seasonId), eq(schema.battleReports.marchType, "CLAIM")));
     expect(reports).toHaveLength(1);
     expect(reports[0]!.outcome).toBe("ATTACKER_WIN");
-    const snap = reports[0]!.snapshot as { kind: string; wild: { level: number } };
+    const snap = reports[0]!.snapshot as {
+      kind: string;
+      engagement: { participants: number; captured: boolean };
+    };
     expect(snap.kind).toBe("BATTLE");
-    expect(snap.wild.level).toBe(level);
+    // 中立地也是一場交戰：守衛 1 席 + 攻方 1 席
+    expect(snap.engagement.participants).toBe(2);
+    expect(snap.engagement.captured).toBe(true);
 
     // 打完的部隊在回程路上（有戰損但沒全滅）
     const returns = await h.db
@@ -735,7 +761,7 @@ async function assault(
     .update(schema.marches)
     .set({ arrivesAt: new Date(at + 1000) })
     .where(eq(schema.marches.id, sent.marchId!));
-  await h.tx((tx) => resolveArrivals(tx, seasonId, at + 2000));
+  await settleBattle(seasonId, at + 2000);
 
   const [tile] = await h.db
     .select()
@@ -1038,13 +1064,19 @@ describe("★ 傷兵十分鐘歸隊，陣亡的回不來", () => {
     // ★ 陣亡的回不來：傷兵**少於**總損失
     expect(wounded.SPEARMAN!).toBeLessThan(200);
 
+    /**
+     * ★ 傷兵的倒數從**交戰結束**那一刻起算，不是從出發那一刻。
+     *   交戰本身要跑兩分鐘（`BATTLE.durationMs`），所以基準點要加上去 ——
+     *   忘了加的話會誤以為「十分鐘到了卻沒歸隊」。
+     */
+    const hurtAt = T0.getTime() + BATTLE.durationMs + 3000;
     // 九分鐘後還沒好
-    await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 9 * 60_000));
+    await h.tx((tx) => recoverWounded(tx, seasonId, hurtAt + 9 * 60_000));
     const stillOut = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, target.x, target.y));
     expect(stillOut.SPEARMAN ?? 0).toBe(0);
 
-    // 十分鐘整 → 歸隊（戰鬥是在 T0+2s 結算的，所以倒數從那一刻起算）
-    await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 10 * 60_000 + 2_000));
+    // 十分鐘整 → 歸隊
+    await h.tx((tx) => recoverWounded(tx, seasonId, hurtAt + 10 * 60_000));
     const back = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, target.x, target.y));
     expect(back.SPEARMAN ?? 0).toBe(wounded.SPEARMAN);
   });
@@ -1072,5 +1104,199 @@ describe("★ 傷兵十分鐘歸隊，陣亡的回不來", () => {
     await h.tx((tx) => recoverWounded(tx, seasonId, T0.getTime() + 31 * 60_000));
     const healed = await h.tx((tx) => garrisonAt(tx, seasonId, defenderId, 200, 200));
     expect(healed.SPEARMAN).toBe(30);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 交戰：名額、援軍、中立地競爭（docs/04 §3d）
+// ─────────────────────────────────────────────────────────────
+
+describe("★ 一格 5 對 5，主城 10 對 10", () => {
+  it("第六支攻方擠不進去 → 原地回頭，而且戰報說得出原因", async () => {
+    const { seasonId, defenderId } = await neighbours({ defenderCitadel: 15 });
+    const target = { x: 104, y: 100 };
+    await seedTerritory(seasonId, defenderId, target);
+
+    // 六位不同的攻方，全部在同一分鐘抵達
+    const attackers: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const a = await seedPlayer(h, seasonId, {
+        startedAt: T0,
+        baseX: 200 + i * 10,
+        baseY: 200,
+        citadelLevel: 10,
+        resources: 3000,
+      });
+      attackers.push(a.playerId);
+      await h.tx((tx) =>
+        writeGarrison(tx, seasonId, a.playerId, a.playerId, 200 + i * 10, 200, { SWORDSMAN: 50 }),
+      );
+      const sent = await h.tx((tx) =>
+        sendMarchFor(
+          tx,
+          a.playerId,
+          {
+            type: "ATTACK",
+            fromX: 200 + i * 10,
+            fromY: 200,
+            toX: target.x,
+            toY: target.y,
+            army: { SWORDSMAN: 50 },
+          },
+          T0.getTime(),
+        ),
+      );
+      expect(sent.ok).toBe(true);
+      await h.db
+        .update(schema.marches)
+        .set({ arrivesAt: new Date(T0.getTime() + 1000) })
+        .where(eq(schema.marches.id, sent.marchId!));
+    }
+
+    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+
+    const live = await h.tx((tx) => liveEngagementAt(tx, seasonId, target.x, target.y));
+    expect(live).not.toBeNull();
+    expect(live!.slots.attacker).toEqual({ used: 5, cap: 5 });
+
+    // 第六位拿到一份「擠不進去」的戰報，而且部隊在回程上
+    const full = await h.db
+      .select()
+      .from(schema.battleReports)
+      .where(eq(schema.battleReports.attackerId, attackers[5]!));
+    expect(full).toHaveLength(1);
+    expect((full[0]!.snapshot as { kind: string }).kind).toBe("SLOTS_FULL");
+  });
+
+  it("★ 主城的容量是一般格子的兩倍", async () => {
+    const { seasonId, target } = await neighbours({ defenderCitadel: 15 });
+
+    for (let i = 0; i < 6; i++) {
+      const a = await seedPlayer(h, seasonId, {
+        startedAt: T0,
+        baseX: 300 + i * 10,
+        baseY: 300,
+        citadelLevel: 10,
+        resources: 3000,
+      });
+      await h.tx((tx) =>
+        writeGarrison(tx, seasonId, a.playerId, a.playerId, 300 + i * 10, 300, { SWORDSMAN: 50 }),
+      );
+      const sent = await h.tx((tx) =>
+        sendMarchFor(
+          tx,
+          a.playerId,
+          {
+            type: "ATTACK",
+            fromX: 300 + i * 10,
+            fromY: 300,
+            toX: target.x,
+            toY: target.y,
+            army: { SWORDSMAN: 50 },
+          },
+          T0.getTime(),
+        ),
+      );
+      await h.db
+        .update(schema.marches)
+        .set({ arrivesAt: new Date(T0.getTime() + 1000) })
+        .where(eq(schema.marches.id, sent.marchId!));
+    }
+    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+
+    const live = await h.tx((tx) => liveEngagementAt(tx, seasonId, target.x, target.y));
+    expect(live!.isKeep).toBe(true);
+    // 六支全部進得去（主城 10 席），一般格子只進得去 5 支
+    expect(live!.slots.attacker).toEqual({ used: 6, cap: 10 });
+  });
+});
+
+describe("★ 中立資源地：有空位就能一起搶", () => {
+  it("兩位玩家打同一格野地 → 同一場交戰，出力多的拿走", async () => {
+    const seasonId = await seedSeason(h, { startedAt: T0 });
+    await writeTerrainFixture(seasonId);
+
+    // ★ 目標必須同時**貼著兩位**的領地 —— CLAIM 走的是擴張路徑，
+    //   不相鄰就在 `planClaim` 被 NOT_ADJACENT 擋下（這不是交戰規則，
+    //   是誰有資格去搶）。兩座核心 2×2 中間夾一格，就是唯一擺得出來的形狀。
+    const spot = { x: 102, y: 100 } as const;
+    const { wildLevelAt } = await import("@/lib/game/wilds");
+    let seed = 0;
+    for (let s = 1; s < 20_000; s++) {
+      if (wildLevelAt(s, spot.x, spot.y, "PLAIN") >= 2) {
+        seed = s;
+        break;
+      }
+    }
+    expect(seed, "掃不到有守衛的 seed").toBeGreaterThan(0);
+    await h.db
+      .update(schema.seasons)
+      .set({ seed: BigInt(seed) })
+      .where(eq(schema.seasons.id, seasonId));
+
+    const big = await seedPlayer(h, seasonId, {
+      startedAt: T0,
+      baseX: 100,
+      baseY: 100,
+      citadelLevel: 15,
+      resources: 9000,
+    });
+    const small = await seedPlayer(h, seasonId, {
+      startedAt: T0,
+      baseX: 103,
+      baseY: 100,
+      citadelLevel: 15,
+      resources: 9000,
+    });
+    await h.tx((tx) =>
+      writeGarrison(tx, seasonId, big.playerId, big.playerId, 100, 100, { SWORDSMAN: 400 }),
+    );
+    await h.tx((tx) =>
+      writeGarrison(tx, seasonId, small.playerId, small.playerId, 103, 100, { SWORDSMAN: 60 }),
+    );
+
+    for (const [who, from, army] of [
+      [big.playerId, { x: 100, y: 100 }, { SWORDSMAN: 400 }],
+      [small.playerId, { x: 103, y: 100 }, { SWORDSMAN: 60 }],
+    ] as const) {
+      const sent = await h.tx((tx) =>
+        sendMarchFor(
+          tx,
+          who,
+          { type: "CLAIM", fromX: from.x, fromY: from.y, toX: spot.x, toY: spot.y, army },
+          T0.getTime(),
+        ),
+      );
+      expect(sent.ok, "reason" in sent ? String(sent.reason) : "").toBe(true);
+      await h.db
+        .update(schema.marches)
+        .set({ arrivesAt: new Date(T0.getTime() + 1000) })
+        .where(eq(schema.marches.id, sent.marchId!));
+    }
+
+    await h.tx((tx) => resolveArrivals(tx, seasonId, T0.getTime() + 2000));
+
+    // ★ 兩位都在同一場交戰裡 —— 這就是「有空位其他玩家也能派兵競爭」
+    const live = await h.tx((tx) => liveEngagementAt(tx, seasonId, spot.x, spot.y));
+    expect(live!.slots.attacker.used).toBe(2);
+    expect(live!.defender).not.toEqual({}); // 野生守衛佔守方那一席
+
+    await h.tx((tx) => resolveEngagements(tx, seasonId, T0.getTime() + BATTLE.durationMs + 3000));
+
+    const [tile] = await h.db
+      .select()
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.x, spot.x), eq(schema.tiles.y, spot.y)));
+    // 出兵多的那一位存活最多 → 地是他的
+    expect(tile!.playerId).toBe(big.playerId);
+
+    // 兩位都拿到戰報，但只有一位的 captured 是 true
+    const reports = await h.db.select().from(schema.battleReports).where(eq(schema.battleReports.seasonId, seasonId));
+    expect(reports.length).toBeGreaterThanOrEqual(2);
+    const captured = reports.filter(
+      (r) => (r.snapshot as { engagement?: { captured?: boolean } }).engagement?.captured,
+    );
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.attackerId).toBe(big.playerId);
   });
 });

@@ -9,13 +9,14 @@
  *   - 這一格的戰鬥 → 只有當事人看得到（與戰報同一條規則）
  */
 
-import { and, desc, eq, gt, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { schema } from "@/lib/db";
 import { parseArmy, type Army } from "@/lib/game/army";
 import { SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
 import { STRUCTURE } from "@/lib/game/balance";
+import { armyPopulation } from "@/lib/game/formulas";
 import { currentHp, maxHpOf } from "@/lib/game/structures";
 import type { SceneSlot } from "@/lib/game/citadel";
 import { serverNow } from "@/lib/time";
@@ -44,6 +45,32 @@ export interface TileScene {
     readonly mine: boolean;
     /** 誰都沒佔的野地 */
     readonly unclaimed: boolean;
+  } | null;
+  /**
+   * ★ 正在打的那一場（`docs/04` §3d）。
+   *
+   * 進行中的交戰是**公開**的 —— 任何人點進來都看得到動畫、名額與名單。
+   * 這與戰報的迷霧規則不衝突：戰報是**帳目**（誰死幾個、搶走多少），
+   * 那永遠只有當事人看得到；交戰是**現場**，而現場本來就在地圖上冒煙。
+   */
+  readonly live: {
+    readonly id: number;
+    readonly isKeep: boolean;
+    readonly startedAt: number;
+    readonly endsAt: number;
+    readonly serverTime: number;
+    readonly attacker: Army;
+    readonly defender: Army;
+    readonly slots: {
+      readonly attacker: { readonly used: number; readonly cap: number };
+      readonly defender: { readonly used: number; readonly cap: number };
+    };
+    readonly roster: readonly {
+      readonly side: "ATTACKER" | "DEFENDER";
+      readonly name: string;
+      readonly mine: boolean;
+      readonly population: number;
+    }[];
   } | null;
 }
 
@@ -191,6 +218,48 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
       }
     : null;
 
+  /**
+   * ★ 正在打的那一場。它**優先於**戰報：現場還在冒煙的時候，
+   *   玩家要看到的是現場，不是上一場的重播。
+   */
+  const { liveEngagementAt } = await import("@/lib/server/engagement-ops");
+  const { withTransaction } = await import("@/lib/db/tx");
+  const engagement = await withTransaction((tx) => liveEngagementAt(tx, me.seasonId, x, y));
+
+  let live: TileScene["live"] = null;
+  if (engagement) {
+    const ids = [...new Set(engagement.roster.map((r) => r.playerId).filter((v) => v !== null))];
+    const factions = new Map<number, number>();
+    if (ids.length > 0) {
+      const rows = await db
+        .select({ id: schema.players.id, faction: schema.players.faction })
+        .from(schema.players)
+        .where(inArray(schema.players.id, ids));
+      for (const r of rows) factions.set(r.id, r.faction);
+    }
+    live = {
+      id: engagement.id,
+      isKeep: engagement.isKeep,
+      startedAt: engagement.startedAt,
+      endsAt: engagement.endsAt,
+      serverTime: now,
+      attacker: engagement.attacker,
+      defender: engagement.defender,
+      slots: engagement.slots,
+      roster: engagement.roster.map((r) => ({
+        side: r.side,
+        name:
+          r.playerId === null
+            ? "野生守衛"
+            : r.playerId === me.playerId
+              ? "我方部隊"
+              : `第 ${factions.get(r.playerId) ?? "?"} 陣營的領主`,
+        mine: r.playerId === me.playerId,
+        population: armyPopulation(r.units),
+      })),
+    };
+  }
+
   return {
     x,
     y,
@@ -200,5 +269,6 @@ export async function loadTileScene(x: number, y: number): Promise<TileScene | n
     slots,
     latestBattleId: report?.id ?? null,
     structure,
+    live,
   };
 }

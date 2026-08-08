@@ -3,6 +3,7 @@ import Link from "next/link";
 import { loadTileScene } from "@/app/actions/tile";
 import { loadBattleReplay } from "@/app/actions/war";
 import { BattlefieldView } from "@/components/battle/BattlefieldView";
+import { LiveEngagementPanel } from "@/components/battle/LiveEngagementPanel";
 import { MAP } from "@/lib/game/balance";
 
 export const metadata = { title: "戰場 · RuinCity" };
@@ -11,7 +12,9 @@ export const dynamic = "force-dynamic";
 /**
  * 一格的展開視圖：50×50 的戰場。
  *
- * 三種樣子，依這一格上有什麼：
+ * 四種樣子，依這一格上有什麼：
+ * 0. **這裡正在打** → 現場：兩軍在場上互毆、名額、參戰名單、結算倒數
+ *    （公開；任何人都看得到 —— `docs/04` §3d）
  * 1. 這裡打過仗（而且我是當事人）→ 即時戰略式重播
  * 2. 我的據點 → 城 + 駐軍在牆外自主巡邏（idle）
  * 3. 別人的據點或空地 → 只有城殼或地形 —— 守軍是迷霧，要知道就派偵查
@@ -57,17 +60,22 @@ export default async function TilePage({
     );
   }
 
-  // 這一格打過仗 → 直接演那一場
-  const replay = scene.latestBattleId ? await loadBattleReplay(scene.latestBattleId) : null;
+  // ★ 現場優先於重播：這一格還在打的時候，要看到的是現在，不是上一場
+  const live = scene.live;
+  const replay =
+    !live && scene.latestBattleId ? await loadBattleReplay(scene.latestBattleId) : null;
 
   return (
-    <main className="mx-auto max-w-md px-4 py-6 text-[#e8dcc0]">
+    // ★ pb-16 讓底部的「回地圖」不會被常駐分頁列蓋住 —— 交戰面板讓這一頁變長了
+    <main className="mx-auto max-w-md px-4 pb-16 pt-6 text-[#e8dcc0]">
       <header className="mb-3 flex items-baseline justify-between">
         <h1 className="text-xl font-bold">
           ({x}, {y})
         </h1>
         <span className="rounded bg-[#4a413a] px-2 py-0.5 text-xs">
-          {replay
+          {live
+            ? "交戰中 ⚔"
+            : replay
             ? replay.isSpectator
               ? "觀戰 🔥"
               : "最近一戰"
@@ -83,7 +91,25 @@ export default async function TilePage({
         </span>
       </header>
 
-      {replay ? (
+      {live ? (
+        /* ★ 現場：兩軍都在場上互相攻擊，而且**沒有人倒下** ——
+           `losses` 空的，死亡配額就是 0（`battlefield.ts` 的「總帳命定」）。
+           結果在倒數歸零的那一刻才由伺服器算出來，畫面不能提前劇透。 */
+        <BattlefieldView
+          input={{
+            seed: live.id,
+            attacker: { army: live.attacker, losses: {} },
+            defender: { army: live.defender, losses: {} },
+            hasBase: scene.hasBase,
+            durationTicks: 100_000,
+          }}
+          structure={scene.structure}
+          attackerLabel="攻方"
+          defenderLabel="守方"
+          slots={scene.slots ?? undefined}
+          live
+        />
+      ) : replay ? (
         <BattlefieldView
           input={{
             seed: replay.reportId,
@@ -116,6 +142,8 @@ export default async function TilePage({
         />
       )}
 
+      {live ? <LiveEngagementPanel live={live} /> : null}
+
       {/* ★ 領地建物的耐久：玩家要看得出「這一格要打幾波」。
           一般部隊 1 點／人、器械才算數（`docs/04` §5），所以這個數字
           直接就是「需要多少人或多少台器械」 */}
@@ -132,7 +160,7 @@ export default async function TilePage({
         </p>
       ) : null}
 
-      {!scene.isMine && scene.hasBase && !replay ? (
+      {!scene.isMine && scene.hasBase && !replay && !live ? (
         <p className="mt-3 rounded border border-[#4a413a] bg-[#2e2723] p-3 text-xs opacity-80">
           敵方守軍不可見 —— 想知道城裡有多少人，從{" "}
           <Link href="/war" className="text-[#d9a441]">

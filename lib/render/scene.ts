@@ -65,6 +65,12 @@ export interface BattleMarker {
   readonly y: number;
   /** true = 觀戰窗口內（脈動紅 ✕ 可點觀戰）；false = 近期戰場（暗色殘跡） */
   readonly fresh: boolean;
+  /**
+   * ★ true = **現在正在打**（`docs/04` §3d）。
+   *   打完的戰場與正在打的戰場長得不一樣是必要的：
+   *   前者只是情報，後者是**還來得及參加**的邀請。
+   */
+  readonly live?: boolean;
 }
 
 export interface MineMarch {
@@ -406,9 +412,17 @@ export class MapScene {
         const cx = at.x + v.tilePixels / 2;
         const cy = at.y + v.tilePixels / 2;
         const h = Math.max(6, v.tilePixels); // L3 下也要有 12px 的標示
-        const color = b.fresh ? PALETTE.alert : PALETTE.rustDark;
-        const alpha = b.fresh ? pulse : 0.7;
+        const color = b.fresh || b.live ? PALETTE.alert : PALETTE.rustDark;
+        const alpha = b.fresh || b.live ? pulse : 0.7;
         g.clear();
+        /**
+         * ★ 進行中的交戰多一圈脈動的環 —— 遠遠就看得出「那裡還打得到」。
+         *   金色是遺跡專用（`palette.ts`），所以這裡用羊皮紙白，
+         *   紅 ✕ 仍然是戰鬥的顏色。
+         */
+        if (b.live) {
+          g.circle(cx, cy, h * 1.6).stroke({ color: PALETTE.parchment, width: 2, alpha });
+        }
         g.moveTo(cx - h, cy - h)
           .lineTo(cx + h, cy + h)
           .moveTo(cx + h, cy - h)

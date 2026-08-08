@@ -29,6 +29,7 @@ import {
   mergeArmies,
   parseArmy,
   armyPopulation,
+  subtractArmy,
   RAID_WINDOW_MS,
   type Army,
   type Lootable,
@@ -56,6 +57,15 @@ import { deriveSeed, mulberry32 } from "@/lib/game/rng";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import { settleWithin } from "@/lib/server/player-state";
+import {
+  closeEngagement,
+  dueEngagements,
+  joinOrOpenEngagement,
+  partsOf,
+  toParticipants,
+  type EngagementRow,
+} from "@/lib/server/engagement-ops";
+import { distributeLosses, distributeSpoils, sideArmy } from "@/lib/game/engagement";
 import {
   addWounded,
   garrisonAt,
@@ -138,10 +148,16 @@ async function resolveOne(tx: TxDb, march: MarchRow, now: number): Promise<boole
       await resolveStation(tx, march, now);
       return false;
     case "RAID":
-    case "ATTACK":
+      /**
+       * ★ 突襲**不進場**（`docs/04` §3d）。
+       *   突襲的定義就是快打快走：不佔名額、不能被援軍打斷、
+       *   也碰不到建物。它是唯一還走「抵達即結算」的類型 ——
+       *   保留它是刻意的，玩家需要一種不會把部隊卡兩分鐘的騷擾手段。
+       */
       return resolveAssault(tx, march, now);
+    case "ATTACK":
     case "CLAIM":
-      return resolveConquest(tx, march, now);
+      return enterEngagement(tx, march, now);
     default:
       // 認不出來的類型就當作原地解散並回家
       await sendHome(tx, march, parseArmy(march.units), null, now);
@@ -153,27 +169,44 @@ async function resolveOne(tx: TxDb, march: MarchRow, now: number): Promise<boole
 // 征服：打野生守衛，贏了立刻佔領（docs/02 §2.5、docs/11 §22）
 // ─────────────────────────────────────────────────────────────
 
-async function resolveConquest(tx: TxDb, march: MarchRow, now: number): Promise<boolean> {
+// ─────────────────────────────────────────────────────────────
+// 交戰：進場與結算（docs/04 §3d）
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 抵達 → **進場**。
+ *
+ * 這裡不打仗，只把部隊放進這一格的交戰名冊裡（沒有就開一場）。
+ * 真正的結算兩分鐘後由 `resolveDueEngagements` 一起做。
+ *
+ * 名額滿了就原地回頭 —— 而且要**講出來**：戰場擠不下是一個
+ * 玩家需要知道的事實（他得換個目標，或等下一場）。
+ */
+async function enterEngagement(tx: TxDb, march: MarchRow, now: number): Promise<boolean> {
   const army = parseArmy(march.units);
-  const state = await settleWithin(tx, march.ownerId, now);
+  const defender = await defenderAt(tx, march.seasonId, march.toX, march.toY, now);
 
   /**
-   * ★ 抵達時**重新驗證**（伺服器是唯一真相）：路上可能被別人搶先、
-   *   容量可能被同時完成的立旗吃掉、連通可能被孤立打斷。
-   *   驗不過就原地回頭 —— 出發時收的立旗資源不退（docs/11 §22.3）。
+   * 中立地：沒有守方玩家，守的是野生守衛（`docs/02` §2.5）。
+   * ★ 攻方名額對**所有人**開放 —— 這就是「若有空位其他玩家也能派兵競爭」。
    */
-  const { claimPlanFor } = await import("@/lib/server/base-ops");
-  const check = await claimPlanFor(tx, state, march.toX, march.toY);
-  if ("reason" in check) {
+  const isNeutral = defender === null;
+
+  /**
+   * ★ CLAIM 抵達時那一格已經有主人 → **原地回頭**，不會變成一場 PvP。
+   *   玩家派出去的是一支拓荒隊，路上被別人插了旗；
+   *   把它自動轉成攻擊那個人是一個沒有人要的驚喜（`docs/11` §22.3）。
+   */
+  if (!isNeutral && march.type === "CLAIM") {
     await tx.insert(schema.battleReports).values({
       seasonId: march.seasonId,
       attackerId: march.ownerId,
-      defenderId: null,
+      defenderId: defender!.playerId,
       atX: march.toX,
       atY: march.toY,
       marchType: "CLAIM",
       outcome: "CLAIM_FAILED",
-      snapshot: { kind: "WILD_CLAIM", reason: check.reason, sent: army } as never,
+      snapshot: { kind: "WILD_CLAIM", reason: "TILE_TAKEN", sent: army } as never,
       createdAt: new Date(now),
     });
     await tx.update(schema.marches).set({ status: "ARRIVED" }).where(eq(schema.marches.id, march.id));
@@ -181,102 +214,416 @@ async function resolveConquest(tx: TxDb, march: MarchRow, now: number): Promise<
     return false;
   }
 
-  const { wildGuardsFor, wildInnateDefense } = await import("@/lib/game/wilds");
-  const distance = Math.max(Math.abs(march.toX - march.fromX), Math.abs(march.toY - march.fromY));
-  const guards = wildGuardsFor(check.level, distance);
-  const hasGuards = Object.keys(guards).length > 0;
-
-  let outcome: ResolvedBattle["outcome"] = "ATTACKER_WIN";
-  let survivors: Army = army;
-  let attackerLosses: Army = {};
-  let defenderLosses: Army = {};
-  let battle: ResolvedBattle | null = null;
-
-  if (hasGuards) {
-    /**
-     * ★ 與 PvE 營地同一條規則：`skipMorale`（docs/11 §15.1）——
-     *   反霸凌的士氣修正不該懲罰打野。巢穴沒有牆，只有固有防禦。
-     */
-    battle = resolveBattle(
-      { army },
-      {
-        army: guards,
-        wallLevel: 0,
-        innateDefense: wildInnateDefense(check.level),
-        watchtowerDefense: 0,
-        infirmaryLevel: 0,
-        lootable: {},
-      },
-      { marchType: "ATTACK", defenderAtHome: false, skipMorale: true },
-    );
-    outcome = battle.outcome;
-    survivors = battle.attackerSurvivors;
-    attackerLosses = battle.attackerLosses;
-    defenderLosses = battle.defenderLosses;
+  if (isNeutral && march.type !== "CLAIM") {
+    // 對一片沒有主人的空地發動 ATTACK 不會發生任何事
+    await tx.update(schema.marches).set({ status: "ARRIVED" }).where(eq(schema.marches.id, march.id));
+    await sendHome(tx, march, army, null, now);
+    return false;
   }
 
-  if (outcome === "ATTACKER_WIN") {
-    // 血已經付過了：立刻佔領，不再立旗倒數
-    const [me] = await tx
-      .select({ allianceId: schema.players.allianceId })
-      .from(schema.players)
-      .where(eq(schema.players.id, march.ownerId))
-      .limit(1);
-    await tx
-      .insert(schema.tiles)
-      .values({
+  let guards: Army = {};
+  let wildLevel = 0;
+  if (isNeutral) {
+    const state = await settleWithin(tx, march.ownerId, now);
+    const { claimPlanFor } = await import("@/lib/server/base-ops");
+    const check = await claimPlanFor(tx, state, march.toX, march.toY);
+    if ("reason" in check) {
+      await tx.insert(schema.battleReports).values({
         seasonId: march.seasonId,
-        x: march.toX,
-        y: march.toY,
-        kind: "TERRITORY",
-        playerId: march.ownerId,
-        allianceId: me?.allianceId ?? null,
-        terrain: check.terrain,
-        level: Math.max(1, check.level),
-        state: "NORMAL",
-      })
-      .onConflictDoNothing();
+        attackerId: march.ownerId,
+        defenderId: null,
+        atX: march.toX,
+        atY: march.toY,
+        marchType: "CLAIM",
+        outcome: "CLAIM_FAILED",
+        snapshot: { kind: "WILD_CLAIM", reason: check.reason, sent: army } as never,
+        createdAt: new Date(now),
+      });
+      await tx.update(schema.marches).set({ status: "ARRIVED" }).where(eq(schema.marches.id, march.id));
+      await sendHome(tx, march, army, null, now);
+      return false;
+    }
+    const { wildGuardsFor } = await import("@/lib/game/wilds");
+    const distance = Math.max(Math.abs(march.toX - march.fromX), Math.abs(march.toY - march.fromY));
+    wildLevel = check.level;
+    guards = wildGuardsFor(check.level, distance);
   }
 
-  await tx.insert(schema.battleReports).values({
-    seasonId: march.seasonId,
-    attackerId: march.ownerId,
-    defenderId: null, // 野生守衛不是玩家
-    atX: march.toX,
-    atY: march.toY,
-    marchType: "CLAIM",
-    outcome,
-    snapshot: {
-      kind: "BATTLE",
-      wild: { level: check.level, terrain: check.terrain, distance },
-      outcome,
-      scoring: battle?.scoring ?? null,
-      attacker: { sent: army, losses: attackerLosses },
-      defender: { present: guards, losses: defenderLosses, wounded: {} },
-      loot: {},
-      raid: null,
-      breakdown: battle?.breakdown ?? null,
-    } as never,
-    createdAt: new Date(now),
-  });
+  const result = await joinOrOpenEngagement(
+    tx,
+    {
+      seasonId: march.seasonId,
+      x: march.toX,
+      y: march.toY,
+      isKeep: defender?.isBase ?? false,
+      defenderId: defender?.playerId ?? null,
+      defenderGarrison: isNeutral ? guards : defender!.garrison,
+      attacker: { playerId: march.ownerId, marchId: march.id, army },
+    },
+    now,
+  );
 
   await tx.update(schema.marches).set({ status: "ARRIVED" }).where(eq(schema.marches.id, march.id));
-  const anySurvivor = Object.values(survivors).some((n) => (n ?? 0) > 0);
-  if (anySurvivor) await sendHome(tx, march, survivors, null, now);
-  return hasGuards;
+
+  if (!result.joined) {
+    /**
+     * ★ 名額滿了 —— 這不是錯誤，是戰場的物理極限（5 對 5、主城 10 對 10）。
+     *   寫一份戰報讓玩家看得到「我到了，但擠不進去」，然後原地回頭。
+     */
+    await tx.insert(schema.battleReports).values({
+      seasonId: march.seasonId,
+      attackerId: march.ownerId,
+      defenderId: defender?.playerId ?? null,
+      atX: march.toX,
+      atY: march.toY,
+      marchType: march.type,
+      outcome: "CLAIM_FAILED",
+      snapshot: {
+        kind: "SLOTS_FULL",
+        sent: army,
+        endsAt: result.engagement.endsAt.getTime(),
+      } as never,
+      createdAt: new Date(now),
+    });
+    await sendHome(tx, march, army, null, now);
+    return false;
+  }
+
+  // 中立地要把野地等級記在交戰上，結算時佔領才知道抄什麼等級進 tiles
+  if (isNeutral && wildLevel > 0) {
+    await tx
+      .update(schema.engagements)
+      .set({ defenderId: null })
+      .where(eq(schema.engagements.id, result.engagement.id));
+  }
+  return false;
 }
 
-// ─────────────────────────────────────────────────────────────
-// 進駐 / 增援
-// ─────────────────────────────────────────────────────────────
+/**
+ * ★ 結算一場到期的交戰 —— 這是新模型的心臟。
+ *
+ * 總帳仍然命定（`docs/11` §20.20）：把兩方**各自的合計**餵給
+ * `resolveBattle` 算一次，再按出兵比例把損失分回每個人身上。
+ * 沒有「多方混戰」的第二套數學 —— 那會是第二個戰鬥引擎。
+ *
+ * 順序與單挑時完全相同：野戰 → 守軍清空才輪到建物 → 佔領／出局。
+ */
+async function resolveOneEngagement(tx: TxDb, e: EngagementRow, now: number): Promise<boolean> {
+  const parts = await partsOf(tx, e.id);
+  const ps = toParticipants(parts);
+  const attackers = parts.filter((p) => p.side === "ATTACKER");
+
+  if (attackers.length === 0) {
+    await closeEngagement(tx, e.id, now);
+    return false;
+  }
+
+  const attackerArmy = sideArmy(ps, "ATTACKER");
+  const defenderArmy = sideArmy(ps, "DEFENDER");
+  const defender = await defenderAt(tx, e.seasonId, e.x, e.y, now);
+  const neutral = e.defenderId === null;
+
+  /**
+   * 守方的加成取自**這一格的主人**。中立地沒有主人，
+   * 用野地的固有防禦（`docs/02` §2.5），並且不套用士氣（PvE）。
+   */
+  const { wildInnateDefense } = await import("@/lib/game/wilds");
+  const [tile] = await tx
+    .select({ level: schema.tiles.level })
+    .from(schema.tiles)
+    .where(and(eq(schema.tiles.seasonId, e.seasonId), eq(schema.tiles.x, e.x), eq(schema.tiles.y, e.y)))
+    .limit(1);
+
+  const battle = resolveBattle(
+    { army: attackerArmy },
+    {
+      army: defenderArmy,
+      wallLevel: defender?.isBase ? defender.wallLevel : 0,
+      innateDefense: neutral
+        ? wildInnateDefense(tile?.level ?? 1)
+        : defender?.isBase
+          ? innateDefenseOf(defender.citadelLevel)
+          : tileInnateDefense(defender?.facilityLevel ?? 0),
+      watchtowerDefense: watchtowerDefenseOf(defender?.watchtowerLevel ?? 0),
+      infirmaryLevel: defender?.infirmaryLevel,
+      lootable: defender
+        ? lootableOf(
+            defender.resources,
+            defender.citadelLevel,
+            defender.depotLevel,
+            SEASON_MODIFIERS[(await settleWithin(tx, attackers[0]!.playerId!, now)).season].vault,
+          )
+        : undefined,
+    },
+    { marchType: "ATTACK", defenderAtHome: defender?.isBase ?? false, skipMorale: neutral },
+  );
+
+  // ── 損失分回每一位參戰者 ────────────────────────────────
+  const atkLosses = distributeLosses(ps, "ATTACKER", battle.attackerLosses);
+  const defLosses = distributeLosses(ps, "DEFENDER", battle.defenderLosses);
+
+  const survivorsByIndex = new Map<number, Army>();
+  ps.forEach((p, index) => {
+    const lost = (p.side === "ATTACKER" ? atkLosses : defLosses).get(index) ?? {};
+    // `subtractArmy` 兵不夠時回 null —— 那就是全滅（分配保證不會超額，這是防呆）
+    survivorsByIndex.set(index, subtractArmy(p.army, lost) ?? {});
+  });
+
+  const attackerIdx = ps.map((p, i) => ({ p, i })).filter(({ p }) => p.side === "ATTACKER");
+  const attackerSurvivors = new Map(
+    attackerIdx.map(({ i }) => [i, survivorsByIndex.get(i) ?? {}] as const),
+  );
+
+  /**
+   * ★ 誰佔到這一格：**存活兵力最多的那一位攻方**。
+   *   中立資源地的競爭因此有一個乾淨的答案 —— 出力最多、留得下人的人拿走。
+   *   平手時取先到的（`joinedAt` 排序已經保證了）。
+   */
+  let winner: { index: number; playerId: number } | null = null;
+  let best = -1;
+  for (const { p, i } of attackerIdx) {
+    const pop = armyPopulation(attackerSurvivors.get(i) ?? {});
+    if (pop > best) {
+      best = pop;
+      winner = { index: i, playerId: p.playerId };
+    }
+  }
+
+  // ── 攻城階段：守軍清空且攻方獲勝才輪得到建物 ──────────────
+  const defenderSurvivorsAll = ps
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.side === "DEFENDER")
+    .reduce<Army>((acc, { i }) => mergeArmies(acc, survivorsByIndex.get(i) ?? {}), {});
+
+  /**
+   * ★ 建物段落**永遠**跑一次，就算打不到 —— `resolveSiege` 會回一個
+   *   帶 `blockedBy`（GARRISON／REPELLED）的結果，而那正是戰報要說的
+   *   「為什麼旗還在」。不跑的話戰報只有一個 null，玩家看不出原因。
+   */
+  let siege: SiegeOutcome | null = null;
+  if (!neutral && winner) {
+    const [march] = await tx
+      .select()
+      .from(schema.marches)
+      .where(eq(schema.marches.id, parts[winner.index]!.marchId ?? -1))
+      .limit(1);
+    if (march) {
+      siege = await resolveSiege(
+        tx,
+        march,
+        defender ??
+          ({
+            playerId: 0,
+            garrisonOwnerId: 0,
+            garrison: {},
+            resources: { grain: 0, timber: 0, stone: 0, iron: 0 },
+            citadelLevel: 1,
+            depotLevel: 0,
+            wallLevel: 0,
+            watchtowerLevel: 0,
+            infirmaryLevel: 0,
+            facilityLevel: 0,
+            facility: null,
+            isBase: false,
+            structureHp: null,
+            structureHitAt: null,
+          } satisfies DefenderContext),
+        {
+          attackerSurvivors: attackerSurvivors.get(winner.index) ?? {},
+          // 守方還有活口就碰不到建物 —— 這個判斷在 `resolveSiege` 裡
+          defenderSurvivors: defenderSurvivorsAll,
+          won: battle.outcome === "ATTACKER_WIN",
+          isRaid: false,
+          siegeBonus: 0,
+          now,
+        },
+      );
+    }
+  }
+
+  /**
+   * 中立地被拿下 → 直接寫進 `tiles`（`resolveSiege` 只處理有主的格子）。
+   * 野地的旗就是它的守衛：守衛清光，地就是你的。
+   */
+  if (neutral && battle.outcome === "ATTACKER_WIN" && winner && best > 0) {
+    await claimNeutralTile(tx, e, winner.playerId, now);
+  }
+
+  // ── 寫回：守方駐軍、傷兵、攻方回程 ──────────────────────
+  const defenderIdx = ps.map((p, i) => ({ p, i })).filter(({ p }) => p.side === "DEFENDER");
+  for (const { p, i } of defenderIdx) {
+    if (p.playerId === 0 || neutral) continue; // 野生守衛不寫回
+    await writeGarrison(tx, e.seasonId, p.playerId, p.playerId, e.x, e.y, survivorsByIndex.get(i) ?? {});
+  }
+  if (!neutral && defender) {
+    await addWounded(
+      tx,
+      e.seasonId,
+      defender.garrisonOwnerId,
+      e.x,
+      e.y,
+      battle.defenderWounded,
+      now,
+    );
+  }
+
+  // 掠奪按存活兵力分（死光的搬不動東西）
+  const lootTotal = (["grain", "timber", "stone", "iron"] as const).reduce(
+    (sum, r) => sum + (battle.loot[r] ?? 0),
+    0,
+  );
+  const spoils = distributeSpoils(attackerSurvivors, battle.outcome === "ATTACKER_WIN" ? lootTotal : 0);
+
+  for (const { p, i } of attackerIdx) {
+    const [march] = await tx
+      .select()
+      .from(schema.marches)
+      .where(eq(schema.marches.id, parts[i]!.marchId ?? -1))
+      .limit(1);
+
+    const mySpoil = spoils.get(i) ?? 0;
+    const cargo: Lootable | null =
+      mySpoil > 0 && lootTotal > 0
+        ? (Object.fromEntries(
+            (["grain", "timber", "stone", "iron"] as const)
+              .map((r) => [r, Math.floor(((battle.loot[r] ?? 0) * mySpoil) / lootTotal)])
+              .filter(([, v]) => (v as number) > 0),
+          ) as Lootable)
+        : null;
+
+    await tx.insert(schema.battleReports).values({
+      seasonId: e.seasonId,
+      attackerId: p.playerId,
+      defenderId: e.defenderId,
+      atX: e.x,
+      atY: e.y,
+      marchType: neutral ? "CLAIM" : "ATTACK",
+      outcome: battle.outcome,
+      snapshot: {
+        kind: "BATTLE",
+        outcome: battle.outcome,
+        scoring: battle.scoring,
+        engagement: {
+          id: e.id,
+          participants: parts.length,
+          mine: p.army,
+          allies: attackerIdx.length - 1,
+          captured: winner?.index === i && (siege?.captured || (neutral && best > 0)),
+        },
+        attacker: { sent: p.army, losses: atkLosses.get(i) ?? {} },
+        defender: { present: defenderArmy, losses: battle.defenderLosses, wounded: battle.defenderWounded },
+        loot: cargo ?? {},
+        raid: null,
+        breakdown: battle.breakdown,
+        siege,
+      } as never,
+      createdAt: new Date(now),
+    });
+
+    if (march) await sendHome(tx, march, attackerSurvivors.get(i) ?? {}, cargo, now);
+  }
+
+  // 守方的資源要扣掉被搬走的那一份
+  if (!neutral && defender && battle.outcome === "ATTACKER_WIN" && lootTotal > 0) {
+    const next: Record<string, string> = {};
+    for (const r of ["grain", "timber", "stone", "iron"] as const) {
+      next[r] = String(Math.max(0, defender.resources[r] - (battle.loot[r] ?? 0)));
+    }
+    await tx
+      .update(schema.playerResources)
+      .set(next)
+      .where(eq(schema.playerResources.playerId, defender.playerId));
+  }
+
+  await closeEngagement(tx, e.id, now);
+  return true;
+}
+
+/** 中立地被拿下：寫一列新的領地（等級抄自野地推導） */
+async function claimNeutralTile(tx: TxDb, e: EngagementRow, playerId: number, now: number) {
+  const [attacker] = await tx
+    .select({ allianceId: schema.players.allianceId })
+    .from(schema.players)
+    .where(eq(schema.players.id, playerId))
+    .limit(1);
+
+  const [existing] = await tx
+    .select({ level: schema.tiles.level, terrain: schema.tiles.terrain })
+    .from(schema.tiles)
+    .where(and(eq(schema.tiles.seasonId, e.seasonId), eq(schema.tiles.x, e.x), eq(schema.tiles.y, e.y)))
+    .limit(1);
+
+  if (existing) {
+    await tx
+      .update(schema.tiles)
+      .set({
+        playerId,
+        allianceId: attacker?.allianceId ?? null,
+        kind: "TERRITORY",
+        structureHp: null,
+        structureHitAt: null,
+        state: "CONTESTED",
+        stateUntil: new Date(now + CLAIM.contestedMs),
+      })
+      .where(and(eq(schema.tiles.seasonId, e.seasonId), eq(schema.tiles.x, e.x), eq(schema.tiles.y, e.y)));
+    return;
+  }
+
+  const { loadTerrainAround, terrainDirFor } = await import("@/lib/server/terrain");
+  const { wildLevelAt } = await import("@/lib/game/wilds");
+  const [season] = await tx
+    .select({ seed: schema.seasons.seed })
+    .from(schema.seasons)
+    .where(eq(schema.seasons.id, e.seasonId))
+    .limit(1);
+  const lookup = await loadTerrainAround(terrainDirFor(e.seasonId), [{ x: e.x, y: e.y }]);
+  const terrain = lookup.at(e.x, e.y);
+  const level = wildLevelAt(Number(season?.seed ?? 0), e.x, e.y, terrain);
+
+  await tx.insert(schema.tiles).values({
+    seasonId: e.seasonId,
+    x: e.x,
+    y: e.y,
+    kind: "TERRITORY",
+    playerId,
+    allianceId: attacker?.allianceId ?? null,
+    terrain,
+    level,
+    state: "CONTESTED",
+    stateUntil: new Date(now + CLAIM.contestedMs),
+  });
+}
+
+/** 掃這一季所有到期的交戰。與行軍抵達同一個節奏（cron 每分鐘） */
+export async function resolveEngagements(
+  tx: TxDb,
+  seasonId: number,
+  now: number,
+): Promise<{ resolved: number; failures: number }> {
+  const due = await dueEngagements(tx, seasonId, now);
+  let resolved = 0;
+  let failures = 0;
+  for (const e of due) {
+    try {
+      await resolveOneEngagement(tx, e, now);
+      resolved++;
+    } catch {
+      // 一場交戰結算失敗不能拖垮整批；它仍未結算，下一分鐘再試
+      failures++;
+    }
+  }
+  return { resolved, failures };
+}
 
 /**
- * 增援與駐防：部隊留在目標格，**擁有者不變**。
+ * ★ `resolveConquest` 已退役（M?：交戰模型）。
  *
- * ★ 糧食由**派兵的人**付（`settleWithin` 讀的是 `ownerId` 的駐軍），
- *   防禦力算給**站的那一格**。這正是 `docs/04` §2.1 說的
- *   「部隊駐紮在對方據點，計入對方防禦；隨時可召回」。
+ *   野地征服現在與 PvP 走**同一條**路徑：抵達 → 進場 → 兩分鐘後結算
+ *   （`enterEngagement` / `resolveOneEngagement`）。
+ *   留著舊的單挑版本只會讓兩條路徑慢慢分岔 —— 而分岔的症狀是
+ *   「同一件事在 PvP 與 PvE 下的規則不一樣」。
  */
+
 async function resolveStation(tx: TxDb, march: MarchRow, now: number) {
   const army = parseArmy(march.units);
   const [host] = await tx

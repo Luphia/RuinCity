@@ -25,7 +25,7 @@ import { explainDbError } from "@/lib/db/diagnose";
 import { withTransaction } from "@/lib/db/tx";
 import type { TxDb } from "@/lib/db/tx";
 import { PlayerEliminatedError, settleWithin } from "@/lib/server/player-state";
-import { resolveArrivals } from "@/lib/server/battle-ops";
+import { resolveArrivals, resolveEngagements } from "@/lib/server/battle-ops";
 import { runStewardWithin } from "@/lib/server/steward";
 import { advanceSeasons, ensureNextSeason } from "@/lib/server/season-ops";
 
@@ -111,6 +111,15 @@ export async function runCronTick(now: number, tx: TxRunner = withTransaction): 
       marches.resolved += r.resolved;
       marches.battles += r.battles;
       marches.failures += r.failures;
+
+      /**
+       * ★ 交戰在**抵達之後**結算（`docs/04` §3d）。
+       *   順序反過來的話，這一分鐘剛抵達的援軍會趕不上同一分鐘到期的
+       *   那場仗 —— 而玩家算的是「我趕在結束前到」。
+       */
+      const eng = await tx((t) => resolveEngagements(t, s.id, now));
+      marches.battles += eng.resolved;
+      marches.failures += eng.failures;
     }
   } catch (e) {
     errors.push(`marches: ${msg(e)}`);

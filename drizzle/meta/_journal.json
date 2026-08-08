@@ -57,6 +57,13 @@
       "when": 1786189108987,
       "tag": "0007_even_ares",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786193948271,
+      "tag": "0008_strong_pepper_potts",
+      "breakpoints": true
     }
   ]
 }

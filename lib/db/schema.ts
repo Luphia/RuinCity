@@ -707,6 +707,69 @@ export const ruinControlLog = pgTable("ruin_control_log", {
 // ─────────────────────────────────────────────────────────────
 
 /**
+ * ★ 進行中的交戰（`docs/04` §3d）。
+ *
+ * 舊模型「抵達即結算」沒有這張表 —— 戰鬥只是一個瞬間，
+ * 唯一的痕跡是 `battle_reports`。新模型讓戰鬥有**持續時間**：
+ * 抵達的部隊加入這一格的交戰，兩分鐘後一起結算。
+ *
+ * 於是這張表回答三個舊模型答不出來的問題：
+ *   1. 這一格**現在**在打仗嗎（任何人都能打開來看動畫）
+ *   2. 還有沒有位子（5 對 5，主城 10 對 10）
+ *   3. 誰在裡面（中立資源地的攻方名額對所有人開放 —— 競爭）
+ */
+export const engagements = pgTable(
+  "engagements",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    seasonId: integer("season_id").notNull(),
+    x: smallint("x").notNull(),
+    y: smallint("y").notNull(),
+    /** 守方玩家；null = 中立資源地（野生守衛） */
+    defenderId: bigint("defender_id", { mode: "number" }),
+    /** 主城的容量加倍，所以要記住這一格是不是主城 */
+    isKeep: boolean("is_keep").notNull().default(false),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    /** 結算時刻。cron 掃到期的交戰，與行軍抵達同一個節奏 */
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    /** 「這一格現在有沒有在打」要很快 —— 每一支抵達的部隊都會問一次 */
+    uniqueIndex("engagements_active_uq")
+      .on(t.seasonId, t.x, t.y)
+      .where(sql`resolved_at IS NULL`),
+    index("engagements_due_idx").on(t.endsAt).where(sql`resolved_at IS NULL`),
+  ],
+);
+
+/**
+ * 交戰的參戰者。一列 = 一個**名額**。
+ *
+ * ★ 名額算的是部隊不是人：同一位玩家派兩支部隊就佔兩個位子。
+ *   若改成「一人一格」，五個人聯手圍城反而比一個人分五批弱 ——
+ *   那會鼓勵所有人用小號洗名額。
+ */
+export const engagementParts = pgTable(
+  "engagement_parts",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    engagementId: bigint("engagement_id", { mode: "number" })
+      .notNull()
+      .references(() => engagements.id, { onDelete: "cascade" }),
+    /** ATTACKER | DEFENDER */
+    side: text("side").notNull(),
+    /** null = 野生守衛（中立地的守方沒有主人） */
+    playerId: bigint("player_id", { mode: "number" }),
+    /** 帶來這支部隊的行軍；守方的原駐軍沒有行軍 */
+    marchId: bigint("march_id", { mode: "number" }),
+    units: jsonb("units").notNull(),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("engagement_parts_idx").on(t.engagementId)],
+);
+
+/**
  * 世界狀態 = f(上次結算狀態, 期間內所有已排程事件, 時間)，
  * 而 f 必須是確定性且冪等的。
  *

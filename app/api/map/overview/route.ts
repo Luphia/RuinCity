@@ -125,12 +125,12 @@ export async function GET(request: Request) {
    *   窗口過了的殘跡再留 6 小時 —— 「這一帶最近打得兇」本身就是
    *   值得繞路的情報。只給座標與戰報 id,數字帳目仍然只有當事人看得到。
    */
-  let battles: { id: number; x: number; y: number; fresh: boolean }[] = [];
+  let battles: { id: number; x: number; y: number; fresh: boolean; live?: boolean }[] = [];
   const numericSeason = /^s(\d+)$/.exec(seasonId)?.[1];
   if (numericSeason) {
     try {
       const { getDb, schema } = await import("@/lib/db");
-      const { and, desc, eq, gt } = await import("drizzle-orm");
+      const { and, desc, eq, gt, isNull } = await import("drizzle-orm");
       const { serverNow } = await import("@/lib/time");
       const now = await serverNow();
       const rows = await getDb()
@@ -149,8 +149,28 @@ export async function GET(request: Request) {
         )
         .orderBy(desc(schema.battleReports.createdAt))
         .limit(200);
-      // 同一格打了好幾場 → 只留最新的一場(rows 已按時間新→舊)
+      /**
+       * ★ 正在打的那幾格排在最前面（`docs/04` §3d）。
+       *   打完的戰場只是情報；正在打的是**還來得及參加**的邀請，
+       *   所以它必須壓過同一格上的舊戰報標示。
+       */
+      const liveRows = await getDb()
+        .select({ id: schema.engagements.id, x: schema.engagements.x, y: schema.engagements.y })
+        .from(schema.engagements)
+        .where(
+          and(
+            eq(schema.engagements.seasonId, Number(numericSeason)),
+            isNull(schema.engagements.resolvedAt),
+          ),
+        )
+        .limit(200);
+
       const seen = new Set<string>();
+      for (const r of liveRows) {
+        seen.add(`${r.x},${r.y}`);
+        battles.push({ id: r.id, x: r.x, y: r.y, fresh: true, live: true });
+      }
+      // 同一格打了好幾場 → 只留最新的一場(rows 已按時間新→舊)
       for (const r of rows) {
         const key = `${r.x},${r.y}`;
         if (seen.has(key)) continue;
