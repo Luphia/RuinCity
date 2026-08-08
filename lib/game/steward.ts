@@ -27,6 +27,7 @@ import {
   FACILITY,
   STEWARD,
   STEWARD_DIRECTIVES,
+  TILE_RESOURCE,
   UNIT,
   type Facility,
   type StewardDirective,
@@ -515,12 +516,16 @@ function pickFacility(
     };
   };
 
-  // 先補空地：一塊沒有設施的領土完全不產出，卻已經把拓荒成本墊高了
+  // 先補空地：空地的固定產出沒被放大，卻已經把拓荒成本墊高了。
+  // ★ 開採設施要**對口**（docs/11 §22.4）：農田只在糧格有意義 ——
+  //   不對口的組合直接跳過，否則執政官會一直嘗試一件蓋不下去的事
   for (const want of priority) {
     for (const o of input.facilityOptions) {
       if (used.has(`${o.x},${o.y}`)) continue;
       if (o.facility !== null) continue;
       if (levelCap < 1) continue;
+      const yields = FACILITY[want].yields;
+      if (yields && TILE_RESOURCE[o.terrain]?.resource !== yields) continue;
       return { x: o.x, y: o.y, facility: want, level: 0, cost: costOf(want, 1) };
     }
   }

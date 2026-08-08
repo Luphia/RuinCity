@@ -51,11 +51,39 @@ export const TERRAIN: Record<Terrain, TerrainSpec> = {
 export const MOUNTAIN_PATH_PENALTY = 2.5;
 
 /** 設施產出的地形修正：facility → terrain → 倍率 */
+/**
+ * ★ v2 廢止（docs/11 §22.4）：設施產出的地形倍率表。
+ *   新模型是「格子是資源、設施是開採」—— 每格領地有自己的固定產出
+ *   （`TILE_RESOURCE`），開採設施只放大對口的格子。留著只為了
+ *   讓還沒搬完的呼叫端編譯得過；不要在新程式裡引用。
+ */
 export const TERRAIN_YIELD: Record<string, Partial<Record<Terrain, number>>> = {
   FARM: { FOREST: 0.8, WASTE: 0.8, MARSH: 0.6, RUBBLE: 1.15 },
   SAWMILL: { FOREST: 1.25, WASTE: 0.8, MARSH: 0.6, RUBBLE: 1.15 },
   QUARRY: { LODE: 1.4, WASTE: 0.8, MARSH: 0.6, RUBBLE: 1.15 },
   MINE: { LODE: 1.4, WASTE: 0.8, MARSH: 0.6, RUBBLE: 1.15 },
+} as const;
+
+/**
+ * 每一格領地自己的產出（docs/02 §2.5、docs/11 §22.4）：
+ * 資源種類由地形決定，量 = `base × 野地等級`（固定值，不是百分比）。
+ * 荒地與山脈不產 —— 荒地的用途是蓋非產出設施。
+ * 基準值按舊設施係數比例（9.75:7.5:7.5:5.25）縮放。
+ */
+export const TILE_RESOURCE: Partial<
+  Record<Terrain, { readonly resource: "grain" | "timber" | "stone" | "iron"; readonly base: number }>
+> = {
+  PLAIN: { resource: "grain", base: 34 },
+  FOREST: { resource: "timber", base: 31 },
+  RUBBLE: { resource: "stone", base: 31 },
+  LODE: { resource: "iron", base: 22 },
+  MARSH: { resource: "grain", base: 17 },
+} as const;
+
+/** 開採設施的倍率：1 + 4 × min(1, 等級/20) —— 滿級恰好 ×5（docs/11 §22.4） */
+export const EXTRACTION = {
+  maxMultiplier: 5,
+  capLevel: 20,
 } as const;
 
 // ─────────────────────────────────────────────────────────────
@@ -289,6 +317,4 @@ export const WILDS = {
   /** 巢穴固有防禦 = perLevel × L */
   innateDefensePerLevel: 30,
 
-  /** 設施產出 × (1 + perLevel × (L−1))；lv5 = +60% */
-  productionPerLevel: 0.15,
 } as const;

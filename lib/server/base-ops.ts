@@ -254,6 +254,19 @@ export async function buildFacilityFor(
     return { ok: false, reason: "MARKET_LIMIT" };
   }
 
+  /**
+   * ★ 開採設施要對口（docs/11 §22.4）：農田只能蓋在糧格、礦坑只能蓋在鐵格。
+   *   新模型下不對口的開採設施產出是 0 —— 讓它蓋得下去
+   *   就是最糟的新手陷阱。非產出設施（哨塔、前哨營、集市）不受限。
+   */
+  {
+    const { FACILITY, TILE_RESOURCE } = await import("@/lib/game/balance");
+    const spec = FACILITY[facility as keyof typeof FACILITY];
+    if (spec?.yields && TILE_RESOURCE[tile.terrain]?.resource !== spec.yields) {
+      return { ok: false, reason: "FACILITY_TERRAIN_MISMATCH" };
+    }
+  }
+
   const plan = planFacility(state.build, facility, tile.facilityLevel, now);
   if ("reason" in plan) return { ok: false, reason: plan.reason };
 

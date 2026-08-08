@@ -73,7 +73,8 @@ export function wildInnateDefense(level: number): number {
   return needsConquest(level) ? WILDS.innateDefensePerLevel * level : 0;
 }
 
-/** 攻下的格子：設施產出的等級係數。lv0/lv1 = ×1.0（既有經濟曲線不動） */
-export function wildProductionMultiplier(level: number): number {
-  return 1 + WILDS.productionPerLevel * Math.max(0, level - 1);
-}
+/**
+ * v2 起產出模型移到 `formulas.tileYieldPerHour`（docs/11 §22.4）：
+ * 格子有固定產出（base × 等級），對口設施放大（滿級 ×5）——
+ * 不再是百分比加成。這裡不留舊函式，留著就是第二份真相。
+ */

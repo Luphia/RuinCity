@@ -18,7 +18,8 @@ import {
   REGION_CAPACITY,
   TECH,
   TECH_SCALING,
-  TERRAIN_YIELD,
+  EXTRACTION,
+  TILE_RESOURCE,
   TIME_SCALE,
   UNIT,
   type CoreBuilding,
@@ -141,32 +142,90 @@ export function facilityLevelCap(citadelLevel: number): number {
   return Math.floor(citadelLevel / FACILITY_SCALING.levelCapDivisor);
 }
 
+/** 開採設施的倍率：1 + 4 × min(1, 等級/20)。0 級（沒蓋）= ×1，滿級 ×5 */
+export function extractionMultiplier(level: number): number {
+  if (level <= 0) return 1;
+  return 1 + (EXTRACTION.maxMultiplier - 1) * Math.min(1, level / EXTRACTION.capLevel);
+}
+
+export interface TileYield {
+  readonly resource: "grain" | "timber" | "stone" | "iron";
+  /** 單位 / 真實小時，已套用 TIME_SCALE */
+  readonly perHour: number;
+}
+
+/**
+ * 一格領地的產出（docs/11 §22.4）：**格子是資源，設施是開採**。
+ *
+ * - 格子本身 = `TILE_RESOURCE.base × 野地等級`（固定值 —— 佔領即有）
+ * - 對口的開採設施 × `extractionMultiplier`（滿級 ×5）
+ * - 不對口的開採設施沒有效果（建造時就該被 `FACILITY_TERRAIN_MISMATCH` 擋下）
+ * - 荒地與山脈回 null —— 它們的用途是蓋非產出設施
+ */
+export function tileYieldPerHour(
+  terrain: Terrain,
+  wildLevel: number,
+  facility: Facility | null,
+  facilityLevel: number,
+  opts: { techBonus?: number; ruinBonus?: number; season?: SeasonModifiers; isolated?: boolean } = {},
+): TileYield | null {
+  const spec = TILE_RESOURCE[terrain];
+  if (!spec) return null;
+
+  const matched =
+    facility !== null && FACILITY[facility].yields === spec.resource ? facilityLevel : 0;
+
+  return {
+    resource: spec.resource,
+    perHour:
+      spec.base *
+      Math.max(1, wildLevel) *
+      extractionMultiplier(matched) *
+      TIME_SCALE *
+      (1 + (opts.techBonus ?? 0)) *
+      (1 + (opts.ruinBonus ?? 0)) *
+      (opts.season?.production ?? 1) *
+      (opts.isolated ? 0.5 : 1),
+  };
+}
+
 /**
  * 設施產出（單位 / 真實小時），**已套用 TIME_SCALE**。
  * 非產出設施（哨塔、前哨營、集市）回傳 0。
+ *
+ * ★ v2 之後這是**模擬的聚合視角**：一座 L 級開採設施「站在對口的
+ *   lv1 格上」的總產出（格子固定值 × 倍率）。模擬不追蹤單格，
+ *   逐格的真相在 `tileYieldPerHour` —— 兩者共用同一組常數，不會分岔。
+ *   `terrain` 參數保留給模擬的地形側寫倍率（呼叫端自乘），這裡不再使用。
  */
 export function facilityYieldPerHour(
   facility: Facility,
   level: number,
-  terrain: Terrain,
+  _terrain: Terrain,
   opts: { techBonus?: number; ruinBonus?: number; season?: SeasonModifiers; isolated?: boolean } = {},
 ): number {
   const spec = FACILITY[facility];
   if (!spec.yields || level <= 0) return 0;
 
-  const base = spec.yieldCoefficient * level ** FACILITY_SCALING.yieldExponent;
-  const terrainMult = TERRAIN_YIELD[facility]?.[terrain] ?? 1;
+  const base = TILE_RESOURCE_BASE[spec.yields] * extractionMultiplier(level);
 
   return (
     base *
     TIME_SCALE *
-    terrainMult *
     (1 + (opts.techBonus ?? 0)) *
     (1 + (opts.ruinBonus ?? 0)) *
     (opts.season?.production ?? 1) *
     (opts.isolated ? 0.5 : 1)
   );
 }
+
+/** 每種資源的格子基準值（取對口地形的 base；模擬的聚合視角用） */
+const TILE_RESOURCE_BASE: Record<"grain" | "timber" | "stone" | "iron", number> = {
+  grain: TILE_RESOURCE.PLAIN!.base,
+  timber: TILE_RESOURCE.FOREST!.base,
+  stone: TILE_RESOURCE.RUBBLE!.base,
+  iron: TILE_RESOURCE.LODE!.base,
+};
 
 /** 主堡保底產出（每種資源 / 真實小時），已套用 TIME_SCALE */
 export function citadelBaseYieldPerHour(

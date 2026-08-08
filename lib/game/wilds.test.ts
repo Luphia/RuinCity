@@ -2,13 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { armyPopulation } from "./army";
 import { WILDS } from "./balance";
-import {
-  needsConquest,
-  wildGuardsFor,
-  wildInnateDefense,
-  wildLevelAt,
-  wildProductionMultiplier,
-} from "./wilds";
+import { extractionMultiplier, tileYieldPerHour } from "./formulas";
+import { needsConquest, wildGuardsFor, wildInnateDefense, wildLevelAt } from "./wilds";
 
 describe("wildLevelAt", () => {
   it("決定性：同 (seed,x,y,terrain) 永遠同級", () => {
@@ -87,11 +82,28 @@ describe("wildGuardsFor：等級與距離是兩條獨立的軸", () => {
   });
 });
 
-describe("wildProductionMultiplier", () => {
-  it("lv0/1 = ×1（既有經濟不動），lv5 = +60%", () => {
-    expect(wildProductionMultiplier(0)).toBe(1);
-    expect(wildProductionMultiplier(1)).toBe(1);
-    expect(wildProductionMultiplier(5)).toBeCloseTo(1.6);
+describe("領地產出：固定值 × 開採倍率（docs/11 §22.4）", () => {
+  it("格子是資源：光佔領就有固定產出，等級是固定值階梯不是百分比", () => {
+    const lv1 = tileYieldPerHour("PLAIN", 1, null, 0)!;
+    const lv3 = tileYieldPerHour("PLAIN", 3, null, 0)!;
+    expect(lv1.resource).toBe("grain");
+    expect(lv1.perHour).toBeGreaterThan(0);
+    expect(lv3.perHour).toBeCloseTo(lv1.perHour * 3, 6);
+  });
+
+  it("對口設施滿級恰好 ×5；不對口沒有效果", () => {
+    expect(extractionMultiplier(0)).toBe(1);
+    expect(extractionMultiplier(20)).toBe(5);
+    const bare = tileYieldPerHour("FOREST", 2, null, 0)!;
+    const matched = tileYieldPerHour("FOREST", 2, "SAWMILL", 20)!;
+    const mismatched = tileYieldPerHour("FOREST", 2, "FARM", 20)!;
+    expect(matched.perHour).toBeCloseTo(bare.perHour * 5, 6);
+    expect(mismatched.perHour).toBeCloseTo(bare.perHour, 6);
+  });
+
+  it("荒地與山脈不產（它們的用途是蓋非產出設施）", () => {
+    expect(tileYieldPerHour("WASTE", 3, "FARM", 10)).toBeNull();
+    expect(tileYieldPerHour("MOUNTAIN", 1, null, 0)).toBeNull();
   });
 
   it("固有防禦只長在有守衛的等級", () => {

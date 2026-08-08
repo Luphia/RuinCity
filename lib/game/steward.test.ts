@@ -266,17 +266,17 @@ describe("★ 刻意次優（docs/18 §5）", () => {
     expect(d.actions).toEqual([{ kind: "CLAIM", x: 6, y: 0 }]);
   });
 
-  it("設施依優先序找第一個空格，不看地形適配", () => {
+  it("設施依優先序找第一個**對口**的空格 —— 不對口的蓋不下去，跳過不是次優是必要", () => {
     const d = decideStewardActions(
       input({
         directives: directives({
           development: { enabled: true, priority: ["FARM"], reserve: zeroAmounts() },
         }),
-        // 森林對農田有 0.8 的懲罰，但它在清單前面
+        // v2（docs/11 §22.4）：農田只能蓋在糧格。森林在清單前面但不對口 —— 跳過
         facilityOptions: [option(1, 0, { terrain: "FOREST" }), option(2, 0, { terrain: "PLAIN" })],
       }),
     );
-    expect(d.actions).toEqual([{ kind: "BUILD", x: 1, y: 0, facility: "FARM", toLevel: 1 }]);
+    expect(d.actions).toEqual([{ kind: "BUILD", x: 2, y: 0, facility: "FARM", toLevel: 1 }]);
   });
 });
 

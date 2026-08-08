@@ -11,7 +11,8 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 
-import { FACILITIES, FACILITY, type Facility } from "@/lib/game/balance";
+import { FACILITIES, FACILITY, TILE_RESOURCE, type Facility } from "@/lib/game/balance";
+import { tileYieldPerHour } from "@/lib/game/formulas";
 import type { ActionResult } from "@/app/actions/base";
 import type { ClaimCandidate, OwnedTileView, TerritoryBoard } from "@/lib/server/territory-board";
 
@@ -156,10 +157,18 @@ export function TerritoryView(props: TerritoryViewProps) {
             <p className="mb-3 text-[10px] opacity-60">
               {picking.facility
                 ? `目前是 ${FACILITY[picking.facility as Facility].label} Lv${picking.facilityLevel}，只能升級同一種。`
-                : "選一種蓋上去。地形會影響產出。"}
+                : "格子自己就有產出；對口的開採設施把它放大，滿級 ×5。"}
             </p>
             <div className="space-y-2">
-              {(picking.facility ? [picking.facility as Facility] : FACILITIES).map((f) => (
+              {/* ★ 開採設施要對口（docs/11 §22.4）：不對口的直接不列 ——
+                  列出來再報錯是最糟的手感。非產出設施都可以 */}
+              {(picking.facility
+                ? [picking.facility as Facility]
+                : FACILITIES.filter((f) => {
+                    const yields = FACILITY[f].yields;
+                    return !yields || TILE_RESOURCE[picking.terrain]?.resource === yields;
+                  })
+              ).map((f) => (
                 <button
                   key={f}
                   type="button"
@@ -224,14 +233,22 @@ function Candidate({
           </span>
         ) : null}
         <div className="text-[10px] tabular-nums opacity-60">
-          {candidate.guarded ? (
-            <>有野生守衛 —— 產出 +{Math.round((candidate.level - 1) * 15)}%，要派兵征服</>
-          ) : (
-            <>
-              糧{candidate.cost.grain} 木{candidate.cost.timber} · 民兵{candidate.militia} ·{" "}
-              {Math.round(candidate.seconds / 60)} 分
-            </>
-          )}
+          {(() => {
+            // 格子自己的固定產出（佔領即有；對口設施最多再 ×5）
+            const y = tileYieldPerHour(candidate.terrain, candidate.level, null, 0);
+            const RES = { grain: "糧", timber: "木", stone: "石", iron: "鐵" } as const;
+            const yieldText = y ? `${RES[y.resource]} ${Math.round(y.perHour)}/h（設施可 ×5）` : "不產出";
+            return candidate.guarded ? (
+              <>
+                {yieldText} · 有野生守衛，要派兵征服
+              </>
+            ) : (
+              <>
+                {yieldText} · 糧{candidate.cost.grain} 木{candidate.cost.timber} · 民兵
+                {candidate.militia} · {Math.round(candidate.seconds / 60)} 分
+              </>
+            );
+          })()}
         </div>
       </div>
       {candidate.guarded ? (

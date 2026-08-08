@@ -17,17 +17,16 @@ import {
 } from "./balance";
 import {
   citadelBaseYieldPerHour,
-  facilityYieldPerHour,
   populationCap,
   populationGrowthPerHour,
   storageCapacity,
   territoryCapacity,
+  tileYieldPerHour,
 } from "./formulas";
-import type { Amounts, SettleResource } from "./settle";
+import type { Amounts } from "./settle";
 import { zeroAmounts } from "./settle";
 import { yieldMultiplierFor, type OwnedTile } from "./territory";
-import { wildProductionMultiplier } from "./wilds";
-import type { Terrain } from "./balance";
+import { TILE_RESOURCE, type Terrain } from "./balance";
 
 export interface TileWithFacility extends OwnedTile {
   readonly facility: Facility | null;
@@ -63,16 +62,6 @@ export interface DerivedRates {
   readonly outpostLevels: number;
 }
 
-const RESOURCE_OF: Record<string, SettleResource | null> = {
-  FARM: "grain",
-  SAWMILL: "timber",
-  QUARRY: "stone",
-  MINE: "iron",
-  WATCHTOWER: null,
-  OUTPOST: null,
-  MARKET: null,
-};
-
 /**
  * 重算全部速率。
  *
@@ -96,19 +85,21 @@ export function deriveRates(input: EconomyInputs): DerivedRates {
     if (tile.facility === "OUTPOST") outpostLevels += tile.facilityLevel;
     if (tile.state !== "ISOLATED") normalTiles++;
 
-    if (!tile.facility || tile.facilityLevel <= 0) continue;
-    const resource = RESOURCE_OF[tile.facility];
-    if (!resource) continue;
+    /**
+     * ★ 格子是資源，設施是開採（docs/11 §22.4）：
+     *   每一格領地本身就有固定產出（base × 野地等級，佔領即有），
+     *   對口的開採設施把它放大（滿級 ×5）。荒地回 null —— 不產。
+     */
+    const y = tileYieldPerHour(tile.terrain, tile.level ?? 1, tile.facility, tile.facilityLevel, {
+      techBonus:
+        (TILE_RESOURCE[tile.terrain]?.resource ?? "grain") === "grain"
+          ? (input.cultivationBonus ?? 0)
+          : (input.extractionBonus ?? 0),
+    });
+    if (!y) continue;
 
-    const techBonus =
-      resource === "grain" ? (input.cultivationBonus ?? 0) : (input.extractionBonus ?? 0);
-
-    baseRates[resource] +=
-      facilityYieldPerHour(tile.facility, tile.facilityLevel, tile.terrain, { techBonus }) *
-      // 孤立領土產出減半（`docs/02` §2.4）
-      yieldMultiplierFor(tile.state) *
-      // 征服來的高等級野地有生產加成（`docs/02` §2.5；lv≤1 = ×1）
-      wildProductionMultiplier(tile.level ?? 1);
+    // 孤立領土產出減半（`docs/02` §2.4）
+    baseRates[y.resource] += y.perHour * yieldMultiplierFor(tile.state);
   }
 
   return {

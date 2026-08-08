@@ -240,8 +240,13 @@ export const MARKET = {
 
 export const CLAIM = {
   cost: { grain: 200, timber: 150 },
-  /** 成本與時間隨已有領土遞增 */
-  costGrowthDivisor: 15,
+  /**
+   * 成本與時間隨已有領土遞增。
+   * ★ v2（docs/11 §22.4）收緊 15 → 8：格子自己會生產之後，
+   *   「地換錢、錢換地」的雪球必須有更陡的煞車 ——
+   *   模擬顯示 15 之下月 3 領土衝到 62（目標 16–26）。
+   */
+  costGrowthDivisor: 8,
   /** 立旗基準秒數 = 1800 × 地形係數 × (1 + 領土數 / 20) */
   baseSeconds: 1800,
   timeGrowthDivisor: 20,
