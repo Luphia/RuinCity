@@ -26,6 +26,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+/** 這個專案的預設埠。與 `package.json` 的 dev／start:web 是同一個號碼 */
+const DEFAULT_PORT = 5000;
+
 const hhmmss = () => new Date().toISOString().slice(11, 19);
 const log = (line: string) => console.log(`[${hhmmss()}] [start] ${line}`);
 
@@ -63,8 +66,18 @@ function main() {
   }
 
   // ── 3. 啟動服務 ───────────────────────────────────────────
-  // `pnpm start --port 3100` 之類的參數原封轉給 next
+  /**
+   * `pnpm start --port 3100` 之類的參數原封轉給 next。
+   *
+   * ★ 沒指定就用 `DEFAULT_PORT`（5000），不是 Next 的預設 3000 ——
+   *   `pnpm dev` 與 `pnpm start` 必須聽同一個號碼，否則
+   *   `AUTH_URL` 與 magic link 會在兩種模式之間漂移。
+   *   `PORT` 環境變數優先（Docker、systemd、雲端平台都靠它）。
+   */
   const extraArgs = process.argv.slice(2);
+  if (!extraArgs.some((a) => a === "--port" || a === "-p" || a.startsWith("--port="))) {
+    extraArgs.push("--port", process.env.PORT || String(DEFAULT_PORT));
+  }
   const children = new Map<string, ChildProcess>();
   let shuttingDown = false;
 

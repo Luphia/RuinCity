@@ -4,10 +4,10 @@
   "private": true,
   "description": "像素風格・手機網頁・多人戰爭策略遊戲",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 5000",
     "build": "next build",
     "start": "tsx --tsconfig tsconfig.scripts.json scripts/start.ts",
-    "start:web": "next start",
+    "start:web": "next start --port 5000",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

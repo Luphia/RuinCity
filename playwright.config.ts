@@ -1,5 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
+/**
+ * ★ E2E 刻意**不用** 5000（`pnpm dev` / `pnpm start` 的埠）。
+ *   同一個號碼的話，跑一次 `pnpm test:e2e` 就會撞掉你正開著的 dev server
+ *   —— 或者更糟：`reuseExistingServer` 讓測試跑在那個 dev server 上，
+ *   而它的 build 是舊的。
+ */
 const PORT = 3100;
 const baseURL = `http://127.0.0.1:${PORT}`;
 
