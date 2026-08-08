@@ -24,8 +24,14 @@ import {
   BufferImageSource,
 } from "pixi.js";
 
-import { MAP, REGION, RUIN_PLACEMENT, WILDS } from "../game/balance";
+import { MAP, REGION, RUIN_PLACEMENT, TILE_RESOURCE, WILDS } from "../game/balance";
 import { CODE_TERRAIN } from "../game/map/terrain";
+import {
+  iconScaleFor,
+  tileIconShapes,
+  type IconTone,
+  type TileResource,
+} from "../game/map-icon";
 import { wildLevelAt } from "../game/wilds";
 import {
   CHUNK_SIZE,
@@ -136,6 +142,40 @@ function makeChunkTexture(rgba: Uint8Array): Texture {
   return new Texture({ source });
 }
 
+/**
+ * 資源地貌圖示的語意色 → 調色盤（`docs/09` §3）。
+ *
+ * ★ `lib/game/map-icon.ts` 只吐 token，色碼在這裡對 ——
+ *   `/lib/game` 不該知道任何一個 hex。
+ */
+const ICON_TONE: Record<IconTone, number> = {
+  shadow: PALETTE.darkest,
+  dark: PALETTE.darkest,
+  leaf: PALETTE.mossLight,
+  leafDark: PALETTE.mossDark,
+  wood: PALETTE.woodDark,
+  crop: PALETTE.sandLight,
+  field: PALETTE.mossLight,
+  water: PALETTE.vitalBlue,
+  rock: PALETTE.stoneLight,
+  rockDark: PALETTE.stoneDark,
+  metal: PALETTE.metalBright,
+  hole: PALETTE.darkest,
+};
+
+/** PixiJS 用數字色，canvas 2D 用字串 —— 這裡是那個轉換 */
+function hexOf(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+/** 遠景那顆點用哪個色 —— 顏色是這個距離下唯一還說得出「哪一種」的訊號 */
+const RESOURCE_DOT: Record<"grain" | "timber" | "stone" | "iron", IconTone> = {
+  grain: "crop",
+  timber: "leaf",
+  stone: "rock",
+  iron: "metal",
+};
+
 export class MapScene {
   readonly app: Application;
   private readonly layers = {
@@ -176,9 +216,28 @@ export class MapScene {
    */
   private readonly spawnsGraphics = new Graphics();
   private spawnsViewKey = "";
-  /** 野地資源標示（等級 pips）—— 同樣視角快取；chunk 陸續載入時要跟著補 */
+  /** 野地資源標示（地貌圖示）—— 同樣視角快取；chunk 陸續載入時要跟著補 */
   private readonly wildsGraphics = new Graphics();
   private wildsViewKey = "";
+  /**
+   * ★ 圖示走**貼圖 + sprite 池**，不是一張大 Graphics。
+   *
+   *   幾百個圖示、每個十幾個多邊形，塞進同一張 Graphics 就是幾千個圖元；
+   *   sprite 則會被批次成一次 draw call（與地形 chunk 同一招）。
+   *
+   *   ★ 誠實記帳：這個選擇是**架構上的**，不是量出來的。
+   *   開發沙箱沒有 GPU（軟體 WebGL），最大縮放下的幀率被地形的
+   *   軟體光柵化主導 —— 兩種做法都是 13–15 fps，而不畫圖示的基準是
+   *   16–17 fps。也就是說在這台機器上分不出高下，真機才分得出。
+   *   選 sprite 是因為「每幀重新處理幾千個圖元」在有 GPU 的裝置上
+   *   是已知的成本，而 sprite 沒有這個成本。
+   *
+   *   貼圖依「資源 × 實際像素尺寸」快取：每一個尺寸各烘一張，
+   *   所以放大縮小都是**銳利**的，不靠縮放取樣。
+   */
+  private readonly wildSprites: Sprite[] = [];
+  private wildSpritesUsed = 0;
+  private readonly iconTextures = new Map<string, Texture>();
   /** 目前選取的格子。存世界座標，每幀重畫 —— 縮放平移後選取框才跟得上 */
   private selection: { x: number; y: number } | null = null;
 
@@ -233,6 +292,8 @@ export class MapScene {
   destroy() {
     for (const t of this.chunkTextures.values()) t.destroy(true);
     this.chunkTextures.clear();
+    for (const t of this.iconTextures.values()) t.destroy(true);
+    this.iconTextures.clear();
     this.chunkSprites.clear();
     this.app.destroy(true, { children: true });
   }
@@ -258,7 +319,12 @@ export class MapScene {
 
     this.tickFps();
     this.stats = {
-      spriteCount: this.chunkSprites.size + this.structureUsed,
+      /**
+       * ★ 資源圖示也要算進來。這個數字是 frame budget 的直接指標
+       *   （M1b 的教訓），少算了幾百個 sprite 的話它就在說謊 ——
+       *   而說謊的儀表比沒有儀表更糟。
+       */
+      spriteCount: this.chunkSprites.size + this.structureUsed + this.wildSpritesUsed,
       chunksLoaded: this.chunkTextures.size,
       chunksVisible: wanted.length,
       fps: this.fps,
@@ -445,25 +511,35 @@ export class MapScene {
   }
 
   /**
-   * 野地資源標示：在資源格上畫「等級 pips」。
+   * 野地資源標示：在資源格上畫**那種資源的地貌**，大小隨等級。
    *
-   * ★「哪些位置是資源地」光靠地形色塊讀不出來 —— 色塊只說了地形，
-   *   沒說**值不值得打**。等級由 `wildLevelAt(seed,x,y,terrain)` 決定性推導
-   *   （與伺服器同一個函式，`docs/02` §2.5），所以客戶端不用多拉一筆資料。
+   * ★ 第一版畫的是「等級幾就幾顆點」。它回答得了「這一格幾級」，
+   *   答不出**那是什麼資源** —— 而玩家在地圖上找的從來不是等級，
+   *   是「哪裡有木頭」。四種點長得一模一樣，要知道是哪一種只能點下去。
    *
-   * 密度控制：L1（32px/格）畫 lv≥2 的 pip 排（要打才佔得到的格子）、
-   * L2（8px/格）只把 lv5 畫成一顆點 —— 「值得專程跑一趟的在哪」，
-   * L3 不畫。★ 第一版 L2 畫 lv≥4 的 pip 排：礦脈有 +1 加成，
-   * 近兩成的格子都亮起來、而且 13px 的 pip 排溢出 8px 的格子 ——
-   * 整片變成雜訊。全圖 25 萬格都是重點就沒有一格是重點。
+   * 現在：稻田／森林／山洞／礦坑（`lib/game/map-icon.ts`），
+   * 荒地與山脈不畫。**等級用面積表示**：lv1 佔 38%、lv5 佔 92%，
+   * 於是強弱一眼可比，而密度自己收斂 —— 低階的讀起來像地表紋理，
+   * 高階的自己跳出來。
+   *
+   * 密度／成本控制（`docs/09` §12.5 的教訓還在，只是換了手段）：
+   *
+   * | 縮放 | 畫什麼 | 為什麼 |
+   * | --- | --- | --- |
+   * | 32px | 全部等級的圖示 | 這個距離就是在挑目標 |
+   * | 16px | lv≥2 的圖示 | 全畫等於一次重建一萬多個圖元，平移會頓 |
+   * | 8px  | lv5 一顆**帶顏色**的點 | 7px 的圖示只是一團糊；顏色仍然說得出是哪一種 |
+   * | ≤4px | 不畫 | 戰略視圖看的是勢力，不是格子 |
    *
    * 快取鍵包含「視野內已載入的 chunk 數」：chunk 是陸續到的，
-   * 只看視角的話，第一批 pips 畫完之後才到的地形永遠不會補畫。
+   * 只看視角的話，第一批圖示畫完之後才到的地形永遠不會補畫。
    */
   private drawWilds(v: Viewport) {
     const seed = this.data?.seed;
     if (seed === undefined || v.tilePixels < 8) {
       this.wildsGraphics.clear();
+      for (const sp of this.wildSprites) sp.visible = false;
+      this.wildSpritesUsed = 0;
       this.wildsViewKey = "";
       return;
     }
@@ -477,9 +553,10 @@ export class MapScene {
     if (key === this.wildsViewKey) return;
     this.wildsViewKey = key;
     this.wildsGraphics.clear();
+    this.wildSpritesUsed = 0;
 
-    const detailed = v.tilePixels >= 32;
-    const minLevel = detailed ? WILDS.guardedFromLevel : WILDS.maxLevel;
+    const t = v.tilePixels;
+    const minLevel = t >= 32 ? 1 : t >= 16 ? WILDS.guardedFromLevel : WILDS.maxLevel;
     for (let y = rect.minY; y <= rect.maxY; y++) {
       for (let x = rect.minX; x <= rect.maxX; x++) {
         const codes = peekChunk(
@@ -490,38 +567,103 @@ export class MapScene {
         if (!codes) continue;
         const terrain =
           CODE_TERRAIN[codes[(y % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE)] ?? 0];
-        if (!terrain || terrain === "WASTE" || terrain === "MOUNTAIN") continue;
+        if (!terrain) continue;
+        // 荒地與山脈沒有產出（`TILE_RESOURCE`）—— 沒有圖示就是它的意思
+        const res = TILE_RESOURCE[terrain];
+        if (!res) continue;
         const level = wildLevelAt(seed, x, y, terrain);
         if (level < minLevel) continue;
 
         const at = worldToScreen(v, x, y);
-        const t = v.tilePixels;
-        if (!detailed) {
-          // L2：一顆點就好 —— 位置本身就是資訊
+        if (t < 16) {
+          // 遠景：一顆點，但**帶著資源的顏色** —— 位置與種類都還在
           this.wildsGraphics
             .rect(at.x + t / 2 - 2, at.y + t / 2 - 2, 5, 5)
-            .fill({ color: PALETTE.darkest, alpha: 0.7 });
+            .fill({ color: PALETTE.darkest, alpha: 0.75 });
           this.wildsGraphics
             .rect(at.x + t / 2 - 1, at.y + t / 2 - 1, 3, 3)
-            .fill({ color: PALETTE.parchment, alpha: 0.95 });
+            .fill({ color: ICON_TONE[RESOURCE_DOT[res.resource]], alpha: 0.95 });
           continue;
         }
-        // L1：pips 排在格子下緣，黑底 + 羊皮紙點，等級幾就幾顆
-        const pip = Math.max(2, Math.floor(t / 10));
-        const gap = pip + 1;
-        const width = level * gap + 1;
-        const px = at.x + (t - width) / 2;
-        const py = at.y + t - pip - 3;
-        this.wildsGraphics
-          .rect(px - 1, py - 1, width + 1, pip + 2)
-          .fill({ color: PALETTE.darkest, alpha: 0.7 });
-        for (let i = 0; i < level; i++) {
-          this.wildsGraphics
-            .rect(px + 1 + i * gap, py, pip, pip)
-            .fill({ color: PALETTE.parchment, alpha: 0.95 });
-        }
+
+        const size = t * iconScaleFor(level);
+        const px = Math.max(6, Math.round(size));
+        const sprite = this.takeWildSprite();
+        sprite.texture = this.iconTexture(res.resource, px);
+        sprite.width = px;
+        sprite.height = px;
+        sprite.position.set(
+          Math.round(at.x + (t - px) / 2),
+          Math.round(at.y + (t - px) / 2),
+        );
+        sprite.visible = true;
       }
     }
+
+    // 這一次沒用到的收起來（留著，下一次視角變動還要用）
+    for (let i = this.wildSpritesUsed; i < this.wildSprites.length; i++) {
+      this.wildSprites[i]!.visible = false;
+    }
+  }
+
+  private takeWildSprite(): Sprite {
+    let sp = this.wildSprites[this.wildSpritesUsed];
+    if (!sp) {
+      sp = new Sprite();
+      sp.eventMode = "none";
+      this.wildSprites.push(sp);
+      this.layers.territory.addChild(sp);
+    }
+    this.wildSpritesUsed++;
+    return sp;
+  }
+
+  /**
+   * 把一個資源地貌烘成**指定像素尺寸**的貼圖。
+   *
+   * ★ 每個尺寸各烘一張，而不是烘一張大的再縮放：
+   *   全域的 `scaleMode` 是 `nearest`（像素風的前提），
+   *   拿 64px 的圖縮到 11px 會碎成雜訊。實際用到的尺寸只有十來種
+   *   （兩個縮放層級 × 五個等級），快取綽綽有餘。
+   */
+  private iconTexture(resource: TileResource, px: number): Texture {
+    const key = `${resource}:${px}`;
+    const hit = this.iconTextures.get(key);
+    if (hit) return hit;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = px;
+    canvas.height = px;
+    const ctx = canvas.getContext("2d")!;
+
+    /**
+     * ★ 先鋪一層暗影。地形色塊有淺有深 ——
+     *   少了它，森林畫在苔綠上會整個消失。
+     */
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = hexOf(PALETTE.darkest);
+    ctx.beginPath();
+    ctx.ellipse(px / 2, px * 0.9, px * 0.42, px * 0.13, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    for (const shape of tileIconShapes(resource)) {
+      ctx.fillStyle = hexOf(ICON_TONE[shape.tone]);
+      if (shape.kind === "rect") {
+        ctx.fillRect(shape.x * px, shape.y * px, shape.w * px, shape.h * px);
+      } else {
+        const pts = shape.points;
+        ctx.beginPath();
+        ctx.moveTo(pts[0]! * px, pts[1]! * px);
+        for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i]! * px, pts[i + 1]! * px);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    const texture = Texture.from(canvas);
+    this.iconTextures.set(key, texture);
+    return texture;
   }
 
   /**

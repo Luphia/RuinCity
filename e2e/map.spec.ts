@@ -66,7 +66,13 @@ test.describe("地圖", () => {
     }
     await expect(page.getByTestId("zoom-label")).toHaveText("局部", { timeout: 5000 });
     await page.waitForTimeout(1200);
-    expect(await readCount()).toBeLessThan(200);
+    /**
+     * ★ L1 的上限比 L3 寬，因為資源地貌圖示是**一格一個 sprite**。
+     *   那不是 M1b 那個毛病：它的上限是**視窗裡的格子數**（390×844 / 32²
+     *   ≈ 320），不是地圖的格子數。真正要擋的仍然是「L3 畫 250,000 個」，
+     *   而那一條在上面。
+     */
+    expect(await readCount()).toBeLessThan(600);
   });
 
   test("點擊格子會選取，而且座標落在地圖範圍內", async ({ page }) => {

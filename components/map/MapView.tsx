@@ -287,10 +287,13 @@ export function MapView() {
             <span className="mr-0.5 inline-block h-2 w-2 rounded-full border border-[#e8dcc0] align-middle" />
             進行中
           </span>
-          <span>
-            <span className="mr-0.5 inline-block h-1.5 w-1.5 bg-[#e8dcc0] align-middle" />
-            <span className="mr-1 inline-block h-1.5 w-1.5 bg-[#e8dcc0] align-middle" />
-            資源等級
+          {/* ★ 資源地畫的是**地貌**（稻田／森林／山洞／礦坑），等級用大小表示 */}
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-2 w-2 bg-[#6b7f4a] align-middle" title="稻田＝糧" />
+            <span className="inline-block h-2 w-2 bg-[#47562f] align-middle" title="森林＝木" />
+            <span className="inline-block h-2 w-2 bg-[#9a958c] align-middle" title="山洞＝石" />
+            <span className="inline-block h-2 w-2 bg-[#a8aab0] align-middle" title="礦坑＝鐵" />
+            資源地（愈大級愈高）
           </span>
           <span className="text-[#4a8fa8]">─ 我的疆界</span>
         </div>
