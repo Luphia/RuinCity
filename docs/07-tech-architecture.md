@@ -82,6 +82,13 @@ CREATE INDEX ON events (actor_id, resolve_at) WHERE resolved_at IS NULL;
 - 本機／自架：`pnpm worker`（`scripts/worker.ts` 的常駐迴圈，
   預設 60 秒一輪，`--interval 10` 開發時看執政官動起來、`--once` 給外部排程用）
 
+自架的完整入口是 **`pnpm start`**（`scripts/start.ts`）：
+先跑 migration 把環境初始化完，再同時啟動 web 與 worker
+（輸出加 `[web]`/`[worker]` 前綴；任一個死掉就把另一個收掉 ——
+「web 活著但 worker 早就死了」是最難察覺的半殘狀態）。
+沒設 `DATABASE_URL` 時只啟動 web 並在啟動時講出來（E2E 就是這個模式）。
+純 web 入口保留為 `pnpm start:web`。
+
 少了 worker 的話，本機沒有任何東西扮演 cron ——
 執政官不動、行軍不抵達、賽季不推進，只剩打開頁面那一刻的惰性結算。
 

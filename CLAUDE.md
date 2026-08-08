@@ -18,6 +18,9 @@ pnpm dev
 pnpm worker                    # 本機的結算迴圈（執政官、行軍、賽季推進）。
                                # production 由 Vercel Cron 扮演這個角色；
                                # 本機不開它的話，只剩打開頁面那一刻的惰性結算
+pnpm build && pnpm start       # 自架/本機的正式模式:先跑 migration 初始化,
+                               # 再同時啟動 web + worker（任一個死掉就整組收掉）。
+                               # 沒設 DATABASE_URL 時只跑 web 並講出來
 
 pnpm check                     # typecheck + lint + 單元測試 + 整合測試（PGlite）
 pnpm test:e2e                  # Playwright（需要 build）
