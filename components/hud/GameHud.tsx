@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 /**
  * 常駐 HUD：資源 + 速率 + 儲存量、季節、下一件會完成的事。
  * `docs/09` §5.1 從 M0 就規劃了這條 40px 的常駐狀態列，M5c 才補上。
@@ -132,7 +134,12 @@ export function GameHud({ floating = false }: { floating?: boolean }) {
               />
             ))}
           </span>
-          <span className="truncate opacity-70">{hud.gameDate}</span>
+          {/* ★ 曆法點得下去 —— 那是「賽季」這件事在遊戲內唯一的入口。
+              放棄賽季的出口在 /seasons，而底部分頁列已經沒有位子了
+              （`docs/13` §8） */}
+          <Link href="/seasons" className="truncate opacity-70 underline-offset-2 hover:underline">
+            {hud.gameDate}
+          </Link>
           <span className="tabular-nums opacity-70">
             人口 {Math.floor(hud.population.used)}/{hud.population.cap}
           </span>

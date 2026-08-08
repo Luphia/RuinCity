@@ -26,26 +26,49 @@ export default async function GameLayout({ children }: { children: React.ReactNo
    */
   const out = await loadElimination();
   if (out) {
+    const abandoned = out.reason === "ABANDONED";
     return (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-6 text-center text-[#e8dcc0]">
-        <p className="text-5xl">🏚</p>
-        <h1 className="text-2xl font-bold text-[#c4442f]">主城陷落</h1>
+        <p className="text-5xl">{abandoned ? "🚪" : "🏚"}</p>
+        <h1 className={`text-2xl font-bold ${abandoned ? "text-[#d9a441]" : "text-[#c4442f]"}`}>
+          {abandoned ? "你離開了這場戰役" : "主城陷落"}
+        </h1>
         <p className="text-sm leading-relaxed opacity-80">
-          {out.at} —— 你的主城被攻破，這一季到此為止。
-          <br />
-          領地已回歸廢土，殘部就地解散。
+          {abandoned ? (
+            <>
+              {out.at} —— 你放棄了這一場賽季。
+              <br />
+              領地已回歸廢土，殘部就地解散。
+            </>
+          ) : (
+            <>
+              {out.at} —— 你的主城被攻破，這一季到此為止。
+              <br />
+              領地已回歸廢土，殘部就地解散。
+            </>
+          )}
         </p>
         <p className="rounded border border-[#4a413a] bg-[#2e2723] p-3 text-xs leading-relaxed opacity-70">
-          出局是永久的：主城一旦被拆毀，這一場賽季不會再回來。
-          <br />
-          下一場賽季開放登記時，你會帶著傳承點重新開始。
+          {abandoned ? (
+            <>
+              離開是永久的：這一場不會再回來，但你<b>現在就能報名下一場</b>。
+              <br />
+              下一場開放登記時，你會帶著傳承點重新開始。
+            </>
+          ) : (
+            <>
+              出局是永久的：主城一旦被拆毀，這一場賽季不會再回來。
+              <br />
+              下一場賽季開放登記時，你會帶著傳承點重新開始。
+            </>
+          )}
         </p>
         <div className="flex gap-3">
           <Link href="/map" className="rounded border border-[#8a6b3a] px-4 py-2 text-sm text-[#d9a441]">
             看地圖
           </Link>
           <Link href="/seasons" className="rounded border border-[#8a6b3a] px-4 py-2 text-sm text-[#d9a441]">
-            下一場賽季
+            {abandoned ? "報名下一場" : "下一場賽季"}
           </Link>
         </div>
       </main>

@@ -29,12 +29,12 @@
 //   而且 import 會先於任何語句求值 —— 理由見該檔案
 import "./load-env";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { hashSeed } from "../lib/game/rng";
 import { formatFairness } from "../lib/game/map/fairness";
 import { PHASE_DURATION, SPAWN_BANDS, type FactionId } from "../lib/game/season";
-import { schema } from "../lib/db";
+import { getDb, schema } from "../lib/db";
 import { withTransaction } from "../lib/db/tx";
 import {
   createSeason,
@@ -109,6 +109,39 @@ async function main() {
       ? PHASE_DURATION.registrationMs / 2
       : PHASE_DURATION.registrationMs + PHASE_DURATION.sealedMs;
   const opensAt = now - back;
+
+  /**
+   * ★ 先確認這個人報得進去，**再**開賽季。
+   *
+   *   反過來的話，「他已經在另一場裡」會在賽季建立之後才發現，
+   *   留下一場半開的、沒有地圖的 REGISTRATION 賽季 ——
+   *   而那正是 `/map` 曾經會去挑的那一場（`lib/game/map-season.ts`）。
+   *   一個開發工具不該用一次失敗換掉所有人的地圖。
+   */
+  if (email) {
+    const userId = await withTransaction((tx) => ensureGameUser(tx, email));
+    const [busy] = await getDb()
+      .select({ seasonId: schema.seasonRegistrations.seasonId })
+      .from(schema.seasonRegistrations)
+      .innerJoin(schema.seasons, eq(schema.seasonRegistrations.seasonId, schema.seasons.id))
+      .where(
+        and(
+          eq(schema.seasonRegistrations.userId, userId),
+          ne(schema.seasons.status, "ARCHIVED"),
+          isNull(schema.seasonRegistrations.withdrawnAt),
+        ),
+      )
+      .limit(1);
+    if (busy) {
+      console.error(
+        `\n${email} 還在賽季 #${busy.seasonId} 裡，沒有開新賽季。\n` +
+          `一位領主同時只能在一場（docs/13 §7 D1）。要換一場的話，\n` +
+          `請他自己在 /seasons 按「放棄賽季 #${busy.seasonId}」—— ` +
+          `那是玩家的路徑，這個腳本不是（docs/13 §8）。`,
+      );
+      process.exit(1);
+    }
+  }
 
   console.log(`\n開新賽季（seed ${seed}，目標階段 ${phase}）`);
   const seasonId = await withTransaction((tx) =>

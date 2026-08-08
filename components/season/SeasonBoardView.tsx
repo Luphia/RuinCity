@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 
+import { abandonSeason } from "@/app/actions/season";
 import type { RegisterResult, SeasonBoard } from "@/app/actions/season";
 import { RUIN, SPAWN_BAND, SPAWN_BANDS, type RuinId, type SpawnBand } from "@/lib/game/balance";
 import { useServerClock } from "@/components/use-server-clock";
@@ -112,10 +113,7 @@ export function SeasonBoardView({ board, onRegister }: SeasonBoardViewProps) {
       {board.mine ? (
         <MyCard board={board} />
       ) : board.lockedElsewhere ? (
-        <p className="mt-4 rounded border border-[#8a6b3a] bg-[#2e2723] p-3 text-sm">
-          你還在另一場賽季裡。一位領主同時只能在一張地圖上 ——
-          等那一場結束後就能報名下一場。
-        </p>
+        <LockedElsewhere board={board} />
       ) : !board.signedIn ? (
         /**
          * ★ 這裡一定要是一個**連結**，不能只是一句「登入後才能登記」。
@@ -245,7 +243,11 @@ export function SeasonBoardView({ board, onRegister }: SeasonBoardViewProps) {
                 <b>{SPAWN_BAND[band].label}</b>
                 {squadCode.trim() ? ` · 小隊 ${squadCode.trim()}` : ""}？
               </p>
-              <p className="mt-1 opacity-70">送出之後不能更改，也不能退出。</p>
+              {/* ★ 「也不能退出」在 `docs/13` §8 之後就不再成立了。
+                  留著一句已經不對的警告，比沒有警告更糟 */}
+              <p className="mt-1 opacity-70">
+                送出之後<b>不能更改</b>這三個選擇。要換就只能放棄整場重報。
+              </p>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
@@ -295,6 +297,81 @@ export function SeasonBoardView({ board, onRegister }: SeasonBoardViewProps) {
 
       <FairnessCard report={board.fairness} />
     </main>
+  );
+}
+
+/**
+ * 卡在另一場賽季裡 —— 而且**給出口**（`docs/13` §8）。
+ *
+ * ★ 「等那一場結束」在第 1 天被打爛的人身上是一句 12 天的判決。
+ *   規則沒有改（一位領主同時只能在一張地圖上），改的是它有了門把：
+ *   放棄那一場，馬上就能報名這一場。
+ *
+ * ★ 兩段式按鈕：第一下把它變成紅色的「確定放棄」。
+ *   這是整個遊戲裡最不可逆的一次點擊之一（據點、領地、部隊全沒），
+ *   而 confirm() 在手機瀏覽器上會被擋掉 —— 所以確認要長在畫面裡。
+ */
+function LockedElsewhere({ board }: { board: SeasonBoard }) {
+  const [armed, setArmed] = useState(false);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const running = board.elsewhere?.running ?? false;
+
+  return (
+    <section className="mt-4 rounded border border-[#8a6b3a] bg-[#2e2723] p-3 text-sm">
+      <p>
+        你還在賽季 #{board.elsewhere?.seasonId ?? "?"} 裡。一位領主同時只能在一張地圖上。
+      </p>
+      <p className="mt-2 text-xs leading-relaxed opacity-75">
+        {running
+          ? "放棄那一場就能立刻報名這一場 —— 但你的據點會被拆除、領地回歸廢土、在途部隊就地解散，而且不可逆。"
+          : "放棄那一場的登記就能改報這一場。還沒封盤，所以名額會還回去。"}
+      </p>
+
+      {error ? <p className="mt-2 text-xs text-[#c4442f]">{error}</p> : null}
+
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (!armed) {
+            setArmed(true);
+            return;
+          }
+          setError(null);
+          start(async () => {
+            try {
+              const r = await abandonSeason();
+              if (!r.ok) {
+                setError(REJECTION_TEXT[r.reason ?? ""] ?? `放棄失敗：${r.reason ?? "未知原因"}`);
+                setArmed(false);
+                return;
+              }
+              // 伺服器狀態變了 —— 重新載入這一頁才看得到報名表
+              window.location.reload();
+            } catch (e) {
+              // 失敗要看得見（CLAUDE.md）：只寫 console 等於「按了沒反應」
+              setError(e instanceof Error ? e.message : String(e));
+              setArmed(false);
+            }
+          });
+        }}
+        className={`mt-3 w-full rounded border px-3 py-2 text-sm font-bold ${
+          armed ? "border-[#c4442f] bg-[#c4442f]/15 text-[#c4442f]" : "border-[#4a413a] opacity-90"
+        }`}
+      >
+        {pending ? "處理中…" : armed ? "確定放棄，不可逆" : "放棄賽季 #" + (board.elsewhere?.seasonId ?? "")}
+      </button>
+      {armed && !pending ? (
+        <button
+          type="button"
+          onClick={() => setArmed(false)}
+          className="mt-1 w-full rounded px-3 py-1.5 text-xs opacity-70"
+        >
+          再想想
+        </button>
+      ) : null}
+    </section>
   );
 }
 

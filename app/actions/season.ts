@@ -61,6 +61,16 @@ export interface SeasonBoard {
   readonly ruins: readonly { id: number; x: number; y: number }[];
   /** 已經在**別的**賽季裡了 —— 一個人同時只能在一場 */
   readonly lockedElsewhere: boolean;
+  /**
+   * ★ 卡住的話，出口在哪（`docs/13` §8）。
+   *   有這個欄位畫面才有資格顯示「放棄那一場」——
+   *   一條沒有出口的規則會把玩家關在門外整整 12 天。
+   */
+  readonly elsewhere: {
+    readonly seasonId: number;
+    /** true = 已經開打（放棄 = 據點與領地全沒了） */
+    readonly running: boolean;
+  } | null;
   readonly signedIn: boolean;
 }
 
@@ -107,6 +117,7 @@ export async function loadSeasonBoard(): Promise<SeasonBoard | null> {
 
   let mine: MyRegistration | null = null;
   let lockedElsewhere = false;
+  let elsewhere: SeasonBoard["elsewhere"] = null;
 
   if (userId !== null) {
     const [row] = await db
@@ -116,6 +127,8 @@ export async function loadSeasonBoard(): Promise<SeasonBoard | null> {
         and(
           eq(schema.seasonRegistrations.seasonId, season.id),
           eq(schema.seasonRegistrations.userId, userId),
+          // 退出過的登記不算「我報名了」—— 畫面要回到可以重新報名的樣子
+          isNull(schema.seasonRegistrations.withdrawnAt),
         ),
       );
     if (row) {
@@ -129,7 +142,10 @@ export async function loadSeasonBoard(): Promise<SeasonBoard | null> {
       };
     } else {
       const [other] = await db
-        .select({ id: schema.seasonRegistrations.id })
+        .select({
+          seasonId: schema.seasonRegistrations.seasonId,
+          status: schema.seasons.status,
+        })
         .from(schema.seasonRegistrations)
         .innerJoin(schema.seasons, eq(schema.seasonRegistrations.seasonId, schema.seasons.id))
         .where(
@@ -137,10 +153,17 @@ export async function loadSeasonBoard(): Promise<SeasonBoard | null> {
             eq(schema.seasonRegistrations.userId, userId),
             ne(schema.seasonRegistrations.seasonId, season.id),
             ne(schema.seasons.status, "ARCHIVED"),
+            isNull(schema.seasonRegistrations.withdrawnAt),
           ),
         )
         .limit(1);
       lockedElsewhere = Boolean(other);
+      if (other) {
+        elsewhere = {
+          seasonId: other.seasonId,
+          running: other.status === "RUNNING" || other.status === "ENDING",
+        };
+      }
     }
   }
 
@@ -166,6 +189,7 @@ export async function loadSeasonBoard(): Promise<SeasonBoard | null> {
     fairness: season.fairnessReport ?? null,
     ruins: (season.ruinPositions ?? []) as SeasonBoard["ruins"],
     lockedElsewhere,
+    elsewhere,
     signedIn: userId !== null,
   };
 }
@@ -276,4 +300,36 @@ export async function registerForSeason(input: {
      */
     return { ok: false, reason: "QUOTA_FULL" };
   }
+}
+
+export interface AbandonResultView {
+  readonly ok: boolean;
+  readonly reason?: string;
+  /** true = 放棄的是一場已經開打的賽季（據點與領地都沒了） */
+  readonly hadPlayer?: boolean;
+}
+
+/**
+ * ★ 放棄目前這一場賽季（`docs/13` §8）。
+ *
+ * 這是「一位領主同時只能在一場」的出口。**不可逆**：
+ * 據點被拆、領地回歸廢土、在途部隊解散 —— 與主城被打爆走的是
+ * 同一份實作（`lib/server/leave-season.ts`）。
+ *
+ * 呼叫端必須先問過玩家。這個 action 自己不做二次確認 ——
+ * 「要不要確認」是畫面的職責，而畫面上已經有一次不可逆的點擊。
+ */
+export async function abandonSeason(): Promise<AbandonResultView> {
+  const userId = await currentUserId();
+  if (userId === null) return { ok: false, reason: "UNAUTHENTICATED" };
+
+  const now = await serverNow();
+  const { abandonSeasonFor } = await import("@/lib/server/season-ops");
+  const r = await withTransaction((tx) => abandonSeasonFor(tx, userId, now));
+
+  revalidatePath("/seasons");
+  revalidatePath("/base");
+  revalidatePath("/map");
+  if (!r.ok) return { ok: false, reason: r.reason };
+  return { ok: true, hadPlayer: r.hadPlayer };
 }

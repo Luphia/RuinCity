@@ -15,8 +15,14 @@ import { schema } from "@/lib/db";
 import { formatGameDate, toGameDate } from "@/lib/game/calendar";
 
 export interface Elimination {
-  /** 出局那一刻的廢曆日期，給結束畫面用 */
+  /** 離開那一刻的廢曆日期，給結束畫面用 */
   readonly at: string;
+  /**
+   * ★ 為什麼離開。兩者的後果相同，但畫面上不該是同一句話 ——
+   *   「你的主城陷落了」與「你放棄了這場賽季」是兩件事。
+   *   舊資料是 null，一律當作主城被打爆。
+   */
+  readonly reason: "KEEP_DESTROYED" | "ABANDONED";
 }
 
 export async function loadElimination(): Promise<Elimination | null> {
@@ -29,6 +35,7 @@ export async function loadElimination(): Promise<Elimination | null> {
     const [row] = await getDb()
       .select({
         eliminatedAt: schema.players.eliminatedAt,
+        exitReason: schema.players.exitReason,
         startedAt: schema.seasons.startedAt,
       })
       .from(schema.players)
@@ -46,6 +53,7 @@ export async function loadElimination(): Promise<Elimination | null> {
     if (!row?.eliminatedAt || !row.startedAt) return null;
     return {
       at: formatGameDate(toGameDate(row.startedAt.getTime(), row.eliminatedAt.getTime())),
+      reason: row.exitReason === "ABANDONED" ? "ABANDONED" : "KEEP_DESTROYED",
     };
   } catch {
     /**

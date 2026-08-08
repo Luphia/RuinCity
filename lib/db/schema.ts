@@ -226,6 +226,14 @@ export const seasonRegistrations = pgTable(
     assignedY: smallint("assigned_y"),
     playerId: bigint("player_id", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * ★ 退出這一場的時刻（`docs/13` §8）。null = 還在。
+     *
+     * 不刪這一列：登記是歷史，而且 `player_id` 已經指出去了。
+     * 「一位領主同時只能在一場」的檢查因此要濾掉退出的登記 ——
+     * 少了它，放棄賽季的人會被自己的舊登記永遠擋在門外。
+     */
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("reg_season_user_uq").on(t.seasonId, t.userId),
@@ -284,7 +292,17 @@ export const players = pgTable(
     /** ±15% 個體偏移，賽季開始時由 seed 決定後固定 */
     aiVariance: numeric("ai_variance", { precision: 4, scale: 3 }),
 
+    /** 離開這一場的時刻。原因看 `exitReason` —— 判準始終只有這一個欄位 */
     eliminatedAt: timestamp("eliminated_at", { withTimezone: true }),
+    /**
+     * ★ 為什麼離開：`KEEP_DESTROYED`（主城被打爆）或 `ABANDONED`（自願放棄）。
+     *
+     * 兩者的**後果完全相同**（領地釋放、駐軍清空、行軍取消、事件刪除），
+     * 所以共用一份實作；但講給玩家聽的故事不一樣 ——
+     * 「你的主城陷落了」與「你放棄了這場賽季」不該長成同一個畫面。
+     * 舊資料是 null，一律當作 `KEEP_DESTROYED`。
+     */
+    exitReason: text("exit_reason"),
   },
   (t) => [
     uniqueIndex("players_season_user_uq").on(t.seasonId, t.userId),

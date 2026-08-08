@@ -56,6 +56,7 @@ import {
 import { deriveSeed, mulberry32 } from "@/lib/game/rng";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
+import { leaveSeason } from "@/lib/server/leave-season";
 import { settleWithin } from "@/lib/server/player-state";
 import {
   closeEngagement,
@@ -1035,77 +1036,14 @@ async function resolveSiege(
 }
 
 /**
- * ★ 出局：主城被打爆的那一刻，這位領主的賽季就結束了。
+ * ★ 出局：主城被打爆的那一刻，這位領主的賽季就結束了（`docs/02` §3.1）。
  *
- * 做四件事，順序不重要但一件都不能少 —— 少任何一件，
- * 地圖上都會留下一個「已經不存在的人」還在運作的東西：
- *
- *   1. `players.eliminatedAt` —— 出局的判準只有這一個欄位
- *   2. 領地全部釋放成無主（旗倒了，地就回到廢土）
- *   3. 駐軍清空（守軍隨主城一起沒了）
- *   4. 在途的行軍全部取消（沒有人可以回去了）
- *
- * 已出局的玩家不會被結算、不能派兵、也不會再被當成攻擊目標
- * （`settleWithin` 與 `sendMarchFor` 都會擋）。
+ * 拆除與清帳的那五件事在 `lib/server/leave-season.ts` ——
+ * 自願放棄賽季（`docs/13` §8）走的是**同一份實作**，
+ * 差別只有寫進 `exitReason` 的那個字串。
  */
 async function eliminatePlayer(tx: TxDb, seasonId: number, playerId: number, now: number) {
-  const [already] = await tx
-    .select({ eliminatedAt: schema.players.eliminatedAt })
-    .from(schema.players)
-    .where(eq(schema.players.id, playerId))
-    .limit(1);
-  if (already?.eliminatedAt) return; // 冪等：同一波兩支部隊同時破城
-
-  await tx
-    .update(schema.players)
-    .set({ eliminatedAt: new Date(now) })
-    .where(eq(schema.players.id, playerId));
-
-  // 領地回到無主 —— 設施也跟著消失（沒有人維護它們了）
-  await tx
-    .update(schema.tiles)
-    .set({
-      playerId: null,
-      allianceId: null,
-      facility: null,
-      facilityLevel: 0,
-      structureHp: null,
-      structureHitAt: null,
-      state: "NORMAL",
-      stateUntil: null,
-    })
-    .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.playerId, playerId)));
-
-  await tx
-    .delete(schema.garrisons)
-    .where(and(eq(schema.garrisons.seasonId, seasonId), eq(schema.garrisons.ownerId, playerId)));
-
-  await tx
-    .update(schema.marches)
-    .set({ status: "RECALLED" })
-    .where(
-      and(
-        eq(schema.marches.seasonId, seasonId),
-        eq(schema.marches.ownerId, playerId),
-        eq(schema.marches.status, "IN_TRANSIT"),
-      ),
-    );
-
-  /**
-   * ★ 未結算的事件也要清掉。
-   *   不清的話，結算迴圈每一分鐘都會撿起這位玩家的到期事件、
-   *   撞上 `PlayerEliminatedError`、記一筆 failure —— 而那些事件
-   *   永遠不會消失。症狀是「cron 的失敗數每分鐘 +1，而且看不出原因」。
-   */
-  await tx
-    .delete(schema.events)
-    .where(
-      and(
-        eq(schema.events.seasonId, seasonId),
-        eq(schema.events.actorId, playerId),
-        isNull(schema.events.resolvedAt),
-      ),
-    );
+  await leaveSeason(tx, seasonId, playerId, now, "KEEP_DESTROYED");
 }
 
 // ─────────────────────────────────────────────────────────────

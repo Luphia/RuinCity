@@ -12,6 +12,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { PHASE_DURATION, SEASON_CAPACITY, startingResources } from "@/lib/game/season";
 import * as schema from "@/lib/db/schema";
 import {
+  abandonSeasonFor,
   advanceSeasons,
   createSeason,
   ensureNextSeason,
@@ -582,5 +583,140 @@ describe("★ ensureNextSeason：七天的節奏", () => {
     // 落後超過一個週期 → 從現在重新起算，而不是照抄早就過期的 nextOpensAt
     expect(scheduleOf(next!).registrationOpensAt).toBe(long);
     expect(scheduleOf(next!).registrationClosesAt).toBeGreaterThan(long);
+  });
+});
+
+/**
+ * ★ 放棄賽季（`docs/13` §8）——「一位領主同時只能在一場」的出口。
+ *
+ * 這一組驗的是那條規則不再是一座牢：放棄之後**馬上**能報名下一場，
+ * 而且放棄的後果與主城被打爆完全相同（共用 `leaveSeason`）。
+ */
+describe("★ 放棄賽季", () => {
+  it("放棄登記期的賽季 → 名額與真人數都退回去，而且能改報另一場", async () => {
+    const first = await h.tx((tx) => createSeason(tx, { seed: 71, registrationOpensAt: T0 }));
+    const second = await h.tx((tx) =>
+      createSeason(tx, { seed: 72, registrationOpensAt: T0 + 7 * 24 * HOUR }),
+    );
+    const userId = await makeUser();
+
+    await h.tx((tx) => registerFor(tx, first, userId, { faction: 2, band: "FRONTIER" }, T0 + HOUR));
+
+    const takenOf = async (seasonId: number) => {
+      const [q] = await h.db
+        .select({ taken: schema.seasonQuotas.taken })
+        .from(schema.seasonQuotas)
+        .where(
+          and(
+            eq(schema.seasonQuotas.seasonId, seasonId),
+            eq(schema.seasonQuotas.faction, 2),
+            eq(schema.seasonQuotas.spawnBand, "FRONTIER"),
+          ),
+        );
+      return q!.taken;
+    };
+    const humansOf = async (seasonId: number) => {
+      const [s] = await h.db
+        .select({ n: schema.seasons.humanCount })
+        .from(schema.seasons)
+        .where(eq(schema.seasons.id, seasonId));
+      return s!.n;
+    };
+    expect(await takenOf(first)).toBe(1);
+    expect(await humansOf(first)).toBe(1);
+
+    const bye = await h.tx((tx) => abandonSeasonFor(tx, userId, T0 + 2 * HOUR));
+    expect(bye).toEqual({ ok: true, seasonId: first, hadPlayer: false });
+
+    // ★ 還沒封盤 → 座位真的還空著，名額與真人數都要還回去
+    expect(await takenOf(first)).toBe(0);
+    expect(await humansOf(first)).toBe(0);
+
+    // ★ 出口成立：立刻就能報下一場
+    const again = await h.tx((tx) =>
+      registerFor(tx, second, userId, { faction: 1, band: "HEARTLAND" }, T0 + 7 * 24 * HOUR + HOUR),
+    );
+    expect(again).toEqual({ ok: true });
+  });
+
+  it("退出的登記不佔座位 —— 封盤時不會替他生一座空城", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 73, registrationOpensAt: T0 }));
+    const stay = await makeUser();
+    const quit = await makeUser();
+    await h.tx((tx) => registerFor(tx, seasonId, stay, { faction: 1, band: "HEARTLAND" }, T0 + HOUR));
+    await h.tx((tx) => registerFor(tx, seasonId, quit, { faction: 1, band: "HEARTLAND" }, T0 + HOUR));
+    await h.tx((tx) => abandonSeasonFor(tx, quit, T0 + 2 * HOUR));
+
+    const [row] = await h.db
+      .select({ withdrawnAt: schema.seasonRegistrations.withdrawnAt })
+      .from(schema.seasonRegistrations)
+      .where(
+        and(
+          eq(schema.seasonRegistrations.seasonId, seasonId),
+          eq(schema.seasonRegistrations.userId, quit),
+        ),
+      );
+    expect(row!.withdrawnAt).not.toBeNull();
+
+    const summary = await h.tx((tx) => lockdownSeason(tx, seasonId, { world: FAST_WORLD }));
+    // 只剩一位真人，其餘全是 AI
+    expect(summary.humans).toBe(1);
+    expect(summary.humans + summary.ai).toBe(SEASON_CAPACITY);
+  }, 180_000);
+
+  it("★ 放棄已經開打的賽季 → 據點拆除、領地釋放，而且能立刻報名另一場", async () => {
+    const seasonId = await h.tx((tx) => createSeason(tx, { seed: 74, registrationOpensAt: T0 }));
+    const userId = await makeUser();
+    await h.tx((tx) => registerFor(tx, seasonId, userId, { faction: 1, band: "HEARTLAND" }, T0 + HOUR));
+    await h.tx((tx) => lockdownSeason(tx, seasonId, { world: FAST_WORLD }));
+    const startAt = T0 + 3 * 24 * HOUR + 12 * HOUR;
+    await h.tx((tx) => startSeason(tx, seasonId, startAt));
+
+    const [me] = await h.db
+      .select({ id: schema.players.id })
+      .from(schema.players)
+      .where(and(eq(schema.players.seasonId, seasonId), eq(schema.players.userId, userId)));
+    expect(me).toBeDefined();
+
+    const bye = await h.tx((tx) => abandonSeasonFor(tx, userId, startAt + HOUR));
+    expect(bye).toEqual({ ok: true, seasonId, hadPlayer: true });
+
+    const [after] = await h.db
+      .select({
+        eliminatedAt: schema.players.eliminatedAt,
+        exitReason: schema.players.exitReason,
+      })
+      .from(schema.players)
+      .where(eq(schema.players.id, me!.id));
+    expect(after!.eliminatedAt).not.toBeNull();
+    // ★ 與主城被打爆共用同一份拆除，差別只有這個字串
+    expect(after!.exitReason).toBe("ABANDONED");
+
+    const [tileCount] = await h.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.tiles)
+      .where(and(eq(schema.tiles.seasonId, seasonId), eq(schema.tiles.playerId, me!.id)));
+    expect(tileCount!.n).toBe(0);
+
+    const [garrisonCount] = await h.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.garrisons)
+      .where(and(eq(schema.garrisons.seasonId, seasonId), eq(schema.garrisons.ownerId, me!.id)));
+    expect(garrisonCount!.n).toBe(0);
+
+    // ★ 出口成立：那一場還在跑，但他已經不在裡面了
+    const next = await h.tx((tx) =>
+      createSeason(tx, { seed: 75, registrationOpensAt: startAt + 2 * HOUR }),
+    );
+    const again = await h.tx((tx) =>
+      registerFor(tx, next, userId, { faction: 3, band: "VANGUARD" }, startAt + 3 * HOUR),
+    );
+    expect(again).toEqual({ ok: true });
+  }, 180_000);
+
+  it("不在任何一場裡就沒有東西可以放棄", async () => {
+    const userId = await makeUser();
+    const r = await h.tx((tx) => abandonSeasonFor(tx, userId, T0));
+    expect(r).toEqual({ ok: false, reason: "NOT_IN_ANY_SEASON" });
   });
 });

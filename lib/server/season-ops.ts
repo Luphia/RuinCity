@@ -20,7 +20,7 @@ import "server-only";
  * 輸的那個會撞到約束，而不是讀到過期的計數。
  */
 
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { BALANCE_VERSION, type SpawnBand } from "@/lib/game/balance";
 import { generateWorld } from "@/lib/game/map/world";
@@ -46,6 +46,7 @@ import { stewardAvatarSeed, stewardName } from "@/lib/game/steward";
 import { coreTiles } from "@/lib/game/territory";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
+import { leaveSeason } from "@/lib/server/leave-season";
 
 export interface SeasonResult {
   readonly ok: boolean;
@@ -133,8 +134,17 @@ export async function registerFor(
       ),
     );
 
+  /**
+   * ★ 退出過的那一列還在（`reg_season_user_uq` 擋掉第二列），
+   *   所以「已經登記過」要看的是 `withdrawnAt` 而不是列的存在。
+   *   把退出當成「永遠不能回來」是個陷阱：手滑退出登記期的賽季，
+   *   那一場就再也進不去了。
+   */
   const [existing] = await tx
-    .select({ id: schema.seasonRegistrations.id })
+    .select({
+      id: schema.seasonRegistrations.id,
+      withdrawnAt: schema.seasonRegistrations.withdrawnAt,
+    })
     .from(schema.seasonRegistrations)
     .where(
       and(
@@ -147,6 +157,11 @@ export async function registerFor(
    * ★ 一位玩家同時只能在一場賽季中（`docs/13` §7 D1）。
    *   下一場在第 7 天就開放登記，而這一場還沒結束 ——
    *   少了這一檢查，同一個人會同時在兩張地圖上。
+   *
+   * ★★ 但**退出的登記不算**（`docs/13` §8）。放棄賽季之後那一列還在
+   *   （登記是歷史，`player_id` 已經指出去了），少了 `withdrawnAt IS NULL`
+   *   的話，放棄的人會被自己的舊登記永遠擋在門外 —— 而畫面上
+   *   只會寫「你還在另一場賽季裡」，他明明剛剛才離開。
    */
   const [elsewhere] = await tx
     .select({ id: schema.seasonRegistrations.id })
@@ -157,6 +172,7 @@ export async function registerFor(
         eq(schema.seasonRegistrations.userId, userId),
         ne(schema.seasonRegistrations.seasonId, seasonId),
         ne(schema.seasons.status, "ARCHIVED"),
+        isNull(schema.seasonRegistrations.withdrawnAt),
       ),
     )
     .limit(1);
@@ -181,7 +197,7 @@ export async function registerFor(
     schedule: scheduleOf(season),
     now,
     quota: quota ? { capacity: quota.capacity, taken: quota.taken } : null,
-    alreadyRegistered: Boolean(existing),
+    alreadyRegistered: Boolean(existing && !existing.withdrawnAt),
     inAnotherSeason: Boolean(elsewhere),
     squadMembers,
   });
@@ -203,13 +219,26 @@ export async function registerFor(
       ),
     );
 
-  await tx.insert(schema.seasonRegistrations).values({
-    seasonId,
-    userId,
-    faction: plan.faction,
-    spawnBand: plan.band,
-    squadCode: plan.squadCode,
-  });
+  if (existing) {
+    // 退出過又回來 —— 復用那一列（唯一索引不允許第二列）
+    await tx
+      .update(schema.seasonRegistrations)
+      .set({
+        faction: plan.faction,
+        spawnBand: plan.band,
+        squadCode: plan.squadCode,
+        withdrawnAt: null,
+      })
+      .where(eq(schema.seasonRegistrations.id, existing.id));
+  } else {
+    await tx.insert(schema.seasonRegistrations).values({
+      seasonId,
+      userId,
+      faction: plan.faction,
+      spawnBand: plan.band,
+      squadCode: plan.squadCode,
+    });
+  }
 
   await tx
     .update(schema.seasons)
@@ -217,6 +246,139 @@ export async function registerFor(
     .where(eq(schema.seasons.id, seasonId));
 
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 放棄賽季（docs/13 §8）
+// ─────────────────────────────────────────────────────────────
+
+export type AbandonResult =
+  | { readonly ok: true; readonly seasonId: number; readonly hadPlayer: boolean }
+  | { readonly ok: false; readonly reason: "NOT_IN_ANY_SEASON" };
+
+/**
+ * ★ 放棄這一場：一位領主隨時可以退出，退出之後就能登記下一場。
+ *
+ * 這是「一位領主同時只能在一場賽季裡」（`docs/13` §7 D1）的**出口**。
+ * 少了出口，那條規則會變成一座牢：打壞了、朋友在別場、或者只是想重來的人
+ * 只能等整整 12 天 —— 而唯一的解法是叫人去跑 `pnpm seed:season`，
+ * 那不是一個遊戲該有的樣子。
+ *
+ * 兩種處境，做的事不一樣：
+ *
+ *   1. **已經在打**（有 `players` 列）→ 走 `leaveSeason`，
+ *      與主城被打爆完全相同的拆除；`exitReason` 記成 `ABANDONED`。
+ *      名額**不退還** —— 地圖已經按那個座位生成了，那一格是你的殘骸。
+ *   2. **只登記了、還沒開打**（賽季還在 REGISTRATION）→ 撤銷登記，
+ *      而且**把名額還給名額池**：地圖還沒生成，這個座位真的還空著。
+ *
+ * 兩種都要寫 `season_registrations.withdrawnAt` —— 「還在別場嗎」
+ * 的判準讀的是登記表，不是 `players`。
+ */
+export async function abandonSeasonFor(
+  tx: TxDb,
+  userId: number,
+  now: number,
+): Promise<AbandonResult> {
+  const [live] = await tx
+    .select({
+      playerId: schema.players.id,
+      seasonId: schema.players.seasonId,
+    })
+    .from(schema.players)
+    .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
+    .where(
+      and(
+        eq(schema.players.userId, userId),
+        ne(schema.seasons.status, "ARCHIVED"),
+        isNull(schema.players.eliminatedAt),
+      ),
+    )
+    .orderBy(desc(schema.players.seasonId))
+    .limit(1);
+
+  if (live) {
+    await leaveSeason(tx, live.seasonId, live.playerId, now, "ABANDONED");
+    await withdrawRegistration(tx, live.seasonId, userId, now, false);
+    return { ok: true, seasonId: live.seasonId, hadPlayer: true };
+  }
+
+  const [reg] = await tx
+    .select({
+      seasonId: schema.seasonRegistrations.seasonId,
+      status: schema.seasons.status,
+    })
+    .from(schema.seasonRegistrations)
+    .innerJoin(schema.seasons, eq(schema.seasonRegistrations.seasonId, schema.seasons.id))
+    .where(
+      and(
+        eq(schema.seasonRegistrations.userId, userId),
+        ne(schema.seasons.status, "ARCHIVED"),
+        isNull(schema.seasonRegistrations.withdrawnAt),
+      ),
+    )
+    .orderBy(desc(schema.seasonRegistrations.seasonId))
+    .limit(1);
+
+  if (!reg) return { ok: false, reason: "NOT_IN_ANY_SEASON" };
+
+  await withdrawRegistration(tx, reg.seasonId, userId, now, reg.status === "REGISTRATION");
+  return { ok: true, seasonId: reg.seasonId, hadPlayer: false };
+}
+
+/**
+ * 撤銷一筆登記。`releaseQuota` 為 true 時把名額還回去 ——
+ * 只有**還沒封盤**的賽季才成立（封盤之後地圖已經照座位生成了）。
+ */
+async function withdrawRegistration(
+  tx: TxDb,
+  seasonId: number,
+  userId: number,
+  now: number,
+  releaseQuota: boolean,
+) {
+  const [row] = await tx
+    .select({
+      id: schema.seasonRegistrations.id,
+      faction: schema.seasonRegistrations.faction,
+      band: schema.seasonRegistrations.spawnBand,
+    })
+    .from(schema.seasonRegistrations)
+    .where(
+      and(
+        eq(schema.seasonRegistrations.seasonId, seasonId),
+        eq(schema.seasonRegistrations.userId, userId),
+        isNull(schema.seasonRegistrations.withdrawnAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return;
+
+  await tx
+    .update(schema.seasonRegistrations)
+    .set({ withdrawnAt: new Date(now) })
+    .where(eq(schema.seasonRegistrations.id, row.id));
+
+  if (!releaseQuota) return;
+  await tx
+    .update(schema.seasonQuotas)
+    .set({ taken: sql`GREATEST(${schema.seasonQuotas.taken} - 1, 0)` })
+    .where(
+      and(
+        eq(schema.seasonQuotas.seasonId, seasonId),
+        eq(schema.seasonQuotas.faction, row.faction),
+        eq(schema.seasonQuotas.spawnBand, row.band),
+      ),
+    );
+
+  /**
+   * ★ `humanCount` 也要跟著退。封盤時的 AI 補足算的是 `600 − humanCount`；
+   *   不退的話，退出的人會在地圖上留下一個**誰也不是**的空位。
+   */
+  await tx
+    .update(schema.seasons)
+    .set({ humanCount: sql`GREATEST(${schema.seasons.humanCount} - 1, 0)` })
+    .where(eq(schema.seasons.id, seasonId));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -276,10 +438,20 @@ export async function lockdownSeason(
   const [season] = await tx.select().from(schema.seasons).where(eq(schema.seasons.id, seasonId));
   if (!season) throw new Error(`season ${seasonId} not found`);
 
+  /**
+   * ★ 退出的登記不佔座位（`docs/13` §8）。少了這個過濾，
+   *   放棄登記的人仍然會被分到一個出生點 —— 地圖上多一座
+   *   永遠不會有人進去的空城。
+   */
   const registrations = await tx
     .select()
     .from(schema.seasonRegistrations)
-    .where(eq(schema.seasonRegistrations.seasonId, seasonId))
+    .where(
+      and(
+        eq(schema.seasonRegistrations.seasonId, seasonId),
+        isNull(schema.seasonRegistrations.withdrawnAt),
+      ),
+    )
     .orderBy(schema.seasonRegistrations.id);
 
   const quotas = await tx

@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 
 import { MAP } from "@/lib/game/balance";
 import { BATTLE_TRACE_WINDOW_MS, SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
+import { pickMapSeason } from "@/lib/game/map-season";
 import { CHUNK_COLS, CHUNK_ROWS, CHUNK_SIZE } from "@/lib/render/chunks";
 
 /** `pnpm map:generate` 產的開發地圖。沒有真實賽季時的退路 */
@@ -25,19 +26,51 @@ const FALLBACK_SEASON = "s0";
  * 見 `lib/server/terrain-files.ts`）。指著 `s0` 的話，玩家在 `/map` 看到的是
  * 一張跟自己那一局完全無關的地圖 —— 連自己的據點都不在上面，
  * 而且畫面上不會有任何跡象顯示看錯了。
+ *
+ * ★★ 也不能是「最新的那一場」。
+ *
+ * 下一場在第 7 天就開放登記（`ensureNextSeason`），而**那一場還沒有地圖**
+ * —— 地形是封盤時才生成的。取最新的話，賽季走到第 7 天，
+ * 所有還在打的人的地圖會突然換成 `s0` 開發地圖：
+ * 自己的據點、領土、行軍全部畫在一張無關的地形上，
+ * 而 `s0` 不存在的部署（`public/terrain` 沒進映像檔）直接 404 →
+ * 畫面變成「地圖載入失敗」。這不是邊界情況，它會準時發生在每一位玩家身上。
+ *
+ * 正確的判準是**這位觀看者現在在哪一場裡**：
+ *
+ *   1. 明確指定 → 照做（開發與除錯用）
+ *   2. 這位觀看者的 player 所在的那一場（出局的也算 —— 他要看的仍是那張圖）
+ *   3. 沒登入／不在任何一場 → 最新的**有地圖**的一場（RUNNING/ENDING/SEALED）
+ *   4. 都沒有 → 開發地圖
  */
 async function resolveSeason(explicit: string | null): Promise<string> {
   if (explicit) return explicit;
   try {
     const { getDb, schema } = await import("@/lib/db");
-    const { desc, ne } = await import("drizzle-orm");
-    const [row] = await getDb()
-      .select({ id: schema.seasons.id })
+    const { desc, eq, ne } = await import("drizzle-orm");
+    const db = getDb();
+
+    const { auth } = await import("@/auth");
+    const email = (await auth())?.user?.email;
+    const [mine] = email
+      ? await db
+          .select({ id: schema.players.seasonId, status: schema.seasons.status })
+          .from(schema.players)
+          .innerJoin(schema.users, eq(schema.players.userId, schema.users.id))
+          .innerJoin(schema.seasons, eq(schema.players.seasonId, schema.seasons.id))
+          .where(eq(schema.users.email, email))
+          .orderBy(desc(schema.players.seasonId))
+          .limit(1)
+      : [];
+
+    const seasons = await db
+      .select({ id: schema.seasons.id, status: schema.seasons.status })
       .from(schema.seasons)
       .where(ne(schema.seasons.status, "ARCHIVED"))
       .orderBy(desc(schema.seasons.id))
-      .limit(1);
-    if (row) return `s${row.id}`;
+      .limit(10);
+
+    return pickMapSeason(null, mine ?? null, seasons, FALLBACK_SEASON);
   } catch {
     // 沒有資料庫的環境（E2E、預覽）就用開發地圖
   }
