@@ -15,6 +15,9 @@
 pnpm install
 cp .env.example .env.local     # 填入 DATABASE_URL 與 AUTH_SECRET
 pnpm dev
+pnpm worker                    # 本機的結算迴圈（執政官、行軍、賽季推進）。
+                               # production 由 Vercel Cron 扮演這個角色；
+                               # 本機不開它的話，只剩打開頁面那一刻的惰性結算
 
 pnpm check                     # typecheck + lint + 單元測試 + 整合測試（PGlite）
 pnpm test:e2e                  # Playwright（需要 build）

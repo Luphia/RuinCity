@@ -18,6 +18,7 @@
     "map:generate": "tsx --tsconfig tsconfig.scripts.json scripts/generate-map.ts --seed 99991 --out public/terrain/s0",
     "sim": "tsx scripts/simulate-season.ts",
     "seed:season": "tsx --tsconfig tsconfig.scripts.json scripts/seed-season.ts",
+    "worker": "tsx --tsconfig tsconfig.scripts.json scripts/worker.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {

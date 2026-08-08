@@ -76,6 +76,15 @@ CREATE INDEX ON events (actor_id, resolve_at) WHERE resolved_at IS NULL;
 軌道 A 讓玩家自己的建造、招兵可以零延遲結算，不需等 cron。
 軌道 B 保證**守方即使離線也會被結算**——不能因為守方沒登入，攻方的行軍就卡住。
 
+**軌道 B 的兩個入口共用同一份 tick**（`lib/server/cron.ts` 的 `runCronTick`）：
+
+- production：Vercel Cron 每分鐘打 `/api/cron/settle`（路由只驗 secret、包 JSON）
+- 本機／自架：`pnpm worker`（`scripts/worker.ts` 的常駐迴圈，
+  預設 60 秒一輪，`--interval 10` 開發時看執政官動起來、`--once` 給外部排程用）
+
+少了 worker 的話，本機沒有任何東西扮演 cron ——
+執政官不動、行軍不抵達、賽季不推進，只剩打開頁面那一刻的惰性結算。
+
 ### 2.3 冪等與併發
 
 ```
