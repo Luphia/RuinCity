@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MAP, TERRAINS } from "../game/balance";
+import { isBattleLive, type BattleMarker } from "./battles";
 import { TERRAIN_CODE } from "../game/map/terrain";
 import {
   CHUNK_COUNT,
@@ -278,5 +279,31 @@ describe("chunk 貼圖", () => {
     expect(rgba[3]).toBe(150);
     // 第二格無主
     expect(rgba[7]).toBe(0);
+  });
+});
+
+describe("交戰標示：現在還在打嗎", () => {
+  const at = (extra: Partial<BattleMarker>): BattleMarker => ({
+    id: 1,
+    x: 10,
+    y: 10,
+    fresh: true,
+    ...extra,
+  });
+
+  it("打完的戰場永遠不是「正在打」", () => {
+    expect(isBattleLive(at({ live: false }), 0)).toBe(false);
+    expect(isBattleLive(at({}), 0)).toBe(false);
+  });
+
+  it("★ 時間到就下架 —— 不必等下一次輪詢", () => {
+    const b = at({ live: true, endsAt: 1_000 });
+    expect(isBattleLive(b, 999)).toBe(true);
+    expect(isBattleLive(b, 1_000)).toBe(false);
+    expect(isBattleLive(b, 1_001)).toBe(false);
+  });
+
+  it("沒有 endsAt 就只能信 live —— 少一個欄位不該讓仗從地圖上消失", () => {
+    expect(isBattleLive(at({ live: true }), Number.MAX_SAFE_INTEGER)).toBe(true);
   });
 });
