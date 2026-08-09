@@ -17,9 +17,11 @@ import { CODE_TERRAIN } from "@/lib/game/map/terrain";
 import type { ResourceKind } from "@/lib/game/resource-icon";
 import { needsConquest, wildLevelAt } from "@/lib/game/wilds";
 import { ResourceIcon } from "@/components/ui/ResourceIcon";
+import { useServerClock } from "@/components/use-server-clock";
+import { isBattleLive } from "@/lib/render/battles";
 import { peekChunk } from "@/lib/render/chunk-cache";
 import { CHUNK_SIZE } from "@/lib/render/chunks";
-import type { SceneData, SceneStats } from "@/lib/render/scene";
+import type { BattleMarker, SceneData, SceneStats } from "@/lib/render/scene";
 
 interface Overview {
   seasonId: string;
@@ -33,10 +35,15 @@ interface Overview {
   ruins: { id: number; name: string; x: number; y: number }[];
   areas: Record<string, number>;
   fairness: { key: string; label: string; pass: boolean; actual: number; format: string }[];
-  spawns: { x: number; y: number; faction: 1 | 2 | 3; band: string }[];
+  /** wallTier = 城牆的三段（1 木寨／2 石垣／3 鐵壁），主城圖示由它決定 */
+  spawns: { x: number; y: number; faction: 1 | 2 | 3; band: string; wallTier?: 1 | 2 | 3 }[];
   /** 交戰地點 —— fresh = 觀戰窗口內（點那一格可以進去看） */
-  battles?: { id: number; x: number; y: number; fresh: boolean; live?: boolean }[];
+  battles?: BattleMarker[];
+  serverTime?: number;
 }
+
+/** 十五秒。交戰是兩分鐘的窗口，這個節奏抓得到一場仗的開始與結束 */
+const BATTLE_POLL_MS = 15_000;
 
 /**
  * 選取格的地形情報。**只供顯示** —— 佔領與戰鬥的判定永遠在伺服器重算。
@@ -91,6 +98,21 @@ export function MapView() {
   const [overlay, setOverlay] = useState<MapOverlay | null>(null);
   const [overlayNote, setOverlayNote] = useState<string | null>(null);
   const [recenterNonce, setRecenterNonce] = useState(0);
+  /**
+   * ★ 烽火與 `data` **分開**存。
+   *
+   *   併進 `SceneData` 的話，每一次輪詢都會換掉那個物件，
+   *   而 `MapCanvas` 的對焦 effect 依賴 `data` —— 於是地圖每十五秒
+   *   自己跳回自己的據點。這與 §20.23 的「useEffect 依賴要用基本型別」
+   *   是同一類毛病：**會變的東西不要塞進不常變的那個物件裡**。
+   */
+  const [battles, setBattles] = useState<{
+    battles: readonly BattleMarker[];
+    serverTime: number;
+  } | null>(null);
+  const [battleNote, setBattleNote] = useState<string | null>(null);
+  /** 伺服器校正時鐘。footer 的「交戰中」要跟著仗結束而退場 */
+  const clock = useServerClock(battles?.serverTime ?? 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,11 +129,14 @@ export function MapView() {
         if (cancelled) return;
         setOverview(json);
         setOverlay(mine);
+        setBattles({
+          battles: json.battles ?? [],
+          serverTime: json.serverTime ?? mine?.serverTime ?? Date.now(),
+        });
         setData({
           source: { seasonId: json.seasonId, baseUrl: json.chunkBaseUrl },
           ruins: json.ruins,
           spawns: json.spawns.map((s, i) => ({ ...s, alliance: i % 5 })),
-          battles: json.battles ?? [],
           mine: mine ?? undefined,
           seed: json.seed,
         });
@@ -123,6 +148,57 @@ export function MapView() {
       cancelled = true;
     };
   }, []);
+
+  /**
+   * 烽火輪詢。
+   *
+   * ★ 交戰只有兩分鐘，而總覽快取一分鐘 —— 不輪詢的話，
+   *   一場仗從開始到結束玩家可能一次都沒看到，
+   *   而**打完的仗會一直留在畫面上互砍**（見 `docs/09` §12.7）。
+   *
+   * ★ 分頁被切到背景時停掉：手機上那是最容易白燒電池的地方
+   *   （`docs/09` §7），而看不到的地圖不需要即時。切回來立刻補一次。
+   */
+  const seasonId = overview?.seasonId;
+  useEffect(() => {
+    if (!seasonId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      if (document.visibilityState !== "visible") {
+        // 看不到的地圖不需要即時 —— 切回來時 `onVisible` 會立刻補一次
+        timer = setTimeout(() => void poll(), BATTLE_POLL_MS);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/map/battles?season=${encodeURIComponent(seasonId)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as { battles?: BattleMarker[]; serverTime?: number };
+        if (cancelled) return;
+        setBattles({ battles: json.battles ?? [], serverTime: json.serverTime ?? Date.now() });
+        setBattleNote(null);
+      } catch {
+        // ★ 失敗要看得見。只 console.error 的話，畫面會安靜地停在舊烽火上
+        if (!cancelled) setBattleNote("烽火更新中斷");
+      }
+      if (!cancelled) timer = setTimeout(() => void poll(), BATTLE_POLL_MS);
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || cancelled) return;
+      clearTimeout(timer);
+      void poll();
+    };
+
+    timer = setTimeout(() => void poll(), BATTLE_POLL_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [seasonId]);
 
   // 每秒才把 stats 推進 React —— 每幀 setState 會讓整個頁面重繪
   const onStats = useCallback((s: SceneStats) => {
@@ -155,8 +231,18 @@ export function MapView() {
       ? tileInfoAt(data, overview.seed, selected.x, selected.y, overlay)
       : null;
   const selectedBattle = selected
-    ? overview?.battles?.find((b) => b.x === selected.x && b.y === selected.y)
+    ? battles?.battles.find((b) => b.x === selected.x && b.y === selected.y)
     : undefined;
+  /**
+   * ★ 「交戰中」的判準是 `endsAt`，不是伺服器上一次回答的 `live`。
+   *   輪詢十五秒一次而交戰只有兩分鐘 —— 只信 `live` 的話，
+   *   底部那顆按鈕會在仗打完之後還說「交戰中 ⚔」，
+   *   而點進去是沒有現場的。畫面上的每一個「正在打」都走這一個判準。
+   *
+   * ★ 時間走 `useServerClock`，不是 `Date.now()`：render 裡讀客戶端時鐘
+   *   同時違反 P1 與 React Compiler 的 purity 規則（CLAUDE.md）。
+   */
+  const selectedLive = !!selectedBattle && isBattleLive(selectedBattle, clock);
 
   return (
     <main className="flex h-dvh flex-col bg-[#1a1614] pb-11 text-[#e8dcc0]">
@@ -190,6 +276,8 @@ export function MapView() {
       <div className="relative flex-1">
         <MapCanvas
           data={data}
+          battles={battles?.battles}
+          battlesServerTime={battles?.serverTime}
           focus={home ? { x: home.x, y: home.y } : undefined}
           recenterNonce={recenterNonce}
           onSelectTile={setSelected}
@@ -248,7 +336,7 @@ export function MapView() {
                   : "border-[#8a6b3a] text-[#d9a441]"
               }`}
             >
-              {selectedBattle?.live ? "交戰中 ⚔" : selectedBattle?.fresh ? "觀戰 🔥" : "展開此格 ⚔"}
+              {selectedLive ? "交戰中 ⚔" : selectedBattle?.fresh ? "觀戰 🔥" : "展開此格 ⚔"}
             </Link>
           ) : null}
           {overview && !selected ? (
@@ -258,6 +346,7 @@ export function MapView() {
           ) : null}
           {!overview ? <span className="opacity-70">載入中…</span> : null}
           {overlayNote ? <span className="text-[#c4442f]">{overlayNote}</span> : null}
+          {battleNote ? <span className="text-[#c4442f]">{battleNote}</span> : null}
           {stats ? (
             <span data-testid="sprite-count" className="ml-auto opacity-70">
               {stats.fps} fps · sprite {stats.spriteCount} · chunk {stats.chunksVisible}/
@@ -277,15 +366,25 @@ export function MapView() {
             <span className="mr-1 inline-block h-2 w-2 bg-[#7fa832] align-middle" />
             各勢力據點
           </span>
+          {/* ★ 主城依**城牆**分三段：地圖上那一眼問的是「我打得下來嗎」 */}
+          <span title="主城的圖示依城牆等級分三段">
+            <span className="mr-1 inline-block h-2 w-2 bg-[#7a5a3c] align-middle" />
+            木寨
+            <span className="mx-1 inline-block h-2 w-2 bg-[#9a958c] align-middle" />
+            石垣
+            <span className="mx-1 inline-block h-2 w-2 bg-[#a8aab0] align-middle" />
+            鐵壁
+          </span>
           <span>
             <span className="mr-1 inline-block h-2 w-2 bg-[#d9a441] align-middle" />
             遺跡
           </span>
           <span className="text-[#c4442f]">✕ 交戰</span>
-          {/* ★ 打完的與正在打的要分得開：後者還來得及派兵加入 */}
+          {/* ★ 打完的與正在打的要分得開：後者還來得及派兵加入。
+              放大到看得清一格時，正在打的那一格會是兩把互砍的刀 */}
           <span className="text-[#c4442f]">
             <span className="mr-0.5 inline-block h-2 w-2 rounded-full border border-[#e8dcc0] align-middle" />
-            進行中
+            進行中（放大後為 ⚔ 動畫）
           </span>
           {/* ★ 資源地畫的是**地貌**（稻田／森林／山洞／礦坑），等級用大小表示 */}
           <span className="inline-flex items-center gap-1">

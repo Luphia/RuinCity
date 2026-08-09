@@ -33,6 +33,14 @@
  * `/lib/game` 不該知道 PixiJS 或色碼。
  */
 
+import {
+  polyOf,
+  rectOf,
+  type IconPolyOf,
+  type IconRectOf,
+  type IconShapeOf,
+} from "./icon-shape";
+
 export type IconTone =
   | "shadow" // 底下那圈暗影（任何地形上都要看得見）
   | "dark" // 描邊／陰影面
@@ -47,39 +55,16 @@ export type IconTone =
   | "metal" // 礦坑的金屬構件
   | "hole"; // 洞口（最深）
 
-export interface IconRect {
-  readonly kind: "rect";
-  readonly x: number;
-  readonly y: number;
-  readonly w: number;
-  readonly h: number;
-  readonly tone: IconTone;
-}
-
-export interface IconPoly {
-  readonly kind: "poly";
-  /** [x0,y0, x1,y1, …]，單位座標 0..1，y 向下 */
-  readonly points: readonly number[];
-  readonly tone: IconTone;
-}
-
-export type IconShape = IconRect | IconPoly;
+/** 幾何基元共用（`icon-shape.ts`），語意 token 各自定義 */
+export type IconRect = IconRectOf<IconTone>;
+export type IconPoly = IconPolyOf<IconTone>;
+export type IconShape = IconShapeOf<IconTone>;
 
 export type TileResource = "grain" | "timber" | "stone" | "iron";
 
-const rect = (x: number, y: number, w: number, h: number, tone: IconTone): IconRect => ({
-  kind: "rect",
-  x,
-  y,
-  w,
-  h,
-  tone,
-});
-const poly = (points: readonly number[], tone: IconTone): IconPoly => ({
-  kind: "poly",
-  points,
-  tone,
-});
+const rect = (x: number, y: number, w: number, h: number, tone: IconTone): IconRect =>
+  rectOf(x, y, w, h, tone);
+const poly = (points: readonly number[], tone: IconTone): IconPoly => polyOf(points, tone);
 
 /**
  * ★ 稻田：三層梯田，由後往前愈來愈寬。

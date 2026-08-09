@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MAP } from "@/lib/game/balance";
-import type { MapScene, SceneData, SceneStats } from "@/lib/render/scene";
+import type { BattleMarker, MapScene, SceneData, SceneStats } from "@/lib/render/scene";
 import {
   centerOn,
   clampViewport,
@@ -26,6 +26,13 @@ import {
 
 export interface MapCanvasProps {
   data: SceneData | null;
+  /**
+   * 烽火。**與 `data` 分開**傳，因為它十五秒換一次而 `data` 一場賽季換一次 ——
+   * 併在一起的話，下面那支對焦 effect 會每十五秒把相機拉回據點。
+   */
+  battles?: readonly BattleMarker[];
+  /** 那一份烽火是伺服器幾點給的（動畫的下架時刻要跟它比） */
+  battlesServerTime?: number;
   /** 初始相機位置（通常是玩家自己的據點） */
   focus?: { x: number; y: number };
   /** 每 +1 一次就把相機拉回 focus —— 「回家」按鈕的訊號線 */
@@ -38,7 +45,15 @@ export interface MapCanvasProps {
 const TAP_SLOP_PX = 8;
 const DOUBLE_TAP_MS = 280;
 
-export function MapCanvas({ data, focus, recenterNonce, onSelectTile, onStats }: MapCanvasProps) {
+export function MapCanvas({
+  data,
+  battles,
+  battlesServerTime,
+  focus,
+  recenterNonce,
+  onSelectTile,
+  onStats,
+}: MapCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
@@ -158,6 +173,16 @@ export function MapCanvas({ data, focus, recenterNonce, onSelectTile, onStats }:
     }
     // recenterNonce 每 +1 就重跑一次 —— 這就是「回家」按鈕的實作
   }, [ready, data, focusX, focusY, recenterNonce]);
+
+  /**
+   * ★ 烽火自己一支 effect，**不碰相機**。
+   *   跟著 `data` 走的話，每一次輪詢都會重跑上面那支對焦 ——
+   *   症狀是「地圖每十五秒自己跳回據點」，而成因看起來毫無關係。
+   */
+  useEffect(() => {
+    if (!ready || !battles) return;
+    sceneRef.current?.setBattles(battles, battlesServerTime);
+  }, [ready, battles, battlesServerTime]);
 
   // ── 繪製迴圈 ────────────────────────────────────────────────
   useEffect(() => {
