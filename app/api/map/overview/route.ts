@@ -12,8 +12,9 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 
 import { MAP } from "@/lib/game/balance";
-import { BATTLE_TRACE_WINDOW_MS, SPECTATE_WINDOW_MS } from "@/lib/game/battlefield";
+import type { KeepTier } from "@/lib/game/keep-icon";
 import { pickMapSeason } from "@/lib/game/map-season";
+import type { MapBattle } from "@/lib/server/map-battles";
 import { CHUNK_COLS, CHUNK_ROWS, CHUNK_SIZE } from "@/lib/render/chunks";
 
 /** `pnpm map:generate` 產的開發地圖。沒有真實賽季時的退路 */
@@ -168,68 +169,34 @@ export async function GET(request: Request) {
    *   `fresh` = 還在觀戰窗口內(脈動紅 ✕、點進去可以看重播);
    *   窗口過了的殘跡再留 6 小時 —— 「這一帶最近打得兇」本身就是
    *   值得繞路的情報。只給座標與戰報 id,數字帳目仍然只有當事人看得到。
+   *
+   *   ★ 查詢實作在 `lib/server/map-battles.ts`，與輪詢用的
+   *   `/api/map/battles` **共用同一份** —— 兩邊各寫一份的話，
+   *   遲早分岔成「開圖說有仗、輪詢說沒有」，而畫面會在兩者之間閃。
    */
-  let battles: { id: number; x: number; y: number; fresh: boolean; live?: boolean }[] = [];
+  let battles: MapBattle[] = [];
+  /** 每座主城的城牆段（`spawns` 的座標是封盤時寫死的，城牆卻是活的） */
+  let wallTiers = new Map<string, KeepTier>();
+  let serverTime = Date.now();
   const numericSeason = /^s(\d+)$/.exec(seasonId)?.[1];
   if (numericSeason) {
     try {
-      const { getDb, schema } = await import("@/lib/db");
-      const { and, desc, eq, gt, isNull } = await import("drizzle-orm");
       const { serverNow } = await import("@/lib/time");
-      const now = await serverNow();
-      const rows = await getDb()
-        .select({
-          id: schema.battleReports.id,
-          x: schema.battleReports.atX,
-          y: schema.battleReports.atY,
-          createdAt: schema.battleReports.createdAt,
-        })
-        .from(schema.battleReports)
-        .where(
-          and(
-            eq(schema.battleReports.seasonId, Number(numericSeason)),
-            gt(schema.battleReports.createdAt, new Date(now - BATTLE_TRACE_WINDOW_MS)),
-          ),
-        )
-        .orderBy(desc(schema.battleReports.createdAt))
-        .limit(200);
-      /**
-       * ★ 正在打的那幾格排在最前面（`docs/04` §3d）。
-       *   打完的戰場只是情報；正在打的是**還來得及參加**的邀請，
-       *   所以它必須壓過同一格上的舊戰報標示。
-       */
-      const liveRows = await getDb()
-        .select({ id: schema.engagements.id, x: schema.engagements.x, y: schema.engagements.y })
-        .from(schema.engagements)
-        .where(
-          and(
-            eq(schema.engagements.seasonId, Number(numericSeason)),
-            isNull(schema.engagements.resolvedAt),
-          ),
-        )
-        .limit(200);
-
-      const seen = new Set<string>();
-      for (const r of liveRows) {
-        seen.add(`${r.x},${r.y}`);
-        battles.push({ id: r.id, x: r.x, y: r.y, fresh: true, live: true });
-      }
-      // 同一格打了好幾場 → 只留最新的一場(rows 已按時間新→舊)
-      for (const r of rows) {
-        const key = `${r.x},${r.y}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        battles.push({
-          id: r.id,
-          x: r.x,
-          y: r.y,
-          fresh: now - r.createdAt.getTime() <= SPECTATE_WINDOW_MS,
-        });
-      }
+      const { loadKeepWallTiers, loadMapBattles } = await import("@/lib/server/map-battles");
+      serverTime = await serverNow();
+      battles = await loadMapBattles(Number(numericSeason), serverTime);
+      wallTiers = await loadKeepWallTiers(Number(numericSeason));
     } catch {
-      battles = []; // 沒有資料庫的環境(E2E、預覽)就沒有烽火
+      // 沒有資料庫的環境(E2E、預覽)就沒有烽火，城牆一律退回第 1 段
+      battles = [];
+      wallTiers = new Map();
     }
   }
+
+  const spawns = (Array.isArray(meta.spawns) ? meta.spawns : []) as {
+    x: number;
+    y: number;
+  }[];
 
   return NextResponse.json(
     {
@@ -252,12 +219,23 @@ export async function GET(request: Request) {
       ruins: meta.ruins,
       areas: meta.areas,
       fairness: meta.fairness,
-      spawns: meta.spawns,
+      /** ★ 出生點多帶一個**城牆段**（1–3）—— 地圖上那一眼要回答的是
+          「我打得下來嗎」，而那是城牆的事，不是主堡的事 */
+      spawns: spawns.map((s) => ({ ...s, wallTier: wallTiers.get(`${s.x},${s.y}`) ?? 1 })),
       battles,
+      /** ★ 交戰動畫的下架時刻要跟伺服器的鐘比，不信任客戶端時鐘的絕對值 */
+      serverTime,
     },
     {
       headers: {
-        // 地形檔本身走長期快取；這份中繼資料會隨賽季換人，只快取一分鐘
+        /**
+         * 地形檔本身走長期快取；這份中繼資料會隨賽季換人，只快取一分鐘。
+         *
+         * ★ 交戰與城牆會在這一分鐘裡變舊 —— 那是刻意的分工：
+         *   會變的那一份由 `/api/map/battles` 十幾秒輪詢一次（不快取），
+         *   開圖這一次只要有個起點。快取整份總覽換得的是 CDN 命中，
+         *   而總覽裡最貴的是地形中繼資料，不是烽火。
+         */
         "Cache-Control": "public, max-age=60, stale-while-revalidate=600",
       },
     },
