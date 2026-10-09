@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { BlockComplete } from "@/components/BlockComplete";
 import { BlockLive } from "@/components/BlockLive";
+import { glass } from "@/components/hud";
 import { paymentProvider } from "@/lib/payments/registry";
 import { getBlockPage } from "@/lib/server/block-page";
 import { blockShortLabel, parseBlockKey } from "@/lib/world/grid";
@@ -29,9 +30,11 @@ export default async function BlockPage({ params }: { params: Promise<{ key: str
   } catch (e) {
     console.error("[b/key]", e);
     return (
-      <main className="mx-auto max-w-md p-6 text-center">
-        <p className="text-alarm">資料庫無法使用</p>
-        <p className="text-ash mt-2 text-sm">執行 pnpm db:migrate 建立資料表（預設是本機的 ./data/ruincity.db）。</p>
+      <main className="mx-auto w-full max-w-md p-6">
+        <div className={`${glass} p-5 text-center`}>
+          <p className="text-rose-200">資料庫無法使用</p>
+          <p className="mt-2 text-sm text-white/65">執行 pnpm db:migrate 建立資料表（預設是本機的 ./data/ruincity.db）。</p>
+        </div>
       </main>
     );
   }

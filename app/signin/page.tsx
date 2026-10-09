@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth, signIn } from "@/auth";
+import { IconArrowLeft, alarm, cta, field, ghost, glass, label } from "@/components/hud";
 import { hasEmailProvider, hasGoogleProvider, usesDevMailbox } from "@/lib/env";
 
 export const metadata = { title: "登入" };
@@ -41,18 +42,20 @@ export default async function SignInPage({
   const errorText = code ? (ERROR_TEXT[code] ?? ERROR_TEXT.Default!) : null;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-8 px-6 py-16">
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4 px-4 py-10">
+      <div className={`${glass} flex flex-col gap-6 p-6`}>
       <div className="flex flex-col gap-2">
-        <h1 className="text-parchment text-2xl font-bold">登入 RuinCity</h1>
-        <p className="text-ash text-sm leading-relaxed">
+        <div className={label}>RuinCity · 千年之後</div>
+        <h1 className="text-2xl font-semibold text-white">登入</h1>
+        <p className="text-sm leading-relaxed text-white/65">
           捐款需要一個能寄收據、能讓你之後改票的身分，所以我們不做訪客捐款。
         </p>
       </div>
 
       {errorText ? (
-        <p className="border-alarm text-alarm rounded border p-4 text-sm leading-relaxed">
+        <p className={`${alarm} leading-relaxed`}>
           {errorText}
-          <span className="text-ash-deep mt-2 block font-mono text-xs">error={code}</span>
+          <span className="mt-2 block font-mono text-xs text-rose-200/60">error={code}</span>
         </p>
       ) : null}
 
@@ -66,7 +69,7 @@ export default async function SignInPage({
           >
             <button
               type="submit"
-              className="border-ink-mid text-parchment hover:border-rust hover:text-rust w-full rounded border px-5 py-3 transition-colors"
+              className={`${ghost} w-full py-3`}
             >
               使用 Google 登入
             </button>
@@ -89,36 +92,37 @@ export default async function SignInPage({
               type="email"
               required
               placeholder="you@example.com"
-              className="border-ink-mid bg-ink-soft text-parchment placeholder:text-ink-mid focus:border-rust rounded border px-4 py-3 outline-none"
+              className={`${field} px-4 py-3`}
             />
             <button
               type="submit"
-              className="border-ink-mid text-parchment hover:border-rust hover:text-rust w-full rounded border px-5 py-3 transition-colors"
+              className={`${cta} w-full py-3`}
             >
               {devMailbox ? "產生登入連結" : "寄送登入連結"}
             </button>
             {devMailbox ? (
-              <p className="text-ash-deep text-xs leading-relaxed">
-                目前沒有設定 SMTP，連結會<b>印在跑 <code>pnpm dev</code> 的終端機上</b>
-                ，不會真的寄出。要寄真的信就填 <code>EMAIL_SERVER</code> 與{" "}
-                <code>EMAIL_FROM</code>。
+              <p className="text-xs leading-relaxed text-white/50">
+                目前沒有設定 SMTP，連結會<b>印在跑 <code className="text-sky-100">pnpm dev</code> 的終端機上</b>
+                ，不會真的寄出。要寄真的信就填 <code className="text-sky-100">EMAIL_SERVER</code> 與{" "}
+                <code className="text-sky-100">EMAIL_FROM</code>。
               </p>
             ) : null}
           </form>
         ) : null}
 
         {!google && !email ? (
-          <p className="border-alarm text-alarm rounded border border-dashed p-4 text-sm leading-relaxed">
-            尚未設定任何登入方式。填入 <code>AUTH_GOOGLE_ID</code> 或{" "}
-            <code>EMAIL_SERVER</code>。
+          <p className={`${alarm} leading-relaxed`}>
+            尚未設定任何登入方式。填入 <code className="text-sky-100">AUTH_GOOGLE_ID</code> 或{" "}
+            <code className="text-sky-100">EMAIL_SERVER</code>。
             （開發模式下會自動提供「把連結印在終端機」的登入方式，
             這裡看到這段訊息代表現在跑的是 production build。）
           </p>
         ) : null}
       </div>
 
-      <Link href="/" className="text-ash-deep hover:text-ash text-center text-sm">
-        ← 回首頁
+      </div>
+      <Link href="/" className="inline-flex items-center justify-center gap-1 text-sm text-white/55 transition hover:text-white">
+        <IconArrowLeft /> 回首頁
       </Link>
     </main>
   );

@@ -131,7 +131,7 @@ export function WorldMap({ styleUrl, twdPerUsd }: { styleUrl: string; twdPerUsd:
         id: "grid-line",
         type: "line",
         source: "grid",
-        paint: { "line-color": "#ece3cf", "line-opacity": 0.22, "line-width": 1 },
+        paint: { "line-color": "#ffffff", "line-opacity": 0.18, "line-width": 1 },
       });
       map.addLayer({
         id: "origin-line",

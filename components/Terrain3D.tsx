@@ -44,7 +44,7 @@ export function Terrain3D({
 
   return (
     <div className="relative h-[24rem] w-full overflow-hidden rounded" ref={host}>
-      {error ? <p className="text-alarm absolute inset-x-0 top-2 text-center text-sm">{error}</p> : null}
+      {error ? <p className="text-rose-200 absolute inset-x-0 top-2 text-center text-sm">{error}</p> : null}
     </div>
   );
 }

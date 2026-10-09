@@ -1,41 +1,36 @@
 @import "tailwindcss";
 
 /**
- * 色票：廢土與植被。強調色只有兩個 ——
- * 苔綠（已完成、可以進入的地方）與鏽橘（施工中、需要捐款的地方）。
+ * 色票：與開場畫面同一套毛玻璃 HUD（元件在 components/hud.tsx）。
+ * 底色是深夜藍，卡片是半透明的白；強調色用 Tailwind 內建的
+ * sky（主要動作、原點）、amber（施工中）、emerald（已完成）、rose（錯誤）。
  */
-@theme {
-  --color-ink: #141311;
-  --color-ink-soft: #1f1d1a;
-  --color-ink-mid: #3a3631;
-  --color-ash: #a39d92;
-  --color-ash-deep: #6f6a62;
-  --color-parchment: #ece3cf;
-  --color-moss: #7f9a5a;
-  --color-moss-deep: #4c6236;
-  --color-rust: #c8794a;
-  --color-rust-deep: #7c4528;
-  --color-water: #4f7a8c;
-  --color-alarm: #d1553c;
-}
-
 :root {
   color-scheme: dark;
 }
 
 html,
 body {
-  background: var(--color-ink);
-  color: var(--color-parchment);
+  background-color: #0b1420;
+  color: #e8eef5;
+}
+
+/* 頁面底：上方一抹天光、右下一點森林色 —— 毛玻璃才有東西可以透 */
+body {
+  background-image:
+    radial-gradient(60% 45% at 12% 0%, rgb(56 189 248 / 0.12), transparent 70%),
+    radial-gradient(45% 40% at 100% 100%, rgb(52 211 153 / 0.08), transparent 70%),
+    linear-gradient(180deg, #0d1a2b 0%, #0b1420 55%, #0a121c 100%);
+  background-attachment: fixed;
 }
 
 /* MapLibre 的版權列在深色底上要看得到 */
 .maplibregl-ctrl-attrib {
-  background: rgb(20 19 17 / 0.75) !important;
-  color: var(--color-ash) !important;
+  background: rgb(2 6 23 / 0.6) !important;
+  color: rgb(255 255 255 / 0.6) !important;
 }
 .maplibregl-ctrl-attrib a {
-  color: var(--color-parchment) !important;
+  color: rgb(255 255 255 / 0.85) !important;
 }
 
 /*

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#141311",
+  themeColor: "#0b1420",
   width: "device-width",
   initialScale: 1,
 };
@@ -33,28 +33,28 @@ export default async function RootLayout({ children }: { children: React.ReactNo
          *   正式環境誤開了，這條橫幅是第一個也是最明顯的警告。
          */}
         {demoPay || fake ? (
-          <div data-testid="demo-banner" className="bg-rust-deep text-parchment px-3 py-1.5 text-center text-xs">
+          <div data-testid="demo-banner" className="border-b border-amber-300/20 bg-amber-500/15 px-3 py-1.5 text-center text-xs text-amber-100">
             示範模式：
             {demoPay ? "捐款不會實際收款" : null}
             {demoPay && fake ? "，" : null}
             {fake ? "畫面由示範畫師產生，未呼叫任何 AI" : null}
           </div>
         ) : null}
-        <header className="border-ink-mid flex shrink-0 items-center gap-4 border-b px-4 py-2.5 text-sm">
-          <Link href="/" className="font-bold tracking-wide">
-            RuinCity <span className="text-ash font-normal">千年之後</span>
+        <header className="sticky top-0 z-30 flex shrink-0 items-center gap-4 border-b border-white/10 bg-slate-950/50 px-4 py-2.5 text-sm backdrop-blur-md">
+          <Link href="/" className="font-semibold tracking-wide text-white">
+            RuinCity <span className="font-normal text-white/60">千年之後</span>
           </Link>
-          <Link href="/world" className="text-ash hover:text-parchment">
+          <Link href="/world" className="text-white/70 transition hover:text-white">
             世界地圖
           </Link>
-          <Link href="/about" className="text-ash hover:text-parchment">
+          <Link href="/about" className="text-white/70 transition hover:text-white">
             怎麼運作
           </Link>
           <span className="flex-1" />
           {session?.user ? (
-            <span className="text-ash max-w-40 truncate text-xs">{session.user.email}</span>
+            <span className="max-w-40 truncate text-xs text-white/60">{session.user.email}</span>
           ) : (
-            <Link href="/signin" className="text-rust hover:underline">
+            <Link href="/signin" className="rounded-full border border-sky-200/40 px-3 py-1 text-sky-100 transition hover:border-sky-100 hover:text-white">
               登入
             </Link>
           )}

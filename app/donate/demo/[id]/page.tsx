@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/auth";
+import { IconArrowLeft, cta, ghost, glass, label, link } from "@/components/hud";
 import { schema } from "@/lib/db";
 import { withTransaction } from "@/lib/db/tx";
 import { demoPayments, demoSignature } from "@/lib/payments/demo";
@@ -60,34 +61,37 @@ export default async function DemoCheckout({ params }: { params: Promise<{ id: s
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-12">
-      <h1 className="text-xl font-bold">示範付款</h1>
-      <p className="text-ash text-sm leading-relaxed">
-        這是示範金流，<b className="text-parchment">不會實際收款</b>。按下「付款成功」會照真實流程入帳、拆帳，
-        並立刻開始施工。
-      </p>
-      <dl className="border-ink-mid grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded border p-4 text-sm">
-        <dt className="text-ash">區塊</dt>
-        <dd>{d.key}</dd>
-        <dt className="text-ash">金額</dt>
-        <dd>NT${d.amountTwd.toLocaleString("en-US")}</dd>
-        <dt className="text-ash">狀態</dt>
-        <dd>{d.status}</dd>
-      </dl>
-      {d.status === "PENDING" ? (
-        <form action={settle} className="flex gap-2">
-          <button name="outcome" value="paid" data-testid="demo-pay" className="bg-rust text-ink flex-1 rounded px-4 py-2.5 font-bold">
-            付款成功
-          </button>
-          <button name="outcome" value="fail" className="border-ink-mid text-ash rounded border px-4 py-2.5">
-            付款失敗
-          </button>
-        </form>
-      ) : (
-        <a href={`/b/${d.key}`} className="text-rust underline">
-          回到區塊
-        </a>
-      )}
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-10">
+      <div className={`${glass} flex flex-col gap-4 p-6`}>
+        <div className={label}>示範金流</div>
+        <h1 className="text-2xl font-semibold text-white">示範付款</h1>
+        <p className="text-sm leading-relaxed text-white/65">
+          這是示範金流，<b className="text-white">不會實際收款</b>。按下「付款成功」會照真實流程入帳、拆帳，
+          並立刻開始施工。
+        </p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-xl border border-white/10 bg-slate-950/30 p-4 text-sm text-white">
+          <dt className="text-white/55">區塊</dt>
+          <dd>{d.key}</dd>
+          <dt className="text-white/55">金額</dt>
+          <dd className="tabular-nums">NT${d.amountTwd.toLocaleString("en-US")}</dd>
+          <dt className="text-white/55">狀態</dt>
+          <dd>{d.status}</dd>
+        </dl>
+        {d.status === "PENDING" ? (
+          <form action={settle} className="flex gap-2">
+            <button name="outcome" value="paid" data-testid="demo-pay" className={`${cta} flex-1`}>
+              付款成功
+            </button>
+            <button name="outcome" value="fail" className={ghost}>
+              付款失敗
+            </button>
+          </form>
+        ) : (
+          <a href={`/b/${d.key}`} className={`${link} inline-flex items-center gap-1 text-sm`}>
+            <IconArrowLeft /> 回到區塊
+          </a>
+        )}
+      </div>
     </main>
   );
 }
