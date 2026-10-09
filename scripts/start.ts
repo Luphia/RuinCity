@@ -28,6 +28,8 @@ import { createInterface } from "node:readline";
 
 import { DEFAULT_DATABASE_URL } from "../lib/db/url";
 
+import { ensureSecretsForRun } from "./local-env";
+
 /** 這個專案的預設埠。與 `package.json` 的 dev／start:web 是同一個號碼 */
 const DEFAULT_PORT = 5000;
 
@@ -104,6 +106,10 @@ async function main() {
     }
     process.exit(1);
   }
+
+  // ── 1c. 密鑰 ─────────────────────────────────────────────
+  // AUTH_SECRET、CRON_SECRET 缺了就隨機產生並寫進 .env.local（已有就沿用）
+  ensureSecretsForRun(log);
 
   // ── 2. migration ─────────────────────────────────────────
   if (!process.env.DATABASE_URL) log(`沒有設定 DATABASE_URL —— 使用本機 SQLite：${DEFAULT_DATABASE_URL}`);

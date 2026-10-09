@@ -14,7 +14,8 @@
 
 ```bash
 pnpm install
-pnpm run initial                # 產生 .env.local（隨機密鑰）並建立本機 SQLite 資料庫；--demo 打開示範模式
+pnpm run initial                # 產生 .env.local（AUTH_SECRET、CRON_SECRET 隨機產生）並建立本機 SQLite 資料庫；--demo 打開示範模式
+                                # （忘了跑也沒關係：pnpm dev／pnpm start 發現密鑰缺了會自動隨機產生）
 pnpm dev                        # http://localhost:5000
 pnpm worker                     # 另一個終端機：施工排程（每 10 秒一輪）
 ```

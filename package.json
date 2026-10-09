@@ -5,7 +5,7 @@
   "type": "module",
   "description": "臺北 101 為中心、以 1km 為單位、由玩家自備 API 金鑰繪製的「人類離開一千年後」協作地圖遊戲",
   "scripts": {
-    "dev": "next dev --port 5000",
+    "dev": "tsx --tsconfig tsconfig.scripts.json scripts/ensure-env.ts && next dev --port 5000",
     "build": "next build",
     "start": "tsx --tsconfig tsconfig.scripts.json scripts/start.ts",
     "start:web": "next start --port 5000",

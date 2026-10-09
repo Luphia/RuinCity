@@ -12,45 +12,24 @@ import "./load-env";
  * 其餘都是選填、維持註解。
  */
 
-import { randomBytes } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
 
-import { mergeExisting, parseEnv, renderFromTemplate } from "./env-file";
+import { parseEnv } from "./env-file";
+import { ensureLocalEnv } from "./local-env";
 
-const root = process.cwd();
-const target = join(root, ".env.local");
 const args = new Set(process.argv.slice(2));
 const demo = args.has("--demo");
 
-const secrets = {
-  authSecret: randomBytes(32).toString("base64"),
-  cronSecret: randomBytes(24).toString("hex"),
-};
-
-function write(text: string) {
-  writeFileSync(target, text, { mode: 0o600 });
-  chmodSync(target, 0o600); // 已存在的檔案 writeFileSync 不會改權限
-}
-
-if (!existsSync(target) || args.has("--force")) {
-  if (existsSync(target)) {
-    const backup = `${target}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    copyFileSync(target, backup);
-    console.log(`已備份舊的 .env.local → ${backup}`);
-  }
-  write(renderFromTemplate(readFileSync(join(root, ".env.example"), "utf8"), secrets, { demo }));
+const r = ensureLocalEnv({ demo, force: args.has("--force") });
+const target = r.path;
+if (r.backup) console.log(`已備份舊的 .env.local → ${r.backup}`);
+if (r.created) {
   console.log(`已產生 .env.local（AUTH_SECRET、CRON_SECRET 已填入隨機值${demo ? "，示範模式已打開" : ""}）`);
 } else {
-  const { text, changes } = mergeExisting(readFileSync(target, "utf8"), secrets, {
-    demo,
-    today: new Date().toISOString().slice(0, 10),
-  });
-  write(text);
   console.log(".env.local 已存在 —— 只補缺的，不改你填過的值：");
-  for (const c of changes) {
-    const verb = c.action === "added" ? "新增" : c.action === "commented" ? "改為註解" : "保留";
+  for (const c of r.changes) {
+    const verb = c.action === "added" ? "新增（隨機產生）" : c.action === "commented" ? "改為註解" : "保留";
     console.log(`  ${verb} ${c.key}${c.note ? `：${c.note}` : ""}`);
   }
 }

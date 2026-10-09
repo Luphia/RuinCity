@@ -81,7 +81,7 @@ pnpm splash:paint              # 畫開場圖（象山俯視 101）：需要 GEM
 | React Compiler | render 中不可呼叫 `Date.now()` 等不純函式；effect 本體裡不要同步 `setState` |
 | 失敗要看得見 | 每一個 fetch 都要有 catch，而 catch 裡要有 UI。只 `console.error` 不算 |
 | 埠 | 預設 5000（`pnpm dev`／`pnpm start` 相同）。不必設 `AUTH_URL`：`trustHost` 由請求推得網址，換埠不用改設定。E2E 用 3100 |
-| 環境變數 | 只有 `AUTH_SECRET`、`CRON_SECRET` 是必要的，`pnpm run initial` 會產生；其餘都選填。`.env.example` 是範本與說明 —— **不要在那裡重抄預算參數的預設值**（只寫在 `budget.ts`，抄一份遲早不一致） |
+| 環境變數 | 只有 `AUTH_SECRET`、`CRON_SECRET` 是必要的，一律**隨機產生**（`scripts/local-env.ts`）：`pnpm run initial`、`pnpm dev`、`pnpm start` 發現缺了就產生並寫進 `.env.local`，已有就沿用（換掉 AUTH_SECRET 會讓所有人被登出）。serverless 平台不寫檔，要設在平台的環境變數；其餘都選填。`.env.example` 是範本與說明 —— **不要在那裡重抄預算參數的預設值**（只寫在 `budget.ts`，抄一份遲早不一致） |
 | 本機登入 | 沒設 `EMAIL_SERVER` 時，開發模式會把 magic link 印在終端機上。E2E 直接在資料庫建 session |
 
 <!-- BEGIN:nextjs-agent-rules -->
