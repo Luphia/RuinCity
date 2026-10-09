@@ -19,9 +19,12 @@ import {
 import {
   COLS,
   ROWS,
+  TAIPEI_101,
+  bearingDeg,
   blockBounds,
   blockSizeM,
   distanceFromOriginM,
+  haversineM,
   mercatorFrame,
   type BlockId,
   type LatLng,
@@ -373,3 +376,58 @@ export function neighborOf(block: BlockId, dir: Direction): BlockId | null {
 }
 
 export const DIRECTIONS: readonly Direction[] = ["north", "east", "south", "west"];
+
+// ─────────────────────────────────────────────────────────────
+// 開場畫面：從象山俯視臺北 101
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 象山步道頂端（六巨石一帶）的觀景點：海拔約 180 m，是臺北最常見的 101 構圖。
+ * 從這裡到 101 約 1.4 km，方位約 302°（西北）—— 由 `bearingDeg` 算出，不寫死。
+ */
+export const XIANGSHAN_VIEWPOINT: LatLng = { lat: 25.02717, lng: 121.57636 };
+
+export function splashViewpoint(): Viewpoint {
+  return {
+    panoId: "",
+    location: XIANGSHAN_VIEWPOINT,
+    heading: Math.round(bearingDeg(XIANGSHAN_VIEWPOINT, TAIPEI_101)),
+    // 從 180 m 的山頂看 508 m 的塔：水平線略低於畫面中央，塔頂在上三分之一
+    pitch: 4,
+    fov: 60,
+    date: null,
+  };
+}
+
+/**
+ * 開場畫面的繪製工作。與區塊的場景圖用同一份正典與擬真規格，
+ * 只是相機換成「站在象山山頂、俯視整個信義區」。
+ *
+ * `withReference`：有該點的街景就附上，讓山脊、六巨石與天際線的位置對得上；
+ * 沒有（或沒有地圖金鑰）就只靠文字描述。
+ */
+export function splashJob(input: { readonly withReference: boolean; readonly referenceDate?: string | null }): PaintJob {
+  const v = splashViewpoint();
+  const distanceKm = (haversineM(XIANGSHAN_VIEWPOINT, TAIPEI_101) / 1000).toFixed(1);
+  const parts: PromptPart[] = [
+    { kind: "text", text: `${BIBLE_CANON}\n\n${BIBLE_TAIPEI_101}` },
+    { kind: "text", text: `${STYLE_PHOTO}\n${STYLE_SCENE}` },
+    {
+      kind: "text",
+      text: [
+        "TASK — the opening image of a world map: a wide landscape photograph taken from the summit of Elephant Mountain (Xiangshan) in Taipei, about 180 m above the city, 1,000 years after humanity vanished.",
+        `The camera stands at lat ${fmt(v.location.lat)}, lng ${fmt(v.location.lng)}, looking north-west (heading ${v.heading}°), slightly downhill over the Xinyi district. Taipei 101 is ${distanceKm} km away.`,
+        "Composition: weathered sandstone boulders and dense subtropical forest of the mountain ridge in the immediate foreground, lower left; below, the overgrown valley of the former Xinyi district — weathered window-less tower shells rising out of a canopy of banyan and young forest, collapsed low buildings as green mounds, old streets as straight meadow corridors with standing water; the ruined Taipei 101 dominates the frame slightly left of centre, its top in the upper third; the Taipei basin and the misty mountains on the far side fade into haze on the horizon.",
+        "Light: soft, early-morning overcast with low mist lying in the valley around the bases of the towers. Birds in the distance. No people, no lights, no text.",
+        input.withReference
+          ? `The reference photo below was taken at this spot in ${input.referenceDate ?? "recent years"}: keep its ridge line, horizon and the position of every tower, but show them 1,000 years later.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  ];
+  if (input.withReference) parts.push({ kind: "image", ref: { type: "streetview", viewpoint: 0 } });
+  parts.push({ kind: "text", text: `${STYLE_NEGATIVE}\nOutput exactly one photograph in 16:9. No text, no borders, no title.` });
+  return { kind: "SCENE", output: "image", aspect: "16:9", parts };
+}

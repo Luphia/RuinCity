@@ -41,6 +41,9 @@ import { pickFor, tallyVotes } from "./vote";
 import { START_MARGIN, blockStatus, canStartStep, formatTwd, splitDonation, toMicros } from "./ledger";
 import {
   TAIPEI_101_VISIBLE_M,
+  XIANGSHAN_VIEWPOINT,
+  splashJob,
+  splashViewpoint,
   dsmJob,
   neighborOf,
   paramsJob,
@@ -372,6 +375,22 @@ describe("繪製工作", () => {
     expect(tile).toContain("satellite image");
     expect(tex).toContain("photogrammetry");
     expect(BIBLE_VERSION).toBe("2");
+  });
+
+  it("★ 開場畫面：站在象山山頂望向 101（方位由座標算出），帶正典與擬真規格", () => {
+    const v = splashViewpoint();
+    expect(v.heading).toBe(302);
+    expect(v.location).toEqual(XIANGSHAN_VIEWPOINT);
+    const plain = splashJob({ withReference: false });
+    expect(plain.aspect).toBe("16:9");
+    expect(images(plain)).toEqual([]);
+    const text = JSON.stringify(plain);
+    for (const t of ["One Thousand Years After", "Taipei 101", "Elephant Mountain", "1.4 km", "indistinguishable from a real, unedited photograph", "concept art"]) {
+      expect(text).toContain(t);
+    }
+    const withRef = splashJob({ withReference: true, referenceDate: "2024-05" });
+    expect(images(withRef)).toEqual([{ type: "streetview", viewpoint: 0 }]);
+    expect(JSON.stringify(withRef)).toContain("2024-05");
   });
 
   it("★ 101 只在看得到的距離內被提起", () => {

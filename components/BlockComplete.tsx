@@ -143,7 +143,7 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
       ) : null}
 
       <p className="text-ash-deep text-xs">
-        <Link href="/" className="underline">
+        <Link href="/world" className="underline">
           ← 回到世界地圖
         </Link>
       </p>

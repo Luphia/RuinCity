@@ -21,7 +21,8 @@
     "check": "pnpm typecheck && pnpm lint && pnpm scene:viewer --check && pnpm test",
     "scene:viewer": "tsx scripts/build-viewer.ts",
     "scene:verify": "tsx --tsconfig tsconfig.scripts.json scripts/scene-verify.ts",
-    "scene:fixture": "tsx --tsconfig tsconfig.scripts.json scripts/scene-fixture.ts"
+    "scene:fixture": "tsx --tsconfig tsconfig.scripts.json scripts/scene-fixture.ts",
+    "splash:paint": "tsx --tsconfig tsconfig.scripts.json scripts/paint-splash.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",

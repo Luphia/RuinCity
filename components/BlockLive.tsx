@@ -120,7 +120,7 @@ export function BlockLive({ initial, signedIn, canDonate }: { initial: BlockPage
       </section>
 
       <p className="text-ash-deep text-xs">
-        <Link href="/" className="underline">
+        <Link href="/world" className="underline">
           ← 回到世界地圖
         </Link>
       </p>

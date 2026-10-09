@@ -27,6 +27,7 @@ pnpm test:e2e                  # Playwright（需要 build、Postgres、示範�
 pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是否同步
 pnpm scene:viewer              # 改完 lib/scene/standalone.* 一定要跑，CI 會檢查是否同步
 pnpm scene:verify <car|資料夾>  # 驗證並解出場景包；--gateway <Boltchain 閘道> <委託索引 CID> 直接從鏈上取回
+pnpm splash:paint              # 畫開場圖（象山俯視 101）：需要 GEMINI_API_KEY 或 OPENAI_API_KEY，產物要提交
 ```
 
 示範模式（不花錢、不連外，帳照真的算）：`FAKE_PROVIDERS=1 PAYMENTS=demo MAP_STYLE_URL=/map-style-blank.json`。
@@ -70,6 +71,7 @@ pnpm scene:verify <car|資料夾>  # 驗證並解出場景包；--gateway <Boltc
 | SwarmStorage | 委託索引的編碼與 Boltchain 的 Rust 版逐位元組相同（測試釘住向量，改編碼前先跑 Rust 對照）。一筆委託總長 ≤ 3,650 個 epoch（含 `extendDeal`）→ 四年是**接力的多筆委託**。`createDeal` 要 2 倍 gas：抽保存者用 `prevrandao`，估計值會不夠。場景包**不加密**（公開才能重建），代價見 design §7 #9 |
 | 保存費 | 參考價：容量、請求、傳輸照 **AWS S3**，委託手續費照 **Ethereum 主網 gas**（design §5.5）。不是 BOLT 行情 —— BOLT 沒有市價。出價預設是 S3 parity（`s3ParityPriceBolt`）。`SWARM_EPOCH_SECONDS` 決定要接力幾筆，手續費跟著乘 |
 | 授權 | 場景包是 **CC0 1.0**，寫在 `scene.json` 的 `license`（`SCENE_LICENSE`）與 README。改授權只影響之後完工的塊 —— 已凍結的包不改 |
+| 開場畫面 | `/` 是開場畫面，世界地圖在 `/world`。開場圖照區塊的正典與擬真規格畫（`splashJob`），沒畫之前**只有文字**，不放任何頂替的圖 |
 | Boltchain 閘道 | 匯出 CAR 只跟隨 dag-cbor 連結、不懂 UnixFS。取整包要拿**委託索引** CID，不是場景包 CID |
 | `server-only` | `lib/server`、`lib/providers` 的伺服器模組 import 了它。Node 腳本 import 會直接丟錯 —— 所以 `pnpm worker` 是打 HTTP 路由，不是直接 import 施工引擎 |
 | MapLibre | 它的 CSS 把容器設成 `position: relative`，蓋掉 class 上的 `absolute` → 畫布縮成 300px 高。容器尺寸用 inline style |

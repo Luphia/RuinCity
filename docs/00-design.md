@@ -353,7 +353,7 @@ BOLT 還沒有市價，SwarmStorage 的費用沒辦法「照實際行情」估�
 | SwarmStorage | `lib/swarm/` | 委託索引（與 Rust 版逐位元組相同）、合約計價、Boltchain 用戶端與示範用戶端 |
 | 伺服器 | `lib/server/` | 狀態推導、捐款、施工引擎、出圖閘門、長期保存（`archive.ts`）、畫面用的 view |
 | 資料庫 | `lib/db/schema.ts` | `blocks`、`donations`、`steps`、`artifacts`、`scene_files`、`scene_archives`、`scene_deals` |
-| 頁面 | `app/` | `/` 世界地圖、`/b/[key]` 區塊、`/about`、`/donate/demo/[id]` |
+| 頁面 | `app/` | `/` 開場畫面、`/world` 世界地圖、`/b/[key]` 區塊、`/about`、`/donate/demo/[id]` |
 | API | `app/api/` | 區塊查詢、捐款、改票、出圖、場景包（CAR 與瀏覽）、保存索引、金流 webhook、排程施工 |
 | 工具 | `scripts/scene-verify.ts` | 從 CAR、Boltchain 閘道或資料夾驗證並解出場景包（`pnpm scene:verify`） |
 
@@ -377,6 +377,7 @@ BOLT 還沒有市價，SwarmStorage 的費用沒辦法「照實際行情」估�
 | 每一塊透過 IPFS 保存，任何人都能重建一模一樣的場景 | §10 |
 | 儲存方案使用 Boltchain swarm storage | §10.4 |
 | 授權採用 CC0，寫進 scene.json | §10.2、§7 #10 |
+| 開場畫面：從象山俯視荒廢的 101，有「進入城市」按鈕 | §11 |
 | 儲存費用參考 Ethereum gas fee 與 AWS S3 收費 | §5.5 |
 
 ---
@@ -461,3 +462,20 @@ Boltchain 的 `storage put` 會用 bolt-vault 加密（只有委託者能解）�
   2D、3D 都畫得出來，檢視器顯示「全部 113 個檔案的 SHA-256 都與 scene.json 相符」。
 - **沒驗證到的**：抽查（devnet 一個 epoch 是 14,400 塊）、接力委託在真的鏈上換保存者、公開測試網上的報價與 gas。
 - Kubo 對同一個資料夾算出相同 CID：本機無法下載 Kubo，交給 CI 的 `scene-kubo` 工作。
+
+---
+
+## 11. 開場畫面
+
+`/` 是開場畫面：從**象山山頂**（六巨石一帶，海拔約 180 m，N25.0272° E121.5764°）往西北俯視荒廢的臺北 101，
+畫面下方是標題與「**進入城市**」按鈕，按下去到世界地圖（`/world`，視角從 101 開始）。
+
+| 決定 | 理由 |
+| --- | --- |
+| 圖由 `pnpm splash:paint` 畫，與區塊用**同一份**正典、擬真規格與畫師（`prompts.splashJob`） | 開場圖是整個世界的第一印象，它與之後每一塊的畫風必須一致；101 的樣子照地標正典（塔尖斷落、帷幕脫落） |
+| 相機朝向由座標算（`bearingDeg(象山, 101)` = 302°），距離 1.4 km | 不寫死，換觀景點時構圖跟著對 |
+| 有地圖金鑰而且山頂有街景時附上參考照 | 山脊、六巨石與每一棟塔的位置才對得上；沒有就只靠文字 |
+| 圖存成 `public/splash/xiangshan-<雜湊>.webp`，資訊寫進 `lib/splash.generated.ts`，兩者都提交 | 不依賴執行期的檔案系統（serverless 讀不到 `public/`）；內容變了網址就變，可長期快取 |
+| 直式螢幕以 `focusX`（101 在畫面中的水平位置）為中心裁切 | 手機上塔不會被切掉 |
+| **還沒畫之前只有霧色的底與文字**；示範模式拒絕畫開場圖 | 畫面必須擬真 —— 寧可沒有圖，也不放插畫或示範圖頂替 |
+| 由平台付費（約一張場景圖，Gemini 約 US$0.04），授權 CC0 | 不屬於任何一塊，不從捐款扣 |

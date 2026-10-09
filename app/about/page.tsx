@@ -116,7 +116,7 @@ export default function About() {
       </section>
 
       <p>
-        <Link href="/" className="text-rust underline">
+        <Link href="/world" className="text-rust underline">
           回到世界地圖
         </Link>
       </p>

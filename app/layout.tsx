@@ -44,6 +44,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Link href="/" className="font-bold tracking-wide">
             RuinCity <span className="text-ash font-normal">千年之後</span>
           </Link>
+          <Link href="/world" className="text-ash hover:text-parchment">
+            世界地圖
+          </Link>
           <Link href="/about" className="text-ash hover:text-parchment">
             怎麼運作
           </Link>

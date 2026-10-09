@@ -36,8 +36,17 @@ function freshKey(): string {
 }
 
 test.describe("世界地圖", () => {
-  test("地圖畫得出格線，點一下就看得到那一塊", async ({ page }) => {
+  test("開場畫面：按「進入城市」進到世界地圖", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByTestId("splash")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "RuinCity" })).toBeVisible();
+    await page.getByTestId("enter-city").click();
+    await page.waitForURL(/\/world$/);
+    await expect(page.getByTestId("world-map").locator("canvas")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("地圖畫得出格線，點一下就看得到那一塊", async ({ page }) => {
+    await page.goto("/world");
     await expect(page.getByTestId("demo-banner")).toBeVisible();
     const map = page.getByTestId("world-map");
     await expect(map.locator("canvas")).toBeVisible({ timeout: 15_000 });
