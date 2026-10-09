@@ -72,3 +72,15 @@ export function quoteRetention(sizeBytes: number, t: SwarmTerms) {
   const totalWei = chain.reduce((s, e) => s + dealCost({ sizeBytes, replicas: t.replicas, epochs: e, priceWei }).totalWei, 0n);
   return { epochs, deals: chain.length, priceWei, totalWei };
 }
+
+/** 1 GiB 是多少 GB（S3 以 10^9 計價，合約以 2^30 計價） */
+export const GB_PER_GIB = 2 ** 30 / 1e9;
+
+/**
+ * S3 parity 的出價：讓每一個副本每個 epoch 拿到的錢，等於同樣容量放在 S3 同樣時間的價格。
+ *   BOLT / GiB / epoch = 美元/GB/月 × GB/GiB × (epoch 秒數 / 一個月秒數) ÷ 美元/BOLT
+ */
+export function s3ParityPriceBolt(usdPerGbMonth: number, epochSeconds: number, boltUsd: number): number {
+  if (!(boltUsd > 0)) throw new Error("boltUsd 必須大於 0");
+  return (usdPerGbMonth * GB_PER_GIB * (epochSeconds / (30.436875 * 86_400))) / boltUsd;
+}

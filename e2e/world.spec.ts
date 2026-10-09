@@ -138,6 +138,7 @@ test.describe("一塊地圖的一生", () => {
     const sceneCid = (await page.getByTestId("scene-cid").textContent())!.trim();
     expect(sceneCid).toMatch(/^bafy/);
     await expect(page.getByTestId("archive-deals")).toContainText("3 個副本");
+    await expect(page.getByTestId("scene-license")).toContainText("CC0 1.0");
 
     // 整包下載：根就是畫面上的 CID
     const car = await request.get(`/api/blocks/${key}/scene.car`);
@@ -149,6 +150,8 @@ test.describe("一塊地圖的一生", () => {
     const viewer = await page.context().newPage();
     await viewer.goto(`/api/blocks/${key}/scene/index.html`);
     await expect(viewer.getByText(/全部 \d+ 個檔案的 SHA-256 都與 scene\.json 相符/)).toBeVisible({ timeout: 30_000 });
+    const manifest = (await (await request.get(`/api/blocks/${key}/scene/scene.json`)).json()) as { license: { id: string } };
+    expect(manifest.license.id).toBe("CC0-1.0");
     await viewer.close();
   });
 

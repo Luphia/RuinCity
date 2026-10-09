@@ -22,7 +22,7 @@
  * - **已花費金額**：實際花掉的錢（token、參考影像、手續費、稅、準備金、已撥付的保存費）
  */
 
-import { boltToWei, quoteRetention, weiToBolt, type SwarmTerms } from "@/lib/swarm/quote";
+import { dealChain, epochsFor, s3ParityPriceBolt, type SwarmTerms } from "@/lib/swarm/quote";
 import { MICROS_PER_USD, toMicros } from "./ledger";
 import {
   addKind,
@@ -54,24 +54,47 @@ export interface BudgetConfig {
   readonly chargebackRate: number;
   /** 平均每筆捐款（新台幣），只拿來估「要收幾筆」→ 每筆固定費的總額 */
   readonly avgDonationTwd: number;
-  /** 站內儲存單價（美元／GB／月）。預設 0.015 ≈ Cloudflare R2 標準儲存 */
+  /**
+   * 容量單價（美元／GB／月）。**參考 AWS S3 Standard**（us-east-1，前 50 TB：US$0.023）。
+   * 站內副本與 SwarmStorage 的每一個副本都以這個價格計 —— BOLT 還沒有市價，
+   * 「一份副本值多少」就以業界最常見的物件儲存當基準（S3 parity）
+   */
   readonly storageUsdPerGbMonth: number;
   /** 站內副本數。異地保存交給 SwarmStorage，所以站內只留 1 份 */
   readonly storageReplicas: number;
   /** SwarmStorage 副本數（1–16）：合約從開放報價的提供者中隨機抽出這麼多位分別保存 */
   readonly swarmReplicas: number;
-  /** SwarmStorage 出價（BOLT / GiB / epoch）。要 ≥ 提供者的最低報價才抽得到人 */
-  readonly swarmPriceBolt: number;
-  /** 一個 epoch 幾秒。公開測試網 PoS 階段 600 塊 × 6 秒 = 3,600 */
+  /**
+   * 一個 epoch 幾秒。Boltchain 主網約一天（3,650 個 epoch ≈ 10 年）→ 四年一筆委託就夠；
+   * 公開測試網 PoS 階段 600 塊 × 6 秒 = 3,600 → 四年要接力 10 筆，手續費跟著 ×10
+   */
   readonly swarmEpochSeconds: number;
-  /** BOLT 兌美元（假設值：測試網的 BOLT 沒有市價） */
+  /**
+   * SwarmStorage 出價（BOLT / GiB / epoch）。0 = 由 S3 parity 換算：
+   * `容量單價 × GiB/GB × epoch 長度 / 一個月 ÷ boltUsd`。要 ≥ 提供者的最低報價才抽得到人
+   */
+  readonly swarmPriceBolt: number;
+  /** BOLT 兌美元。**只用來把 S3 parity 換成 BOLT 出價**（假設值：BOLT 還沒有市價） */
   readonly boltUsd: number;
-  /** 每一筆委託的手續費（gas，BOLT）。四年在測試網要接力約 10 筆 */
-  readonly boltGasPerDeal: number;
+  /**
+   * 一筆保存委託（`createDeal`）用多少 gas。本機 Boltchain devnet 實測 3 個副本 578k–604k，
+   * 抽保存者的重抽次數不固定，取 650k
+   */
+  readonly gasPerDeal: number;
+  /** gas 單價（gwei）。**參考 Ethereum 主網**（Etherscan，2026-10-07～08：平均 1.3–1.9 gwei） */
+  readonly gasPriceGwei: number;
+  /** ETH 兌美元（2026-10-09 約 2,440–2,550） */
+  readonly ethUsd: number;
   /** 保存月數：4 年 */
   readonly retentionMonths: number;
-  /** 傳輸單價（美元／GB）。R2 出口免費，留一點給 CDN 與請求次數費 */
+  /** 傳輸單價（美元／GB）。參考 AWS S3 對外傳輸（前 10 TB：US$0.09） */
   readonly egressUsdPerGb: number;
+  /** 寫入請求（美元／千次）。參考 S3 PUT：US$0.005 */
+  readonly putUsdPer1000: number;
+  /** 讀取請求（美元／千次）。參考 S3 GET：US$0.0004 */
+  readonly getUsdPer1000: number;
+  /** 一次瀏覽平均幾個讀取請求（底圖、高度圖、縮圖、幾張場景與材質） */
+  readonly getsPerView: number;
   /** 四年內預估被瀏覽幾次（每次載入底圖、3D、材質與部分場景圖） */
   readonly expectedViews: number;
   /** 一次瀏覽平均載入多少 MB */
@@ -93,15 +116,20 @@ export const DEFAULT_BUDGET_CONFIG: BudgetConfig = {
   taxRate: 0.05,
   chargebackRate: 0.01,
   avgDonationTwd: 300,
-  storageUsdPerGbMonth: 0.015,
+  storageUsdPerGbMonth: 0.023,
   storageReplicas: 1,
   swarmReplicas: 3,
-  swarmPriceBolt: 0.01,
-  swarmEpochSeconds: 3_600,
+  swarmEpochSeconds: 86_400,
+  swarmPriceBolt: 0,
   boltUsd: 0.005,
-  boltGasPerDeal: 0.01,
+  gasPerDeal: 650_000,
+  gasPriceGwei: 1.5,
+  ethUsd: 2_500,
   retentionMonths: 48,
-  egressUsdPerGb: 0.01,
+  egressUsdPerGb: 0.09,
+  putUsdPer1000: 0.005,
+  getUsdPer1000: 0.0004,
+  getsPerView: 30,
   expectedViews: 2000,
   viewPayloadMb: 5,
   computeUsdPerBlock: 0.25,
@@ -244,50 +272,70 @@ export function grossUp(netMicros: number, config: BudgetConfig): { gross: numbe
   return { gross: Math.ceil(gross), donations: n };
 }
 
+function usd(micros: number): string {
+  return `US$${(micros / MICROS_PER_USD).toFixed(micros < 10_000 ? 4 : 2)}`;
+}
+
 /** SwarmStorage 的保存條件（從預算參數換算） */
 export function swarmTerms(config: BudgetConfig): SwarmTerms {
+  const priceBolt =
+    config.swarmPriceBolt > 0
+      ? config.swarmPriceBolt
+      : s3ParityPriceBolt(config.storageUsdPerGbMonth, config.swarmEpochSeconds, config.boltUsd);
   return {
     replicas: Math.min(16, Math.max(1, Math.round(config.swarmReplicas))),
-    priceBolt: config.swarmPriceBolt.toFixed(18),
+    priceBolt: priceBolt.toFixed(18),
     epochSeconds: config.swarmEpochSeconds,
     months: config.retentionMonths,
-    renewLeadEpochs: 24,
+    renewLeadEpochs: Math.max(1, Math.ceil(86_400 / config.swarmEpochSeconds)),
   };
 }
 
 /**
- * 四年保存費 = 站內副本 + Boltchain SwarmStorage + 瀏覽傳輸。
+ * 四年保存費，每一項都有一個公開的參考價：
  *
- * SwarmStorage 的部分照合約的算式（`lib/swarm/quote.ts`），以 BOLT 計，再用 `boltUsd` 換成美元；
- * 四年要接力幾筆委託，每筆另計 gas。
+ *   容量   =（站內 + SwarmStorage 副本）× GB × 月數 × S3 Standard 單價
+ *   請求   = 寫入每個檔案一次（S3 PUT）+ 每次瀏覽的讀取（S3 GET）
+ *   傳輸   = 瀏覽次數 × 每次 MB × S3 對外傳輸單價
+ *   手續費 = 委託筆數 × 每筆 gas × Ethereum 主網 gas 單價 × ETH 匯率
+ *
+ * 委託筆數由 epoch 長度決定（一筆最多 3,650 個 epoch，`lib/swarm/quote.ts`）。
  */
 export function storageMicros(artifactCounts: Record<PaidStepKind, number>, config: BudgetConfig): {
   micros: number;
   bytes: number;
-  siteMicros: number;
-  swarmMicros: number;
-  swarmBolt: string;
-  swarmDeals: number;
-  swarmEpochs: number;
+  capacityMicros: number;
+  requestMicros: number;
+  egressMicros: number;
+  gasMicros: number;
+  copies: number;
+  deals: number;
+  epochs: number;
 } {
   let bytes = METADATA_BYTES;
-  for (const k of PAID_STEP_KINDS) bytes += ARTIFACT_BYTES[k] * artifactCounts[k];
-  const gb = bytes / 1e9;
-  const storeUsd = gb * config.storageReplicas * config.storageUsdPerGbMonth * config.retentionMonths;
+  let files = 4; // scene.json、index.html、viewer.js、README.txt
+  for (const k of PAID_STEP_KINDS) {
+    bytes += ARTIFACT_BYTES[k] * artifactCounts[k];
+    if (k !== "PARAMS") files += artifactCounts[k];
+  }
+  const terms = swarmTerms(config);
+  const copies = config.storageReplicas + terms.replicas;
+  const capacityUsd = (bytes / 1e9) * copies * config.storageUsdPerGbMonth * config.retentionMonths;
+  const requestUsd =
+    (files * copies * config.putUsdPer1000 + config.expectedViews * config.getsPerView * config.getUsdPer1000) / 1000;
   const egressUsd = (config.expectedViews * config.viewPayloadMb * 1e6 * config.egressUsdPerGb) / 1e9;
-  const q = quoteRetention(bytes, swarmTerms(config));
-  const swarmWei = q.totalWei + boltToWei(config.boltGasPerDeal.toFixed(18)) * BigInt(q.deals);
-  const swarmUsd = (Number(swarmWei) / 1e18) * config.boltUsd;
-  const siteMicros = Math.ceil((storeUsd + egressUsd) * MICROS_PER_USD);
-  const swarmMicros = Math.ceil(swarmUsd * MICROS_PER_USD);
+  const epochs = epochsFor(config.retentionMonths, config.swarmEpochSeconds);
+  const deals = dealChain(epochs).length;
+  const gasUsd = deals * config.gasPerDeal * config.gasPriceGwei * 1e-9 * config.ethUsd;
+  const m = (usd: number) => Math.ceil(usd * MICROS_PER_USD);
+  const parts = { capacityMicros: m(capacityUsd), requestMicros: m(requestUsd), egressMicros: m(egressUsd), gasMicros: m(gasUsd) };
   return {
-    micros: siteMicros + swarmMicros,
+    micros: parts.capacityMicros + parts.requestMicros + parts.egressMicros + parts.gasMicros,
     bytes,
-    siteMicros,
-    swarmMicros,
-    swarmBolt: weiToBolt(swarmWei, 4),
-    swarmDeals: q.deals,
-    swarmEpochs: q.epochs,
+    ...parts,
+    copies,
+    deals,
+    epochs,
   };
 }
 
@@ -378,7 +426,13 @@ export function buildBudget(input: BudgetInput): Budget {
     key: "operations.storage",
     group: "operations",
     label: `地圖資料 ${config.retentionMonths / 12} 年保存`,
-    basis: `約 ${(storage.bytes / 1e6).toFixed(1)} MB。Boltchain SwarmStorage：${swarmTerms(config).replicas} 個副本 × ${storage.swarmEpochs.toLocaleString("en-US")} 個 epoch（${storage.swarmDeals} 筆接力委託）× ${config.swarmPriceBolt} BOLT/GiB‧epoch，共約 ${storage.swarmBolt} BOLT（含手續費）× US$${config.boltUsd}/BOLT；站內 ${config.storageReplicas} 份 × US$${config.storageUsdPerGbMonth}/GB‧月，加上 ${config.expectedViews.toLocaleString("en-US")} 次瀏覽的傳輸費。完成時一次撥入保存基金`,
+    basis: [
+      `約 ${(storage.bytes / 1e6).toFixed(1)} MB × ${storage.copies} 份（站內 ${config.storageReplicas} + Boltchain SwarmStorage ${swarmTerms(config).replicas}）× ${config.retentionMonths} 個月 × US$${config.storageUsdPerGbMonth}/GB‧月（參考 AWS S3 Standard）= ${usd(storage.capacityMicros)}`,
+      `請求：寫入 S3 PUT US$${config.putUsdPer1000}/千次、${config.expectedViews.toLocaleString("en-US")} 次瀏覽 × ${config.getsPerView} 次讀取 × S3 GET US$${config.getUsdPer1000}/千次 = ${usd(storage.requestMicros)}`,
+      `傳輸：${config.expectedViews.toLocaleString("en-US")} 次瀏覽 × ${config.viewPayloadMb} MB × US$${config.egressUsdPerGb}/GB（參考 S3 對外傳輸）= ${usd(storage.egressMicros)}`,
+      `保存委託手續費：${storage.deals} 筆（${storage.epochs.toLocaleString("en-US")} 個 epoch）× ${(config.gasPerDeal / 1000).toFixed(0)}k gas × ${config.gasPriceGwei} gwei（參考 Ethereum 主網）× US$${config.ethUsd.toLocaleString("en-US")}/ETH = ${usd(storage.gasMicros)}`,
+      "完成時一次撥入保存基金",
+    ].join("；"),
     tokensProjected: 0,
     tokensActual: 0,
     microsProjected: input.allocated?.storageMicros ?? storage.micros,

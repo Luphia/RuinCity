@@ -112,12 +112,25 @@ describe("預算書", () => {
     expect(() => grossUp(1, { ...cfg, taxRate: 0.99 })).toThrow();
   });
 
-  it("四年保存：100 張場景約 30 MB，兩份副本 48 個月仍不到一美元", () => {
-    const { micros, bytes } = storageMicros({ PARAMS: 1, SCENE: 100, TILE: 1, DSM: 1, TEXTURE: 8 }, cfg);
-    expect(bytes).toBeGreaterThan(30e6);
-    expect(bytes).toBeLessThan(40e6);
-    expect(micros).toBeGreaterThan(0);
-    expect(micros).toBeLessThan(1_000_000);
+  it("★ 四年保存：容量照 AWS S3、委託手續費照 Ethereum gas，每一項都算得出來", () => {
+    const s = storageMicros({ PARAMS: 1, SCENE: 100, TILE: 1, DSM: 1, TEXTURE: 8 }, cfg);
+    expect(s.bytes).toBeGreaterThan(30e6);
+    expect(s.bytes).toBeLessThan(40e6);
+    expect(s.copies).toBe(4); // 站內 1 + SwarmStorage 3
+    // 容量：GB × 4 份 × 48 個月 × US$0.023
+    expect(s.capacityMicros).toBe(Math.ceil((s.bytes / 1e9) * 4 * 48 * 0.023 * 1e6));
+    // 傳輸：2,000 次 × 5 MB × US$0.09/GB = US$0.90
+    expect(s.egressMicros).toBe(900_000);
+    // 主網一個 epoch 約一天：四年 1,461 個 epoch，一筆委託
+    expect(s.epochs).toBe(1461);
+    expect(s.deals).toBe(1);
+    // 650k gas × 1.5 gwei × US$2,500 = US$2.4375
+    expect(s.gasMicros).toBe(2_437_500);
+    expect(s.micros).toBe(s.capacityMicros + s.requestMicros + s.egressMicros + s.gasMicros);
+    // 測試網一個 epoch 1 小時：要接力 10 筆，手續費 ×10
+    const testnet = storageMicros({ PARAMS: 1, SCENE: 100, TILE: 1, DSM: 1, TEXTURE: 8 }, { ...cfg, swarmEpochSeconds: 3_600 });
+    expect(testnet.deals).toBe(10);
+    expect(testnet.gasMicros).toBe(24_375_000);
   });
 
   it("★ 預備只對還沒做的提列；做完時預備歸零", () => {

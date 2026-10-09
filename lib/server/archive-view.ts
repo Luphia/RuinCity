@@ -4,7 +4,7 @@
 
 import "server-only";
 
-import { RENDER_V1, type RenderSpec } from "@/lib/scene/format";
+import { RENDER_V1, type RenderSpec, type SceneLicense } from "@/lib/scene/format";
 import { KUBO_ADD_FLAGS } from "@/lib/ipfs/pack";
 import { weiToBolt } from "@/lib/swarm/quote";
 
@@ -41,6 +41,8 @@ export interface ArchiveView {
   /** 從 Boltchain 閘道取回（委託索引的 CAR 含整包） */
   readonly gatewayCarUrls: readonly string[];
   readonly kuboCommand: string;
+  /** 寫在場景包 scene.json 裡的授權（CC0） */
+  readonly license: SceneLicense | null;
 }
 
 const STATUS_TEXT: Record<ArchiveView["status"], string> = {
@@ -49,7 +51,12 @@ const STATUS_TEXT: Record<ArchiveView["status"], string> = {
   DONE: "保存期滿",
 };
 
-export function toArchiveView(key: string, info: ArchiveInfo | null, gateways: readonly string[]): ArchiveView | null {
+export function toArchiveView(
+  key: string,
+  info: ArchiveInfo | null,
+  gateways: readonly string[],
+  license: SceneLicense | null,
+): ArchiveView | null {
   if (!info) return null;
   const { archive: a, deals } = info;
   const live = deals.filter((d) => d.status !== "FAILED");
@@ -81,6 +88,7 @@ export function toArchiveView(key: string, info: ArchiveInfo | null, gateways: r
     browseUrl: `/api/blocks/${key}/scene/index.html`,
     gatewayCarUrls: gateways.map((g) => `${g}/ipfs/${a.dealIndexCid}?format=car`),
     kuboCommand: `ipfs add -r --only-hash ${KUBO_ADD_FLAGS} <資料夾>`,
+    license,
   };
 }
 

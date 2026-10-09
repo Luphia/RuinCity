@@ -80,8 +80,9 @@ export default function About() {
           <li>參考影像費：Google 街景與地圖靜態圖的每次請求費</li>
           <li>失敗重試準備 {pct(c.retryReserveRate)}、匯率與價格波動緩衝 {pct(c.volatilityRate)}：只對還沒做的步驟提列，沒用完列為結餘</li>
           <li>
-            地圖資料 {c.retentionMonths / 12} 年保存：Boltchain SwarmStorage {c.swarmReplicas} 個副本（以 BOLT 支付），加上站內{" "}
-            {c.storageReplicas} 份與瀏覽傳輸費，完工時一次撥入保存基金
+            地圖資料 {c.retentionMonths / 12} 年保存：Boltchain SwarmStorage {c.swarmReplicas} 個副本加站內 {c.storageReplicas}{" "}
+            份。容量、讀寫與傳輸以 AWS S3 的收費為參考（US${c.storageUsdPerGbMonth}/GB‧月），保存委託的手續費以 Ethereum
+            主網的 gas 為參考（{c.gasPriceGwei} gwei × US${c.ethUsd.toLocaleString("en-US")}/ETH）。完工時一次撥入保存基金
           </li>
           <li>伺服器運算與資料庫分攤：每塊 US${c.computeUsdPerBlock}</li>
           <li>平台管理費：{c.platformFeeRate > 0 ? pct(c.platformFeeRate) : "0%（不抽成）"}</li>
@@ -104,6 +105,13 @@ export default function About() {
         </p>
         <p className="text-ash">
           AI 繪製無法重現（同一個提示詞畫兩次是兩張圖），所以重建用的是當初畫出來的成品，而不是重畫一次。
+        </p>
+        <p className="text-ash">
+          每一包都以{" "}
+          <a href="https://creativecommons.org/publicdomain/zero/1.0/" className="text-rust underline" rel="license">
+            CC0 1.0
+          </a>{" "}
+          釋出（寫在包裡的 scene.json）：任何人都可以複製、修改、散布與商業使用，不需要徵求同意。
         </p>
       </section>
 

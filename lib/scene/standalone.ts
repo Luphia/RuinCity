@@ -175,6 +175,9 @@ function render(app: HTMLElement, m: SceneManifest) {
     h(
       "footer",
       { class: "deep" },
+      m.license
+        ? h("p", {}, "授權：", h("a", { href: m.license.url, text: m.license.name, rel: "license" }), "。任何人都可以複製、修改、散布與商業使用，不需要徵求同意。")
+        : null,
       h("p", {}, "這個資料夾是完整的場景包：圖、座標、渲染規格與檢視器都在裡面，不需要原本的網站。細節見 ", h("a", { href: MANIFEST_PATH, text: "scene.json" }), " 與 ", h("a", { href: "README.txt", text: "README.txt" }), "。"),
     ),
     ),

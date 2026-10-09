@@ -19,7 +19,8 @@ import { runBlock, type BuilderDeps } from "./builder";
 import { attachProcessorRef, confirmDonation, createDonation } from "./donations";
 import { createHarness, seedUser, type Harness } from "./testing/pg-harness";
 
-const cfg = DEFAULT_BUDGET_CONFIG;
+// 測試網的 epoch（1 小時）：四年要接力多筆委託，才測得到接力
+const cfg = { ...DEFAULT_BUDGET_CONFIG, swarmEpochSeconds: 3_600 };
 const stateDeps: StateDeps = { enabled: [...PROVIDER_ORDER], fallback: "google", config: cfg };
 const KEY = "24.10_120.60";
 

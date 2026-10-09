@@ -15,6 +15,7 @@ import {
   README_PATH,
   RENDER_V1,
   SCENE_FORMAT,
+  SCENE_LICENSE,
   VIEWER_HTML_PATH,
   VIEWER_JS_PATH,
   artifactPath,
@@ -106,6 +107,7 @@ export async function buildExtras(input: BundleInput): Promise<{ extras: BundleF
   const manifest: SceneManifest = {
     format: SCENE_FORMAT,
     title,
+    license: SCENE_LICENSE,
     world: {
       name: "RuinCity · 千年之後",
       grid: "0.01° × 0.01° latitude/longitude blocks",

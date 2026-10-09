@@ -27,7 +27,15 @@ import type { Hex } from "viem";
 import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import { packBundle, unpackBundle, type PackedBundle } from "@/lib/ipfs/pack";
-import { MANIFEST_PATH, artifactPath, type RenderSpec, RENDER_V1, isSceneManifest } from "@/lib/scene/format";
+import {
+  MANIFEST_PATH,
+  RENDER_V1,
+  SCENE_LICENSE,
+  artifactPath,
+  isSceneManifest,
+  type RenderSpec,
+  type SceneLicense,
+} from "@/lib/scene/format";
 import { artifactFiles, buildExtras, verifyBundleFiles, type BundleArtifact, type BundleFile } from "@/lib/scene/bundle";
 import { VIEWER_HTML, VIEWER_JS } from "@/lib/scene/viewer.generated";
 import { SwarmError, type SwarmClient } from "@/lib/swarm/client";
@@ -172,18 +180,21 @@ export async function packScene(
   return { files, packed, dealIndex };
 }
 
-/** 已凍結的清單（網站上的 3D 用它的渲染規格，確保與場景包看到的一樣） */
-export async function frozenRender(db: TxDb, blockId: number): Promise<RenderSpec> {
+/**
+ * 已凍結的清單裡網站要用的兩樣東西：渲染規格（網站上的 3D 照它畫，與場景包一樣）與授權。
+ * 還沒凍結時用目前的預設。
+ */
+export async function frozenManifest(db: TxDb, blockId: number): Promise<{ render: RenderSpec; license: SceneLicense | null }> {
   const [row] = await db
     .select({ data: schema.sceneFiles.data })
     .from(schema.sceneFiles)
     .where(and(eq(schema.sceneFiles.blockId, blockId), eq(schema.sceneFiles.path, MANIFEST_PATH)));
-  if (!row) return RENDER_V1;
+  if (!row) return { render: RENDER_V1, license: SCENE_LICENSE };
   try {
     const m: unknown = JSON.parse(new TextDecoder().decode(row.data));
-    return isSceneManifest(m) ? m.render : RENDER_V1;
+    return isSceneManifest(m) ? { render: m.render, license: m.license ?? null } : { render: RENDER_V1, license: null };
   } catch {
-    return RENDER_V1;
+    return { render: RENDER_V1, license: null };
   }
 }
 

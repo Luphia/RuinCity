@@ -189,7 +189,8 @@ describe("施工", () => {
   it("★ 錢不夠就停在那一步等；再捐就接著蓋", async () => {
     const key = "25.02_121.56";
     const donor = await seedUser(h);
-    await donate(key, donor, 30, "google");
+    // 夠圈存四年保存（約 US$3.8，大部分是 Ethereum 參考價的委託手續費），但不夠蓋完
+    await donate(key, donor, 150, "google");
     const d = deps({ key });
     const first = await runBlock(d, key, Infinity);
     expect(first.at(-1)).toBe("WAITING_FOR_FUNDS");

@@ -9,7 +9,7 @@ import type { RenderSpec } from "@/lib/scene/format";
 import { swarmGateways } from "@/lib/swarm/registry";
 import { parseBlockKey } from "@/lib/world/grid";
 
-import { archiveOf, frozenRender } from "./archive";
+import { archiveOf, frozenManifest } from "./archive";
 import { DEFAULT_RENDER, toArchiveView, type ArchiveView } from "./archive-view";
 import { listArtifacts } from "./artifacts";
 import { loadBlockState, deriveState } from "./blocks";
@@ -43,7 +43,7 @@ export async function getBlockPage(key: string, viewerId: string | null): Promis
   const mine = viewerId ? await myDonations(db(), viewerId, key) : [];
   const blockId = state.row?.id ?? null;
   const done = state.status === "COMPLETE" && blockId !== null;
-  const archive = done ? toArchiveView(key, await archiveOf(db(), blockId), swarmGateways()) : null;
-  const render = done ? await frozenRender(db(), blockId) : DEFAULT_RENDER;
-  return { view, mine, serverTime: now, archive, render };
+  const frozen = done ? await frozenManifest(db(), blockId) : null;
+  const archive = done ? toArchiveView(key, await archiveOf(db(), blockId), swarmGateways(), frozen?.license ?? null) : null;
+  return { view, mine, serverTime: now, archive, render: frozen?.render ?? DEFAULT_RENDER };
 }

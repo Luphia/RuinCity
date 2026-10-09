@@ -68,6 +68,8 @@ pnpm scene:verify <car|資料夾>  # 驗證並解出場景包；--gateway <Boltc
 | IPFS 打包 | `lib/ipfs/pack.ts` 的每一個 UnixFS 設定都明寫，不靠函式庫預設（預設會隨版本變，CID 就跟著變）。CI 的 `scene-kubo` 工作用真的 Kubo 比對 CID |
 | ESM | `package.json` 是 `"type": "module"`：IPFS 的套件只有 ESM。腳本可以用 top-level await，不能用 `__dirname` |
 | SwarmStorage | 委託索引的編碼與 Boltchain 的 Rust 版逐位元組相同（測試釘住向量，改編碼前先跑 Rust 對照）。一筆委託總長 ≤ 3,650 個 epoch（含 `extendDeal`）→ 四年是**接力的多筆委託**。`createDeal` 要 2 倍 gas：抽保存者用 `prevrandao`，估計值會不夠。場景包**不加密**（公開才能重建），代價見 design §7 #9 |
+| 保存費 | 參考價：容量、請求、傳輸照 **AWS S3**，委託手續費照 **Ethereum 主網 gas**（design §5.5）。不是 BOLT 行情 —— BOLT 沒有市價。出價預設是 S3 parity（`s3ParityPriceBolt`）。`SWARM_EPOCH_SECONDS` 決定要接力幾筆，手續費跟著乘 |
+| 授權 | 場景包是 **CC0 1.0**，寫在 `scene.json` 的 `license`（`SCENE_LICENSE`）與 README。改授權只影響之後完工的塊 —— 已凍結的包不改 |
 | Boltchain 閘道 | 匯出 CAR 只跟隨 dag-cbor 連結、不懂 UnixFS。取整包要拿**委託索引** CID，不是場景包 CID |
 | `server-only` | `lib/server`、`lib/providers` 的伺服器模組 import 了它。Node 腳本 import 會直接丟錯 —— 所以 `pnpm worker` 是打 HTTP 路由，不是直接 import 施工引擎 |
 | MapLibre | 它的 CSS 把容器設成 `position: relative`，蓋掉 class 上的 `absolute` → 畫布縮成 300px 高。容器尺寸用 inline style |

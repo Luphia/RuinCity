@@ -44,6 +44,17 @@ export function ArchivePanel({ archive }: { archive: ArchiveView | null }) {
         </dd>
         <dt className="text-ash">保存到</dt>
         <dd>{a.retainUntil}</dd>
+        <dt className="text-ash">授權</dt>
+        <dd data-testid="scene-license">
+          {a.license ? (
+            <a href={a.license.url} className="text-rust underline" target="_blank" rel="license noreferrer">
+              {a.license.name}
+            </a>
+          ) : (
+            "（這一包早於授權欄位，未標示）"
+          )}
+          {a.license?.id === "CC0-1.0" ? <span className="text-ash text-xs"> · 任何人都可以複製、修改、散布與商業使用</span> : null}
+        </dd>
       </dl>
 
       {a.deals.length ? (

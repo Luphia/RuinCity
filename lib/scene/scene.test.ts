@@ -5,13 +5,22 @@ import { describe, expect, it } from "vitest";
 import { packBundle, readCar, unpackBundle, writeCar } from "@/lib/ipfs/pack";
 import { demoSwarmClient, hostBatches } from "@/lib/swarm/client";
 import { buildDealIndex, decodeDealGroup, decodeDealIndex } from "@/lib/swarm/deal-index";
-import { MAX_DEAL_EPOCHS, boltToWei, dealChain, dealCost, epochsFor, quoteRetention, weiToBolt } from "@/lib/swarm/quote";
+import {
+  MAX_DEAL_EPOCHS,
+  boltToWei,
+  dealChain,
+  dealCost,
+  epochsFor,
+  quoteRetention,
+  s3ParityPriceBolt,
+  weiToBolt,
+} from "@/lib/swarm/quote";
 import { DEFAULT_BUDGET_CONFIG, buildBudget } from "@/lib/world/budget";
 import { ORIGIN_BLOCK } from "@/lib/world/grid";
 import { emptyKindTotals, planSteps } from "@/lib/world/plan";
 
 import { artifactFiles, buildExtras, verifyBundleFiles, type BundleArtifact } from "./bundle";
-import { RENDER_V1, artifactPath, canonicalJson, markerPosition } from "./format";
+import { RENDER_V1, SCENE_LICENSE, artifactPath, canonicalJson, markerPosition } from "./format";
 import { buildTerrainMesh } from "./terrain-gl";
 import { VIEWER_HTML, VIEWER_JS } from "./viewer.generated";
 
@@ -63,6 +72,12 @@ describe("場景包格式", () => {
   it("★ 清單列出每個檔案的 SHA-256；驗證抓得到竄改、缺檔與多出來的檔案", async () => {
     const { files, manifest } = await sampleBundle();
     expect(manifest.render).toEqual(RENDER_V1);
+    // ★ 授權寫在清單裡，跟著每一份副本走
+    expect(manifest.license).toEqual(SCENE_LICENSE);
+    expect(manifest.license!.id).toBe("CC0-1.0");
+    const readme = new TextDecoder().decode(files.find((f) => f.path === "README.txt")!.bytes);
+    expect(readme).toContain("CC0 1.0 Universal");
+    expect(readme).toContain("creativecommons.org/publicdomain/zero/1.0");
     expect(manifest.scenes.map((s) => s.file)).toEqual(["scenes/000.webp", "scenes/001.webp"]);
     expect(manifest.credits).toEqual([
       { company: "Anthropic", model: "Claude Opus 5.5", steps: 1 },
@@ -200,6 +215,17 @@ describe("SwarmStorage 計價", () => {
     expect(dealCost({ sizeBytes: (1 << 20) + 1, replicas: 1, epochs: 1, priceWei: 1024n }).perEpochWei).toBe(2n);
   });
 
+  it("★ S3 parity 出價：照這個單價付給 SwarmStorage 的錢 ≈ 同樣容量放在 S3 同樣時間", () => {
+    const price = s3ParityPriceBolt(0.023, 86_400, 0.005);
+    expect(price).toBeCloseTo(0.16226, 4);
+    const sizeBytes = 512 * 2 ** 20; // 整數 MiB，避開進位
+    const c = dealCost({ sizeBytes, replicas: 3, epochs: 1461, priceWei: boltToWei(price.toFixed(18)) });
+    const paidUsd = (Number(c.totalWei) / 1e18) * 0.005;
+    const s3Usd = (sizeBytes / 1e9) * 3 * 0.023 * 48;
+    expect(paidUsd / s3Usd).toBeCloseTo(1, 3);
+    expect(() => s3ParityPriceBolt(0.023, 86_400, 0)).toThrow();
+  });
+
   it("BOLT ↔ wei 不經過浮點", () => {
     expect(boltToWei("1")).toBe(10n ** 18n);
     expect(boltToWei("0.000000000000000001")).toBe(1n);
@@ -233,9 +259,10 @@ describe("SwarmStorage 計價", () => {
       config: DEFAULT_BUDGET_CONFIG,
     });
     const line = b.lines.find((l) => l.key === "operations.storage")!;
-    expect(line.basis).toContain("Boltchain SwarmStorage");
-    expect(line.basis).toContain("3 個副本");
-    expect(line.basis).toContain("10 筆接力委託");
+    expect(line.basis).toContain("Boltchain SwarmStorage 3");
+    expect(line.basis).toContain("參考 AWS S3 Standard");
+    expect(line.basis).toContain("參考 Ethereum 主網");
+    expect(line.basis).toContain("1 筆（1,461 個 epoch）");
     const more = buildBudget({
       steps: planSteps(null),
       done: 0,

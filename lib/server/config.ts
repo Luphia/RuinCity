@@ -25,7 +25,12 @@ const ENV_NAME: Record<keyof BudgetConfig, string> = {
   swarmPriceBolt: "SWARM_PRICE_BOLT",
   swarmEpochSeconds: "SWARM_EPOCH_SECONDS",
   boltUsd: "BOLT_USD",
-  boltGasPerDeal: "BOLT_GAS_PER_DEAL",
+  gasPerDeal: "GAS_PER_DEAL",
+  gasPriceGwei: "GAS_PRICE_GWEI",
+  ethUsd: "ETH_USD",
+  putUsdPer1000: "PUT_USD_PER_1000",
+  getUsdPer1000: "GET_USD_PER_1000",
+  getsPerView: "GETS_PER_VIEW",
   retentionMonths: "RETENTION_MONTHS",
   egressUsdPerGb: "EGRESS_USD_PER_GB",
   expectedViews: "EXPECTED_VIEWS_PER_BLOCK",
@@ -52,8 +57,8 @@ const NONZERO_KEYS: readonly (keyof BudgetConfig)[] = [
   "avgDonationTwd",
   "storageReplicas",
   "swarmReplicas",
-  "swarmPriceBolt",
   "swarmEpochSeconds",
+  "boltUsd",
 ];
 
 export function budgetConfig(env: Env = process.env): BudgetConfig {

@@ -87,6 +87,30 @@ export const RENDER_V1: RenderSpec = {
   },
 };
 
+/**
+ * 場景包的授權：**CC0 1.0**（放棄著作權，等同公眾領域）。
+ *
+ * 「任何人都能重建」要成立，不只是技術上拿得到，還要法律上被允許複製、散布、改作 ——
+ * 所以授權寫在清單裡，跟著每一份副本走。範圍是整個資料夾：圖、地圖參數、文字與檢視器。
+ *
+ * ★ CC0 只能放棄**平台自己擁有的**權利。參考影像（Google 街景、衛星圖）的權利不屬於平台，
+ *   這裡也沒有放進包裡；它們與成品之間的關係是設計文件 §7 #1 的待決事項。
+ */
+export const SCENE_LICENSE = {
+  id: "CC0-1.0",
+  name: "CC0 1.0 Universal (Public Domain Dedication)",
+  url: "https://creativecommons.org/publicdomain/zero/1.0/",
+  statement:
+    "To the extent possible under law, the RuinCity project has waived all copyright and related or neighboring rights to this scene bundle (images, map parameters, texts and viewer). This work is published from: Taiwan.",
+} as const;
+
+export interface SceneLicense {
+  readonly id: string;
+  readonly name: string;
+  readonly url: string;
+  readonly statement: string;
+}
+
 export interface SceneFileEntry {
   readonly sha256: string;
   readonly bytes: number;
@@ -102,6 +126,8 @@ export interface SceneImage {
 export interface SceneManifest {
   readonly format: typeof SCENE_FORMAT;
   readonly title: string;
+  /** 授權（`SCENE_LICENSE`）。早於授權欄位的開發用包沒有它，所以讀的時候當作可能缺少 */
+  readonly license?: SceneLicense;
   readonly world: {
     readonly name: string;
     readonly grid: string;
@@ -239,6 +265,11 @@ export function readmeText(m: Pick<SceneManifest, "title" | "block">): string {
 
 This folder is a complete, self-contained scene: every image exactly as it was
 drawn, plus the viewer that displays it. Nothing here needs the original website.
+
+LICENSE
+  ${SCENE_LICENSE.name} — ${SCENE_LICENSE.url}
+  ${SCENE_LICENSE.statement}
+  You may copy, modify, distribute and use it, even commercially, without asking.
 
 GET IT
   It is kept by Boltchain SwarmStorage (paid, audited replicas). From any Boltchain node's
