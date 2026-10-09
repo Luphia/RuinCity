@@ -55,7 +55,7 @@ import {
 } from "@/lib/world/prompts";
 import { chooseViewpoints, type PanoCandidate } from "@/lib/world/survey";
 import { pickFor } from "@/lib/world/vote";
-import type { ReferenceSource } from "@/lib/providers/google-maps";
+import { NoStreetView, type ReferenceSource } from "@/lib/providers/google-maps";
 import { normalizeImage } from "@/lib/providers/image";
 import { PainterError, type ImageBytes, type Painter, type ResolvedPart } from "@/lib/providers/painter";
 
@@ -245,7 +245,18 @@ async function execute(
         break;
     }
 
-    const parts = await resolveParts(deps, job.parts, { block, blockRowId, viewpoints, neighborIds }, spent);
+    const ctx = { block, blockRowId, viewpoints, neighborIds };
+    let parts: ResolvedPart[];
+    let fallbackNote: string | null = null;
+    try {
+      parts = await resolveParts(deps, job.parts, ctx, spent);
+    } catch (e) {
+      // 這個標記座標拿不到任何街景：改用衛星影像構圖，不讓整塊卡在這一張
+      if (!(e instanceof NoStreetView) || step.kind !== "SCENE") throw e;
+      job = sceneJob({ block, viewpoint: viewpoints[step.index]!, viewpointIndex: step.index, params, wishes, reference: "layout" });
+      parts = await resolveParts(deps, job.parts, ctx, spent);
+      fallbackNote = `${e.message}；改用衛星影像構圖`;
+    }
     const painter = deps.painterFor(provider!);
     const result = await painter.paint({ kind: job.kind, output: job.output, aspect: job.aspect, parts });
     const tokenMicros = cost(provider!, result.model, result.usage);
@@ -285,7 +296,7 @@ async function execute(
           ...usageCols(result.usage),
           tokenMicros,
           referenceMicros: spent.referenceMicros,
-          note: result.note?.slice(0, 500) ?? null,
+          note: [fallbackNote, result.note].filter(Boolean).join("\n").slice(0, 500) || null,
           finishedAt,
         })
         .returning({ id: schema.steps.id });

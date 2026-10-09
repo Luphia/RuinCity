@@ -7,7 +7,7 @@ import { ORIGIN_BLOCK, blockBounds, blockKey, blockOf } from "@/lib/world/grid";
 import { TEXTURES_PER_BLOCK } from "@/lib/world/plan";
 import { PROVIDER_ORDER, type PainterId, type ProviderId } from "@/lib/world/pricing";
 import { fakePainter } from "@/lib/providers/fake";
-import type { ReferenceSource } from "@/lib/providers/google-maps";
+import { NoStreetView, type ReferenceSource } from "@/lib/providers/google-maps";
 import { PainterError, type Painter } from "@/lib/providers/painter";
 
 import { readArtifact, listArtifacts } from "./artifacts";
@@ -328,3 +328,38 @@ describe("施工", () => {
     expect(await setMyVote(h.db, { blockKey: key, donorId: donor, vote: "google", enabled: [...PROVIDER_ORDER] })).toEqual({ ok: false, reason: "BLOCK_COMPLETE" });
   });
 });
+
+describe("街景取不到", () => {
+  it("★ 某個標記座標拿不到任何街景 → 那一張改用衛星影像構圖，整塊照樣蓋完", async () => {
+    const key = "24.30_120.80";
+    const ref = smallReference(key);
+    const prompts: string[] = [];
+    let calls = 0;
+    const flaky: ReferenceSource = {
+      ...ref,
+      // 第二個標記座標（viewpoint 1）的全景是使用者上傳的，附近也沒有 Google 街景
+      streetView: async (v) => {
+        calls++;
+        if (v.panoId === "pb" && v.heading < 120) throw new NoStreetView(`全景 ${v.panoId} 取不到影像`);
+        return ref.streetView(v);
+      },
+    };
+    const spy = (p: ProviderId) => {
+      const inner = fakePainter(p);
+      return { ...inner, paint: async (req: Parameters<Painter["paint"]>[0]) => {
+        if (req.kind === "SCENE") prompts.push(req.parts.filter((x) => x.kind === "text").map((x) => (x as { text: string }).text).join("\n"));
+        return inner.paint(req);
+      } };
+    };
+    await donate(key, await seedUser(h), 3000, null);
+    const out = await runBlock(deps({ key, reference: flaky, painterFor: spy }), key, Infinity);
+    expect(out.at(-1)).toBe("COMPLETED_NOW");
+    expect(out).not.toContain("FAILED");
+    expect(calls).toBeGreaterThan(0);
+    expect(prompts.some((t) => t.includes("no street-level photo"))).toBe(true);
+    const [b] = await h.db.select({ id: schema.blocks.id }).from(schema.blocks).where(eq(schema.blocks.key, key));
+    const notes = await h.db.select({ note: schema.steps.note }).from(schema.steps).where(eq(schema.steps.blockId, b!.id));
+    expect(notes.some((n) => n.note?.includes("改用衛星影像構圖"))).toBe(true);
+  });
+});
+

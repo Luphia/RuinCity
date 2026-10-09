@@ -37,14 +37,33 @@ export interface ReferenceSource {
 
 const BASE = "https://maps.googleapis.com/maps/api";
 
+/** 標記座標的全景取不到時，往外找 Google 街景的半徑 */
+export const STREET_VIEW_FALLBACK_RADIUS_M = 100;
+
+/** 這個標記座標拿不到任何街景（施工引擎改用衛星影像構圖） */
+export class NoStreetView extends PainterError {
+  constructor(message: string) {
+    super("BAD_REQUEST", message);
+    this.name = "NoStreetView";
+  }
+}
+
 /** 街景尺寸：Static API 上限 640，取 16:9 */
 export const STREET_VIEW_SIZE = { width: 640, height: 360 } as const;
+
+/** 上游的錯誤內容：Google 的 404 是一整頁 HTML，只留標題或前一兩百字 */
+async function errorBody(res: Response): Promise<string> {
+  const raw = await res.text().catch(() => "");
+  const title = /<title>([^<]*)<\/title>/i.exec(raw)?.[1];
+  const text = (title ?? raw.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+  return redact(text.slice(0, 200));
+}
 
 export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): ReferenceSource {
   const getImage = async (url: URL, what: string): Promise<ImageBytes> => {
     const res = await fetchImage(url);
     if (!res.ok) {
-      const body = redact(await res.text().catch(() => ""));
+      const body = await errorBody(res);
       throw new PainterError(codeForStatus(res.status), `${what} 失敗（HTTP ${res.status}）：${body}`);
     }
     return readImage(res, what);
@@ -61,38 +80,46 @@ export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): 
     return { mime, data: new Uint8Array(await res.arrayBuffer()) };
   };
 
+  async function nearestPano(near: LatLng, radiusM: number): Promise<PanoCandidate | null> {
+    const url = new URL(`${BASE}/streetview/metadata`);
+    url.searchParams.set("location", `${near.lat},${near.lng}`);
+    url.searchParams.set("radius", String(Math.round(radiusM)));
+    url.searchParams.set("source", "outdoor");
+    url.searchParams.set("key", apiKey);
+    const res = await fetchImpl(url);
+    if (!res.ok) {
+      throw new PainterError(codeForStatus(res.status), `Street View metadata 失敗（HTTP ${res.status}）`);
+    }
+    const json = (await res.json()) as {
+      status?: string;
+      pano_id?: string;
+      location?: { lat?: number; lng?: number };
+      date?: string;
+      copyright?: string;
+      error_message?: string;
+    };
+    if (json.status === "ZERO_RESULTS" || json.status === "NOT_FOUND") return null;
+    if (json.status !== "OK") {
+      const code = json.status === "REQUEST_DENIED" ? "AUTH" : json.status === "OVER_QUERY_LIMIT" ? "QUOTA" : "UPSTREAM";
+      throw new PainterError(code, `Street View metadata：${json.status} ${redact(json.error_message ?? "")}`);
+    }
+    if (!json.pano_id || typeof json.location?.lat !== "number" || typeof json.location?.lng !== "number") {
+      return null;
+    }
+    /**
+     * ★ 只要 Google 自己拍的街景。使用者上傳的全景（photosphere，copyright 是上傳者）
+     *   metadata 查得到，Static API 卻取不到影像（404）—— 選到它，那一張場景圖就永遠畫不了。
+     */
+    if (json.copyright && !/google/i.test(json.copyright)) return null;
+    return {
+      panoId: json.pano_id,
+      location: { lat: json.location.lat, lng: json.location.lng },
+      date: json.date ?? null,
+    };
+  }
+
   return {
-    async nearestPano(near, radiusM) {
-      const url = new URL(`${BASE}/streetview/metadata`);
-      url.searchParams.set("location", `${near.lat},${near.lng}`);
-      url.searchParams.set("radius", String(Math.round(radiusM)));
-      url.searchParams.set("source", "outdoor");
-      url.searchParams.set("key", apiKey);
-      const res = await fetchImpl(url);
-      if (!res.ok) {
-        throw new PainterError(codeForStatus(res.status), `Street View metadata 失敗（HTTP ${res.status}）`);
-      }
-      const json = (await res.json()) as {
-        status?: string;
-        pano_id?: string;
-        location?: { lat?: number; lng?: number };
-        date?: string;
-        error_message?: string;
-      };
-      if (json.status === "ZERO_RESULTS" || json.status === "NOT_FOUND") return null;
-      if (json.status !== "OK") {
-        const code = json.status === "REQUEST_DENIED" ? "AUTH" : json.status === "OVER_QUERY_LIMIT" ? "QUOTA" : "UPSTREAM";
-        throw new PainterError(code, `Street View metadata：${json.status} ${redact(json.error_message ?? "")}`);
-      }
-      if (!json.pano_id || typeof json.location?.lat !== "number" || typeof json.location?.lng !== "number") {
-        return null;
-      }
-      return {
-        panoId: json.pano_id,
-        location: { lat: json.location.lat, lng: json.location.lng },
-        date: json.date ?? null,
-      };
-    },
+    nearestPano,
 
     async streetView(v) {
       const params = (url: URL) => {
@@ -104,24 +131,32 @@ export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): 
         url.searchParams.set("return_error_code", "true");
         return url;
       };
-      const byPano = params(new URL(`${BASE}/streetview`));
-      byPano.searchParams.set("pano", v.panoId);
-      const res = await fetchImage(byPano);
+      const byPano = async (panoId: string) => {
+        const url = params(new URL(`${BASE}/streetview`));
+        url.searchParams.set("pano", panoId);
+        return fetchImage(url);
+      };
+      const res = await byPano(v.panoId);
       if (res.ok) return readImage(res, "Street View 影像");
-      /**
-       * ★ metadata 查得到、用 pano ID 卻取不到影像（404）：使用者上傳的全景、或 Google 已經下架的那一張。
-       *   改用同一個座標取最近的戶外街景 —— 同一個地點、同一個朝向，構圖參考的作用一樣。
-       *   不退的話，這一張場景圖每次都失敗，整塊卡在這一步。
-       */
       if (res.status !== 404) {
-        const body = redact(await res.text().catch(() => ""));
+        const body = await errorBody(res);
         throw new PainterError(codeForStatus(res.status), `Street View 影像失敗（HTTP ${res.status}）：${body}`);
       }
-      const byLocation = params(new URL(`${BASE}/streetview`));
-      byLocation.searchParams.set("location", `${v.location.lat},${v.location.lng}`);
-      byLocation.searchParams.set("radius", "50");
-      byLocation.searchParams.set("source", "outdoor");
-      return getImage(byLocation, `Street View 影像（全景 ${v.panoId} 取不到，改用座標）`);
+      /**
+       * ★ 這個全景取不到影像（404）：使用者上傳的、或 Google 已經下架的那一張。
+       *   改用同一個座標附近、Google 自己拍的戶外街景，同一個朝向 —— 構圖參考的作用一樣。
+       *   附近也沒有，就丟 `NoStreetView`，由施工引擎改用衛星影像構圖（`sceneJob` 的 reference: "layout"）。
+       */
+      const near = await nearestPano(v.location, STREET_VIEW_FALLBACK_RADIUS_M);
+      if (near && near.panoId !== v.panoId) {
+        const alt = await byPano(near.panoId);
+        if (alt.ok) return readImage(alt, "Street View 影像");
+        if (alt.status !== 404) {
+          const body = await errorBody(alt);
+          throw new PainterError(codeForStatus(alt.status), `Street View 影像失敗（HTTP ${alt.status}）：${body}`);
+        }
+      }
+      throw new NoStreetView(`全景 ${v.panoId} 取不到影像，附近 ${STREET_VIEW_FALLBACK_RADIUS_M} m 內也沒有 Google 街景`);
     },
 
     layout(frame) {

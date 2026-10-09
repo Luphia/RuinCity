@@ -188,9 +188,15 @@ export function sceneJob(input: {
   readonly viewpointIndex: number;
   readonly params?: MapParams | null;
   readonly wishes?: readonly string[];
+  /**
+   * 構圖參考：預設是這個標記座標的街景。這裡拿不到任何街景時（`NoStreetView`）改用整塊的衛星影像 ——
+   * 少了地面視角，構圖靠座標、朝向與俯視的路網；總比整塊卡在這一張好。
+   */
+  readonly reference?: "streetview" | "layout";
 }): PaintJob {
   const { viewpoint: v, params } = input;
   const caption = params?.markers[input.viewpointIndex]?.caption;
+  const withPhoto = (input.reference ?? "streetview") === "streetview";
   const parts: PromptPart[] = [
     { kind: "text", text: canonFor(input.block) },
     { kind: "text", text: `${STYLE_PHOTO}\n${STYLE_SCENE}` },
@@ -200,14 +206,18 @@ export function sceneJob(input: {
     kind: "text",
     text: [
       `TASK — paint marked viewpoint #${input.viewpointIndex} of this block: one ground-level view of this exact spot, 1,000 years after humanity vanished.`,
-      `The reference photo below was taken here in ${v.date ?? "recent years"} (lat ${fmt(v.location.lat)}, lng ${fmt(v.location.lng)}), camera heading ${Math.round(v.heading)}°, eye height about 2 m.`,
-      "Keep the exact same camera position, framing, horizon line and perspective. Keep every large shape where it is — the road's direction, the skyline, hills, rivers and the masses of buildings — so someone who knows this street would recognise it.",
+      withPhoto
+        ? `The reference photo below was taken here in ${v.date ?? "recent years"} (lat ${fmt(v.location.lat)}, lng ${fmt(v.location.lng)}), camera heading ${Math.round(v.heading)}°, eye height about 2 m.`
+        : `There is no street-level photo of this spot. The camera stands at lat ${fmt(v.location.lat)}, lng ${fmt(v.location.lng)}, heading ${Math.round(v.heading)}° (0° = north), eye height about 2 m. The image below is today's satellite view of the whole block, north up — find the camera's place in it and use the roads, rivers and building masses around that point to compose what the camera would see.`,
+      withPhoto
+        ? "Keep the exact same camera position, framing, horizon line and perspective. Keep every large shape where it is — the road's direction, the skyline, hills, rivers and the masses of buildings — so someone who knows this street would recognise it."
+        : "Keep the real layout: the road's direction, the buildings' footprints and heights, hills and water where the satellite view puts them. The output is still an eye-level photograph, not an aerial view.",
       caption ? `What this viewpoint should show now: ${caption}` : "",
     ]
       .filter(Boolean)
       .join("\n"),
   });
-  parts.push({ kind: "image", ref: { type: "streetview", viewpoint: input.viewpointIndex } });
+  parts.push({ kind: "image", ref: withPhoto ? { type: "streetview", viewpoint: input.viewpointIndex } : { type: "layout" } });
   tail(parts, input.wishes, `${STYLE_NEGATIVE}\nOutput exactly one photograph in 16:9. No text, no borders.`);
   return { kind: "SCENE", output: "image", aspect: "16:9", parts };
 }

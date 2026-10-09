@@ -62,7 +62,7 @@ pnpm block:paint <區塊>         # 管理員：平台撥款並畫到完成，�
 | 失敗也要記帳 | 被擋、沒回圖的那一次上游照樣收費。`PainterError` 帶著 usage，`steps` 記一列 FAILED |
 | 施工租約 | 一步要呼叫外部 API 幾十秒，**不抱交易鎖**，用 `blocks.lease_until`。`steps` 的部分唯一索引保證同一步只能成功一次 |
 | Claude | 勘查員，**只寫地圖參數、不出圖**（不輸出點陣圖，畫不出照片）。開啟 `fallbacks: "default"`，帳記在 `response.model` |
-| Google Maps | 只存全景 ID，**不存街景與衛星影像**（條款只允許保存 pano ID）。版型參考是 `maptype=satellite`。pano ID 取不到影像（404，使用者上傳或已下架的全景）時改用同一座標取最近的戶外街景 —— 否則那一張場景圖永遠失敗、整塊卡住。條款風險見 design §7 #1 |
+| Google Maps | 只存全景 ID，**不存街景與衛星影像**（條款只允許保存 pano ID）。版型參考是 `maptype=satellite`。勘查只收 Google 自己拍的全景（metadata 的 `copyright`；使用者上傳的 photosphere 在 Static API 取不到影像）。已存的全景取不到（404）時改用附近 100 m 內的 Google 街景，再沒有就那一張改用衛星影像構圖（`NoStreetView` → `sceneJob` 的 `reference: "layout"`）—— 否則那一張永遠失敗、整塊卡住。條款風險見 design §7 #1 |
 | 平台撥款 | `pnpm block:paint` 的錢是帳上的一筆收入（`processor = grant`），**不是旁路** —— 不要為了管理員另寫一條「不看餘額就開工」的路。撥款沒有手續費與稅、不算捐款與捐款人。路由只認 `CRON_SECRET`，沒設就拒絕 |
 | 捐款留言 | 不受信任的輸入。只能經由 `prompts.wishesText` 進提示詞（截斷、去控制字元、標成建議） |
 | 場景包的附檔 | `scene.json`、`index.html`、`viewer.js`、`README.txt` 在第一次打包時存進 `scene_files`，**之後永不改寫** —— 它們決定 CID。改了清單欄位或檢視器只影響之後完工的塊。需要改舊包就是新的 CID、新的委託，不是覆寫 |

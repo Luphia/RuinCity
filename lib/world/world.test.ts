@@ -397,6 +397,16 @@ describe("繪製工作", () => {
     expect(images(job)).toEqual([{ type: "streetview", viewpoint: 7 }]);
   });
 
+  it("★ 這裡沒有任何街景：改用衛星影像構圖，仍然是地面視角的照片", () => {
+    const job = sceneJob({ block: ORIGIN_BLOCK, viewpoint: vp, viewpointIndex: 7, reference: "layout" });
+    expect(images(job)).toEqual([{ type: "layout" }]);
+    const text = job.parts.filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("\n");
+    expect(text).not.toContain("reference photo below");
+    expect(text).toContain("no street-level photo");
+    expect(text).toContain("eye-level photograph");
+    expect(text).toContain("heading 45°");
+  });
+
   it("★ 畫面必須擬真：每一種出圖都帶相機與光線的規格，並明列不要的畫風", () => {
     const scene = JSON.stringify(sceneJob({ block: ORIGIN_BLOCK, viewpoint: vp, viewpointIndex: 0 }));
     const tile = JSON.stringify(tileJob({ block: ORIGIN_BLOCK, scenes: 0, neighbors: [] }));

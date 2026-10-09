@@ -6,7 +6,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropicPainter } from "./anthropic";
 import { fakePainter, fakeReferenceSource } from "./fake";
 import { geminiPainter, geminiUsage } from "./gemini";
-import { googleMapsSource } from "./google-maps";
+import { NoStreetView, googleMapsSource } from "./google-maps";
 import { normalizeImage, rasterizeSvg } from "./image";
 import { flattenForOpenAI, openaiPainter, openaiSize } from "./openai";
 import { PainterError, redact, type FetchLike, type PaintRequest } from "./painter";
@@ -273,26 +273,41 @@ describe("Google Maps 參考來源", () => {
     expect(img.calls[1]!.url).toContain("size=466x514");
   });
 
-  it("★ 全景 ID 取不到影像（404）→ 改用同一個座標取最近的戶外街景；其他錯誤照丟", async () => {
-    const v = { panoId: "CAoSLEFGMVFpcE", location: { lat: 25.031, lng: 121.562 }, heading: 90, pitch: 0, fov: 90, date: null };
-    let n = 0;
-    const fallback = capture(() => (n++ === 0 ? new Response("", { status: 404 }) : new Response(PNG_1x1, { headers: { "content-type": "image/png" } })));
-    const img = await googleMapsSource("k", fallback.fetchImpl).streetView(v);
+  it("★ 只要 Google 自己拍的街景：使用者上傳的全景（photosphere）當作沒有", async () => {
+    const user = capture(() => new Response(JSON.stringify({ status: "OK", pano_id: "CAoSF0NJSE0w", location: { lat: 1, lng: 2 }, copyright: "© Some Hiker" })));
+    expect(await googleMapsSource("k", user.fetchImpl).nearestPano({ lat: 1, lng: 2 }, 50)).toBeNull();
+    const google = capture(() => new Response(JSON.stringify({ status: "OK", pano_id: "G", location: { lat: 1, lng: 2 }, copyright: "© Google" })));
+    expect((await googleMapsSource("k", google.fetchImpl).nearestPano({ lat: 1, lng: 2 }, 50))?.panoId).toBe("G");
+  });
+
+  it("★ 全景取不到影像（404）→ 改用附近 Google 自己拍的街景、同一個朝向；附近也沒有 → NoStreetView", async () => {
+    const v = { panoId: "CAoSF0NJSE0w", location: { lat: 25.031, lng: 121.562 }, heading: 90, pitch: 0, fov: 90, date: null };
+    const html404 = () => new Response("<!DOCTYPE html><html><title>Error 404 (Not Found)!!1</title><style>*{margin:0}</style></html>", { status: 404 });
+    const png = () => new Response(PNG_1x1, { headers: { "content-type": "image/png" } });
+    const meta = (copyright: string) => new Response(JSON.stringify({ status: "OK", pano_id: "G2", location: { lat: 25.0311, lng: 121.5621 }, copyright }));
+
+    const replies = [html404, () => meta("© Google"), png];
+    const ok = capture(() => replies.shift()!());
+    const img = await googleMapsSource("k", ok.fetchImpl).streetView(v);
     expect(img.mime).toBe("image/png");
-    expect(fallback.calls[0]!.url).toContain("pano=CAoSLEFGMVFpcE");
-    expect(fallback.calls[1]!.url).toContain("location=25.031%2C121.562");
-    expect(fallback.calls[1]!.url).toContain("source=outdoor");
-    expect(fallback.calls[1]!.url).toContain("heading=90");
-    expect(fallback.calls[1]!.url).toContain("return_error_code=true");
+    expect(ok.calls[0]!.url).toContain("pano=CAoSF0NJSE0w");
+    expect(ok.calls[1]!.url).toContain("/streetview/metadata");
+    expect(ok.calls[1]!.url).toContain("radius=100");
+    expect(ok.calls[2]!.url).toContain("pano=G2");
+    expect(ok.calls[2]!.url).toContain("heading=90");
 
-    const gone = capture(() => new Response("", { status: 404 }));
-    const err = (await googleMapsSource("k", gone.fetchImpl).streetView(v).catch((e: unknown) => e)) as PainterError;
+    const none = [html404, () => meta("© Some Hiker")];
+    const gone = capture(() => none.shift()!());
+    const err = await googleMapsSource("k", gone.fetchImpl).streetView(v).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NoStreetView);
     expect(gone.calls).toHaveLength(2);
-    expect(err.message).toContain("改用座標");
 
-    const denied = capture(() => new Response("", { status: 403 }));
+    // 其他錯誤照丟，不退；錯誤訊息不會塞進一整頁 HTML
+    const denied = capture(() => new Response("<html><title>Forbidden</title><body>long page</body></html>", { status: 403 }));
     const e2 = (await googleMapsSource("k", denied.fetchImpl).streetView(v).catch((e: unknown) => e)) as PainterError;
     expect(e2.code).toBe("AUTH");
+    expect(e2.message).toContain("Forbidden");
+    expect(e2.message).not.toContain("<");
     expect(denied.calls).toHaveLength(1);
   });
 
