@@ -70,12 +70,26 @@ describe("預算書", () => {
     expect(Math.abs(sum(b2) - b2.meters.grossNeededMicros)).toBeLessThanOrEqual(5);
   });
 
+  it("★ 淨額缺口撥滿（沒有收款成本）就不再缺錢，也沒有多出收款成本", () => {
+    const b = buildBudget(input());
+    expect(b.netGapMicros).toBeGreaterThan(0);
+    // 未來捐款的收款成本讓總額缺口比淨額缺口大
+    expect(b.grossGapMicros).toBeGreaterThan(b.netGapMicros);
+    const g = b.netGapMicros;
+    const b2 = buildBudget(input({ received: { count: 1, grossMicros: g, feeMicros: 0, taxMicros: 0, chargebackMicros: 0 } }));
+    expect(b2.netGapMicros).toBe(0);
+    expect(b2.grossGapMicros).toBe(0);
+    expect(b2.lines.find((l) => l.key === "collection.fee")!.microsProjected).toBe(0);
+    expect(Math.abs(sum(b2) - b2.meters.grossNeededMicros)).toBeLessThanOrEqual(5);
+  });
+
   it("★ 超募時多的錢列成結餘：所需不會因為捐得多而變大，所需 + 結餘 = 已募得", () => {
     const d = splitDonation(100_000, 32, cfg);
     const b = buildBudget(
       input({ received: { count: 1, grossMicros: d.grossMicros, feeMicros: d.feeMicros, taxMicros: d.taxMicros, chargebackMicros: d.chargebackMicros } }),
     );
     expect(b.grossGapMicros).toBe(0);
+    expect(b.netGapMicros).toBe(0);
     const surplus = b.lines.find((l) => l.key === "surplus")!.microsProjected;
     expect(surplus).toBe(b.surplusProjectedMicros);
     expect(surplus).toBeGreaterThan(0);

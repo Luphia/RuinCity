@@ -14,7 +14,7 @@ import { schema } from "@/lib/db";
 import type { TxDb } from "@/lib/db/tx";
 import { buildBudget, type Budget, type BudgetConfig } from "@/lib/world/budget";
 import { blockKey, parseBlockKey, type BlockId } from "@/lib/world/grid";
-import { blockStatus, type BlockStatus } from "@/lib/world/ledger";
+import { GRANT_PROCESSOR, blockStatus, type BlockStatus } from "@/lib/world/ledger";
 import {
   addKind,
   averageObserved,
@@ -59,8 +59,11 @@ export interface BlockState {
   readonly budget: Budget;
   readonly status: BlockStatus;
   readonly running: boolean;
+  /** 捐款筆數與人數（不含平台撥款） */
   readonly donationCount: number;
   readonly donorCount: number;
+  /** 平台撥款的總額（`pnpm block:paint`）；已含在預算書的已收金額裡 */
+  readonly grantedMicros: number;
   readonly log: readonly StepLogEntry[];
   /** 最近的捐款留言（給 AI 的建議），新的在前 */
   readonly wishes: readonly string[];
@@ -124,6 +127,7 @@ export async function loadBlockState(
           vote: schema.donations.vote,
           wish: schema.donations.wish,
           paidAt: schema.donations.paidAt,
+          processor: schema.donations.processor,
         })
         .from(schema.donations)
         .where(and(eq(schema.donations.blockId, row.id), eq(schema.donations.status, "PAID")))
@@ -145,6 +149,7 @@ type PaidRow = {
   vote: string | null;
   wish: string | null;
   paidAt: Date | null;
+  processor: string;
 };
 
 type StepRow = typeof schema.steps.$inferSelect;
@@ -237,6 +242,7 @@ export function deriveState(
     paused: !!row?.pausedAt,
   });
 
+  const donations = paid.filter((d) => d.processor !== GRANT_PROCESSOR);
   const wishes = paid
     .filter((d) => d.wish && d.wish.trim())
     .sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0))
@@ -252,8 +258,9 @@ export function deriveState(
     budget,
     status,
     running,
-    donationCount: received.count,
-    donorCount: new Set(paid.map((d) => d.donorId)).size,
+    donationCount: donations.length,
+    donorCount: new Set(donations.map((d) => d.donorId)).size,
+    grantedMicros: paid.filter((d) => d.processor === GRANT_PROCESSOR).reduce((s, d) => s + d.grossMicros, 0),
     log: attempts.map((s) => ({
       seq: s.seq,
       kind: s.kind as StepKind,
@@ -277,6 +284,7 @@ export interface BlockSummary {
   readonly col: number;
   readonly completed: boolean;
   readonly paused: boolean;
+  /** 已募得的捐款（不含平台撥款） */
   readonly grossMicros: number;
 }
 
@@ -298,7 +306,7 @@ export async function blocksInRange(
       col: schema.blocks.col,
       completedAt: schema.blocks.completedAt,
       pausedAt: schema.blocks.pausedAt,
-      gross: sql<string>`coalesce((select sum(${schema.donations.grossMicros}) from ${schema.donations} where ${schema.donations.blockId} = ${schema.blocks.id} and ${schema.donations.status} = 'PAID'), 0)`,
+      gross: sql<string>`coalesce((select sum(${schema.donations.grossMicros}) from ${schema.donations} where ${schema.donations.blockId} = ${schema.blocks.id} and ${schema.donations.status} = 'PAID' and ${schema.donations.processor} <> ${GRANT_PROCESSOR}), 0)`,
     })
     .from(schema.blocks)
     .where(

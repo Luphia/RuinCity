@@ -96,6 +96,11 @@ export function BlockLive({ initial, signedIn, canDonate }: { initial: BlockPage
               需要 {v.meters.moneyNeeded.twd}
               {v.funding.gap.micros > 0 ? ` · 尚缺 ${v.funding.gap.twd}` : " · 經費已足"}
             </div>
+            {v.funding.granted ? (
+              <div data-testid="granted" className="mt-1 text-xs text-sky-100/80">
+                其中平台撥款 {v.funding.granted.twd}（不是捐款，不參與捐款人數）
+              </div>
+            ) : null}
           </div>
           <Bar label="募款" value={v.funding.progress} detail={`已募得 ${v.funding.received.twd} / ${v.meters.moneyNeeded.twd}`} tone="amber" />
           <Bar label="Token" value={v.meters.tokenProgress} detail={`${v.meters.tokensSpent} / ${v.meters.tokensNeeded}`} tone="sky" />

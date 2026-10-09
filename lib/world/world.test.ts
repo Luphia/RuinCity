@@ -38,7 +38,17 @@ import {
   planSteps,
 } from "./plan";
 import { pickFor, tallyVotes } from "./vote";
-import { START_MARGIN, blockStatus, canStartStep, formatTwd, splitDonation, toMicros } from "./ledger";
+import {
+  START_MARGIN,
+  blockStatus,
+  canStartStep,
+  formatTwd,
+  grantNeededMicros,
+  grantSplit,
+  microsToTwdCeil,
+  splitDonation,
+  toMicros,
+} from "./ledger";
 import {
   TAIPEI_101_VISIBLE_M,
   XIANGSHAN_VIEWPOINT,
@@ -329,6 +339,31 @@ describe("帳與狀態", () => {
   it("★ 開工要留緩衝：餘額剛好等於估價還不夠", () => {
     expect(canStartStep(100, 100)).toBe(false);
     expect(canStartStep(Math.ceil(100 * START_MARGIN), 100)).toBe(true);
+  });
+
+  it("★ 平台撥款沒有收款成本：淨額 = 總額", () => {
+    const g = grantSplit(1000, 32);
+    expect(g).toEqual({ grossMicros: 31_250_000, feeMicros: 0, taxMicros: 0, chargebackMicros: 0, netMicros: 31_250_000 });
+  });
+
+  it("★ 撥款補足淨額缺口；缺口是 0 但下一步開不了工時，補到剛好能開工", () => {
+    expect(grantNeededMicros({ netGapMicros: 5_000, constructionBalanceMicros: 0, nextStepMicros: 1_000 })).toBe(5_000);
+    const toStart = grantNeededMicros({ netGapMicros: 0, constructionBalanceMicros: 100, nextStepMicros: 1_000 });
+    expect(toStart).toBe(Math.ceil(1_000 * START_MARGIN) - 100);
+    expect(canStartStep(100 + toStart, 1_000)).toBe(true);
+    // 夠了就不撥；沒有下一步也不撥
+    expect(grantNeededMicros({ netGapMicros: 0, constructionBalanceMicros: 5_000, nextStepMicros: 1_000 })).toBe(0);
+    expect(grantNeededMicros({ netGapMicros: 0, constructionBalanceMicros: -50, nextStepMicros: null })).toBe(0);
+  });
+
+  it("撥款金額換成新台幣整數時無條件進位，換回來不會少", () => {
+    for (const micros of [1, 999_999, 10_000_000, 15_053_125]) {
+      const twd = microsToTwdCeil(micros, 32);
+      expect(Number.isInteger(twd)).toBe(true);
+      expect(toMicros(twd, 32)).toBeGreaterThanOrEqual(micros);
+      expect(toMicros(twd - 1, 32)).toBeLessThan(micros);
+    }
+    expect(microsToTwdCeil(10_000_000, 32)).toBe(320);
   });
 
   it("狀態由帳推導；暫停要講出來", () => {

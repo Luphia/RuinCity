@@ -222,8 +222,10 @@ export interface Budget {
   readonly netReceivedMicros: number;
   /** 已募得超過所需的部分（預計結餘）；不算進 `meters.grossNeededMicros` */
   readonly surplusProjectedMicros: number;
-  /** 還要再募多少（總額） */
+  /** 還要再募多少（總額，含未來捐款的收款成本） */
   readonly grossGapMicros: number;
+  /** 還缺多少淨額（不含收款成本）—— 平台撥款沒有手續費與稅，撥這個數字就夠（`ledger.grantNeededMicros`） */
+  readonly netGapMicros: number;
   /** 圈出來的保存與分攤（完成前為估計，完成後為實際撥付） */
   readonly ringFencedMicros: number;
   /** 能拿來施工的餘額 */
@@ -559,6 +561,7 @@ export function buildBudget(input: BudgetInput): Budget {
     netReceivedMicros: netReceived,
     surplusProjectedMicros: surplusProjected,
     grossGapMicros: extraGross,
+    netGapMicros: extraNet,
     ringFencedMicros: ringFenced,
     constructionBalanceMicros: constructionBalance,
     nextStepMicros,

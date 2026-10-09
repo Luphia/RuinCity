@@ -42,7 +42,10 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:py-8">
-      <BlockHeader view={v} subtitle={`${v.label} · 人類離開一千年後 · 共用 ${v.meters.tokensSpent} token、花費 ${v.meters.moneySpent.twd}`} />
+      <BlockHeader
+        view={v}
+        subtitle={`${v.label} · 人類離開一千年後 · 共用 ${v.meters.tokensSpent} token、花費 ${v.meters.moneySpent.twd}${v.funding.granted ? ` · 平台撥款 ${v.funding.granted.twd}` : ""}`}
+      />
 
       <section className="grid gap-4 md:grid-cols-[3fr_2fr]">
         <div className={`${glass} flex flex-col gap-3 p-3`}>

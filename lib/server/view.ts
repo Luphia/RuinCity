@@ -46,6 +46,8 @@ export interface BlockView {
     readonly constructionBalance: Money;
     readonly donations: number;
     readonly donors: number;
+    /** 平台撥款（含在 received 裡）；沒有就是 null */
+    readonly granted: Money | null;
     /** 0..1 */
     readonly progress: number;
   };
@@ -97,7 +99,7 @@ export interface BlockView {
   };
 }
 
-const KIND_LABEL: Record<string, string> = {
+export const KIND_LABEL: Record<string, string> = {
   SURVEY: "勘查",
   PARAMS: "地圖參數",
   SCENE: "場景圖",
@@ -188,6 +190,7 @@ export function toBlockView(
       constructionBalance: money(b.constructionBalanceMicros),
       donations: s.donationCount,
       donors: s.donorCount,
+      granted: s.grantedMicros > 0 ? money(s.grantedMicros) : null,
       progress: b.meters.grossNeededMicros > 0 ? Math.min(1, b.grossReceivedMicros / b.meters.grossNeededMicros) : 0,
     },
     progress: { done: s.done, total: s.steps.length, next: next ? `${KIND_LABEL[next.kind]}${next.kind === "SCENE" || next.kind === "TEXTURE" ? ` #${next.index + 1}` : ""}` : null },

@@ -96,6 +96,37 @@ export function splitDonation(
   };
 }
 
+/** 平台撥款在 `donations.processor` 的值；捐款人欄位記成 `GRANT_DONOR` */
+export const GRANT_PROCESSOR = "grant";
+export const GRANT_DONOR = "platform";
+
+/**
+ * 平台撥款（管理員指令 `pnpm block:paint`）：不經金流商，所以沒有手續費、稅與拒付準備，
+ * 淨額 = 總額。它照樣是帳上的一筆收入 —— 狀態仍然只由帳推導。
+ */
+export function grantSplit(amountTwd: number, twdPerUsd: number): DonationSplit {
+  const grossMicros = toMicros(amountTwd, twdPerUsd);
+  return { grossMicros, feeMicros: 0, taxMicros: 0, chargebackMicros: 0, netMicros: grossMicros };
+}
+
+/**
+ * 要撥多少才能把這一塊蓋完：補足淨額缺口；缺口是 0 但下一步還開不了工（估價低估、
+ * 實際用量比較高）時，補到剛好能開下一步（含 `START_MARGIN`）。
+ */
+export function grantNeededMicros(input: {
+  readonly netGapMicros: number;
+  readonly constructionBalanceMicros: number;
+  readonly nextStepMicros: number | null;
+}): number {
+  const toStart = input.nextStepMicros === null ? 0 : Math.ceil(input.nextStepMicros * START_MARGIN) - input.constructionBalanceMicros;
+  return Math.max(0, input.netGapMicros, toStart);
+}
+
+/** 微美元 → 撥款的新台幣整數（無條件進位：寧可多一元，不要差一點開不了工） */
+export function microsToTwdCeil(micros: number, twdPerUsd: number): number {
+  return Math.ceil(fromMicros(micros, twdPerUsd) - 1e-9);
+}
+
 export type BlockStatus = "UNFUNDED" | "FUNDING" | "BUILDING" | "PAUSED" | "COMPLETE";
 
 export const STATUS_LABEL: Record<BlockStatus, string> = {

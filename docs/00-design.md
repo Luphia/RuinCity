@@ -156,6 +156,22 @@
 
 台灣常見選項：綠界 ECPay、藍新 NewebPay、TapPay。Stripe 的支援國家清單在撰寫時不含台灣（以其官方清單為準）。
 
+### 3.5 平台撥款（管理員指令）
+
+`pnpm block:paint <區塊>` 讓營運方不經捐款直接把一塊蓋起來（例如原點、展示用的塊）。
+
+- **不繞過帳。** 撥款是 `donations` 裡的一筆收入（`processor = grant`、捐款人記成 `platform`），
+  狀態照樣由帳推導、施工引擎照樣看餘額開工 —— 區塊頁、預算書與施工引擎仍然讀同一份推導（§2.1）。
+- **撥淨額缺口。** 撥款不經金流商，沒有手續費、稅與拒付準備（`ledger.grantSplit`），
+  所以撥的是預算書的淨額缺口（`netGapMicros`），不是「還要募多少」。估價低估時，下一輪再補到能開下一步為止（`ledger.grantNeededMicros`）。
+- **撥款也是一張票。** `--painter` 指定由誰來畫：撥款以它的金額投票。指定較貴的畫師會讓估價變高，
+  所以同一筆撥款會補到不再缺為止。捐款人的票不動。
+- **看得見。** 撥款不算捐款、不算捐款人（開場畫面的「已募得」也不含它）；區塊頁寫出「平台撥款 NT$…」。
+- **權限。** 路由 `/api/admin/blocks/[key]/paint` 只認 `Authorization: Bearer $CRON_SECRET`，沒設 CRON_SECRET 時一律拒絕
+  （排程路由沒設密碼可以開放，因為它只推進已經付了錢的塊；這條會花平台的錢）。
+- **先報價。** 指令先印出要撥多少、預計還要付給模型與地圖服務多少（報價與實際撥款走同一段程式，在交易裡算完回滾），
+  不是示範模式時要確認（或加 `--yes`）。
+
 ---
 
 ## 4. 投票：依捐款金額加權
@@ -354,8 +370,9 @@ BOLT 還沒有市價，SwarmStorage 的費用沒辦法「照實際行情」估�
 | 伺服器 | `lib/server/` | 狀態推導、捐款、施工引擎、出圖閘門、長期保存（`archive.ts`）、畫面用的 view |
 | 資料庫 | `lib/db/` | SQLite（libSQL）：`schema.ts`（`blocks`、`donations`、`steps`、`artifacts`、`scene_files`、`scene_archives`、`scene_deals`）、連線（`index.ts`）、行程內排隊（`serial.ts`）、位置（`url.ts`） |
 | 頁面 | `app/` | `/` 開場畫面、`/world` 世界地圖、`/b/[key]` 區塊、`/about`、`/donate/demo/[id]` |
-| API | `app/api/` | 區塊查詢、捐款、改票、出圖、場景包（CAR 與瀏覽）、保存索引、金流 webhook、排程施工 |
+| API | `app/api/` | 區塊查詢、捐款、改票、出圖、場景包（CAR 與瀏覽）、保存索引、金流 webhook、排程施工、管理員撥款施工 |
 | 工具 | `scripts/scene-verify.ts` | 從 CAR、Boltchain 閘道或資料夾驗證並解出場景包（`pnpm scene:verify`） |
+| 管理員 | `scripts/paint-block.ts`、`lib/server/grants.ts` | 平台撥款並施工到完成（`pnpm block:paint`，§3.5） |
 
 ---
 

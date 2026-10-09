@@ -27,6 +27,7 @@ pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是
 pnpm scene:viewer              # 改完 lib/scene/standalone.* 一定要跑，CI 會檢查是否同步
 pnpm scene:verify <car|資料夾>  # 驗證並解出場景包；--gateway <Boltchain 閘道> <委託索引 CID> 直接從鏈上取回
 pnpm splash:paint              # 畫開場圖（象山俯視 101）：需要 GEMINI_API_KEY 或 OPENAI_API_KEY，產物要提交
+pnpm block:paint <區塊>         # 管理員：平台撥款並畫到完成，不用捐款（網站要先跑著）；--painter openai、--quote、--yes、--resume
 ```
 
 示範模式（不花錢、不連外，帳照真的算）：`FAKE_PROVIDERS=1 PAYMENTS=demo MAP_STYLE_URL=/map-style-blank.json`。
@@ -62,6 +63,7 @@ pnpm splash:paint              # 畫開場圖（象山俯視 101）：需要 GEM
 | 施工租約 | 一步要呼叫外部 API 幾十秒，**不抱交易鎖**，用 `blocks.lease_until`。`steps` 的部分唯一索引保證同一步只能成功一次 |
 | Claude | 勘查員，**只寫地圖參數、不出圖**（不輸出點陣圖，畫不出照片）。開啟 `fallbacks: "default"`，帳記在 `response.model` |
 | Google Maps | 只存全景 ID，**不存街景與衛星影像**（條款只允許保存 pano ID）。版型參考是 `maptype=satellite`。條款風險見 design §7 #1 |
+| 平台撥款 | `pnpm block:paint` 的錢是帳上的一筆收入（`processor = grant`），**不是旁路** —— 不要為了管理員另寫一條「不看餘額就開工」的路。撥款沒有手續費與稅、不算捐款與捐款人。路由只認 `CRON_SECRET`，沒設就拒絕 |
 | 捐款留言 | 不受信任的輸入。只能經由 `prompts.wishesText` 進提示詞（截斷、去控制字元、標成建議） |
 | 場景包的附檔 | `scene.json`、`index.html`、`viewer.js`、`README.txt` 在第一次打包時存進 `scene_files`，**之後永不改寫** —— 它們決定 CID。改了清單欄位或檢視器只影響之後完工的塊。需要改舊包就是新的 CID、新的委託，不是覆寫 |
 | 「一模一樣」 | 重建用的是成品，不是重畫。3D 照 `scene.json` 的 `render` 畫；網站與包共用 `lib/scene/terrain-gl.ts`。`RENDER_V1` 不能改數字，要改就開 `RENDER_V2` |
