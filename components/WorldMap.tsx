@@ -10,12 +10,16 @@
  *
  * ★ 底圖（OpenFreeMap）載不到時退回一張純色的底：
  *   區塊與格線是我們自己的資料，不該因為第三方圖磚掛了就整張地圖空白。
+ *
+ * 地圖上的控制項是與開場畫面同一套毛玻璃 HUD（`hud.tsx`）：搜尋、目前視野、圖例、區塊卡。
+ * 「目前視野」的數字都是即時的（中心座標、所在區塊、縮放、畫面裡的區塊狀態）。
  */
 
 import maplibregl, { type GeoJSONSource, type LngLatBoundsLike, type StyleSpecification } from "maplibre-gl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { formatTwd } from "@/lib/world/ledger";
 import {
   TAIPEI_101,
   blockBounds,
@@ -25,6 +29,8 @@ import {
   blocksInBounds,
   type BlockBounds,
 } from "@/lib/world/grid";
+
+import { IconArrowRight, IconClose, IconCrosshair, IconMountain, IconPin, IconSearch, glassDark, label } from "./hud";
 
 interface Summary {
   key: string;
@@ -37,8 +43,14 @@ interface Summary {
 const BLANK_STYLE: StyleSpecification = {
   version: 8,
   sources: {},
-  layers: [{ id: "bg", type: "background", paint: { "background-color": "#1f1d1a" } }],
+  layers: [{ id: "bg", type: "background", paint: { "background-color": "#0f1b29" } }],
 };
+
+/** `N25.0340° E121.5645°`；南半球、西半球寫 S、W，不寫負號 */
+function coordLabel(lat: number, lng: number): string {
+  const hemi = (v: number, pos: string, neg: string) => `${v < 0 ? neg : pos}${Math.abs(v).toFixed(4)}°`;
+  return `${hemi(lat, "N", "S")} ${hemi(lng, "E", "W")}`;
+}
 
 const GRID_MIN_ZOOM = 12;
 /** 同時貼在地圖上的完成區塊上限（每一塊是一個 image source） */
@@ -51,13 +63,23 @@ function polygon(b: BlockBounds): { type: "Polygon"; coordinates: number[][][] }
   };
 }
 
-export function WorldMap({ styleUrl }: { styleUrl: string }) {
+interface ViewState {
+  readonly lat: number;
+  readonly lng: number;
+  readonly zoom: number;
+  readonly key: string;
+  readonly completed: number;
+  readonly underway: number;
+}
+
+export function WorldMap({ styleUrl, twdPerUsd }: { styleUrl: string; twdPerUsd: number }) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const router = useRouter();
   const [selected, setSelected] = useState<{ key: string; label: string; summary: Summary | null } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [coords, setCoords] = useState("");
+  const [view, setView] = useState<ViewState | null>(null);
   const summaries = useRef(new Map<string, Summary>());
 
   useEffect(() => {
@@ -101,8 +123,8 @@ export function WorldMap({ styleUrl }: { styleUrl: string }) {
         source: "blocks",
         filter: ["!=", ["get", "completed"], true],
         paint: {
-          "fill-color": ["case", ["get", "paused"], "#6f6a62", "#c8794a"],
-          "fill-opacity": 0.45,
+          "fill-color": ["case", ["get", "paused"], "#94a3b8", "#fbbf24"],
+          "fill-opacity": 0.38,
         },
       });
       map.addLayer({
@@ -115,7 +137,7 @@ export function WorldMap({ styleUrl }: { styleUrl: string }) {
         id: "origin-line",
         type: "line",
         source: "origin",
-        paint: { "line-color": "#7f9a5a", "line-width": 3 },
+        paint: { "line-color": "#bae6fd", "line-width": 2.5, "line-dasharray": [2, 1.5] },
       });
     };
 
@@ -149,6 +171,17 @@ export function WorldMap({ styleUrl }: { styleUrl: string }) {
           return;
         }
         for (const s of json.blocks ?? []) summaries.current.set(s.key, s);
+        // 資料還沒回來就點了某一塊：回來之後補上它的狀態，不要停在「還沒有人捐款」
+        setSelected((sel) => (sel && !sel.summary && summaries.current.has(sel.key) ? { ...sel, summary: summaries.current.get(sel.key)! } : sel));
+        const c = map.getCenter();
+        setView({
+          lat: c.lat,
+          lng: c.lng,
+          zoom: z,
+          key: blockKey(blockOf({ lat: c.lat, lng: c.lng })),
+          completed: (json.blocks ?? []).filter((x) => x.completed).length,
+          underway: (json.blocks ?? []).filter((x) => !x.completed).length,
+        });
         (map.getSource("blocks") as GeoJSONSource).setData({
           type: "FeatureCollection",
           features: (json.blocks ?? []).map((s) => ({
@@ -217,50 +250,102 @@ export function WorldMap({ styleUrl }: { styleUrl: string }) {
     mapRef.current?.fitBounds([[b.west - 0.01, b.south - 0.01], [b.east + 0.01, b.north + 0.01]] as LngLatBoundsLike);
   };
 
+  const status = selected?.summary
+    ? selected.summary.completed
+      ? { text: "已完成 —— 可以進入", tone: "text-emerald-200" }
+      : selected.summary.paused
+        ? { text: "施工暫停", tone: "text-slate-300" }
+        : { text: "施工中 —— 完成前只看得到經費與進度", tone: "text-amber-200" }
+    : { text: "還沒有人捐款 —— 第一筆捐款就會開始勘查", tone: "text-white/70" };
+
   return (
-    <div className="relative min-h-0 flex-1" data-testid="world-map">
+    <div className="relative min-h-0 flex-1 bg-[#0f1b29]" data-testid="world-map">
       {/* ★ inline style：MapLibre 的 CSS 會把容器設成 position: relative，
           蓋掉 class 上的 absolute —— 畫布就縮成預設的 300px 高 */}
       <div ref={host} style={{ position: "absolute", inset: 0 }} />
 
-      <div className="absolute left-3 top-3 flex max-w-[calc(100%-4rem)] flex-wrap items-center gap-2">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            goto();
-          }}
-          className="bg-ink/85 border-ink-mid flex items-center gap-1 rounded border px-2 py-1"
-        >
-          <input
-            value={coords}
-            onChange={(e) => setCoords(e.target.value)}
-            placeholder="緯度, 經度"
-            className="text-parchment placeholder:text-ash-deep w-36 bg-transparent text-sm outline-none"
-          />
-          <button type="submit" className="text-rust text-sm">
-            前往
+      {/* HUD 疊在地圖上：容器不吃滑鼠，卡片本身才吃 —— 拖曳地圖不會被透明的空白擋住 */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col gap-2 pr-12 sm:pr-14">
+        <div className="flex flex-wrap items-center gap-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              goto();
+            }}
+            className={`${glassDark} pointer-events-auto flex items-center gap-2 py-1.5 pl-3 pr-1.5`}
+          >
+            <span className="text-white/60">
+              <IconSearch />
+            </span>
+            <input
+              value={coords}
+              onChange={(e) => setCoords(e.target.value)}
+              placeholder="緯度, 經度"
+              aria-label="前往座標（緯度, 經度）"
+              className="w-32 bg-transparent text-sm text-white outline-none placeholder:text-white/40 sm:w-40"
+            />
+            <button
+              type="submit"
+              className="rounded-full bg-gradient-to-r from-sky-300/90 to-sky-100/90 px-3 py-1 text-sm font-semibold text-slate-900"
+            >
+              前往
+            </button>
+          </form>
+          <button
+            type="button"
+            onClick={() => mapRef.current?.flyTo({ center: [TAIPEI_101.lng, TAIPEI_101.lat], zoom: 14 })}
+            className={`${glassDark} pointer-events-auto flex items-center gap-2 px-3 py-2 text-sm text-white`}
+          >
+            <span className="text-sky-200">
+              <IconMountain />
+            </span>
+            臺北 101
           </button>
-        </form>
-        <button
-          type="button"
-          onClick={() => mapRef.current?.flyTo({ center: [TAIPEI_101.lng, TAIPEI_101.lat], zoom: 14 })}
-          className="bg-ink/85 border-ink-mid text-moss rounded border px-2 py-1 text-sm"
-        >
-          臺北 101
-        </button>
+        </div>
+
+        {view ? (
+          <section className={`${glassDark} pointer-events-auto hidden w-72 p-4 md:block`} aria-label="目前視野">
+            <div className={`${label} flex items-center gap-2`}>
+              <IconCrosshair className="h-4 w-4" /> 目前視野
+            </div>
+            <div className="mt-2 text-lg font-semibold text-white">
+              {coordLabel(view.lat, view.lng)}
+            </div>
+            <div className="text-xs text-white/60">中心所在區塊 {view.key}</div>
+            <div className="mt-3 grid grid-cols-3 border-t border-white/15 pt-2 text-sm">
+              <div>
+                <div className="text-[11px] text-white/55">縮放</div>
+                <div className="text-white">{view.zoom.toFixed(1)}</div>
+              </div>
+              <div className="border-l border-white/15 pl-2">
+                <div className="text-[11px] text-white/55">已完成</div>
+                <div className="text-white">{view.completed}</div>
+              </div>
+              <div className="border-l border-white/15 pl-2">
+                <div className="text-[11px] text-white/55">施工中</div>
+                <div className="text-white">{view.underway}</div>
+              </div>
+            </div>
+            {view.zoom < GRID_MIN_ZOOM ? (
+              <p className="mt-2 text-[11px] text-white/50">放大到 {GRID_MIN_ZOOM} 以上才畫 0.01° 格線</p>
+            ) : null}
+          </section>
+        ) : null}
       </div>
 
-      <div className="bg-ink/85 border-ink-mid text-ash absolute bottom-6 left-3 flex flex-wrap gap-x-3 gap-y-1 rounded border px-2 py-1 text-[11px]">
-        <span>
-          <span className="bg-moss mr-1 inline-block h-2 w-2 align-middle" />
-          已完成（可進入）
+      <div
+        className={`${glassDark} pointer-events-none absolute bottom-6 left-3 flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-[11px] text-white/80`}
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-300/80" />
+          已完成（可進入，貼著它的地圖）
         </span>
-        <span>
-          <span className="bg-rust mr-1 inline-block h-2 w-2 align-middle" />
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400/70" />
           有捐款、施工中
         </span>
-        <span>
-          <span className="border-moss mr-1 inline-block h-2 w-2 border-2 align-middle" />
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-dashed border-sky-200" />
           原點 · 臺北 101
         </span>
       </div>
@@ -269,40 +354,38 @@ export function WorldMap({ styleUrl }: { styleUrl: string }) {
         <button
           type="button"
           onClick={() => setNote(null)}
-          className="bg-ink/90 border-alarm text-alarm absolute right-3 top-14 max-w-xs rounded border px-2 py-1 text-left text-xs"
+          className={`${glassDark} absolute right-3 top-28 max-w-xs border-red-300/40 px-3 py-2 text-left text-xs text-red-200`}
         >
           {note}
         </button>
       ) : null}
 
       {selected ? (
-        <div
+        <section
           data-testid="block-popup"
-          className="bg-ink border-ink-mid absolute bottom-16 left-1/2 w-[min(22rem,calc(100%-1.5rem))] -translate-x-1/2 rounded border p-3 shadow-lg"
+          className={`${glassDark} absolute bottom-20 left-1/2 w-[min(24rem,calc(100%-1.5rem))] -translate-x-1/2 p-4`}
         >
-          <div className="flex items-baseline justify-between gap-2">
-            <b>{selected.label}</b>
-            <button type="button" onClick={() => setSelected(null)} className="text-ash text-xs">
-              關閉
+          <div className="flex items-start justify-between gap-2">
+            <div className={`${label} flex items-center gap-2`}>
+              <IconPin /> 區塊 {selected.key}
+            </div>
+            <button type="button" onClick={() => setSelected(null)} className="text-white/60 hover:text-white" aria-label="關閉">
+              <IconClose />
             </button>
           </div>
-          <p className="text-ash mt-1 text-xs">
-            {selected.summary?.completed
-              ? "已完成 —— 可以進入"
-              : selected.summary?.paused
-                ? "施工暫停"
-                : selected.summary
-                  ? "施工中 —— 完成前只看得到經費與進度"
-                  : "還沒有人捐款 —— 第一筆捐款就會開始勘查"}
-          </p>
+          <div className="mt-1 text-2xl font-semibold text-white">{selected.label}</div>
+          <p className={`mt-0.5 text-sm ${status.tone}`}>{status.text}</p>
+          {selected.summary && !selected.summary.completed ? (
+            <p className="mt-1 text-xs text-white/60">已募得 {formatTwd(selected.summary.grossMicros, twdPerUsd)}</p>
+          ) : null}
           <button
             type="button"
             onClick={() => router.push(`/b/${selected.key}`)}
-            className="bg-rust text-ink mt-2 w-full rounded px-3 py-2 text-sm font-bold"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-white/40 bg-gradient-to-r from-sky-300/90 to-sky-100/90 px-4 py-2.5 text-sm font-semibold text-slate-900 shadow-[0_0_20px_rgba(186,230,253,0.35)]"
           >
-            {selected.summary?.completed ? "進入這一塊" : "看經費、捐款、投票"}
+            {selected.summary?.completed ? "進入這一塊" : "看經費、捐款、投票"} <IconArrowRight className="h-4 w-4" />
           </button>
-        </div>
+        </section>
       ) : null}
     </div>
   );

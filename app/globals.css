@@ -37,3 +37,22 @@ body {
 .maplibregl-ctrl-attrib a {
   color: var(--color-parchment) !important;
 }
+
+/*
+ * MapLibre 的縮放鈕：與 HUD 同一套毛玻璃（深色款，見 components/hud.tsx 的 glassDark）。
+ * 圖示是 MapLibre 內建的深色 SVG 背景圖，反轉成白色。
+ */
+.maplibregl-ctrl-group {
+  background: rgb(2 6 23 / 0.6) !important;
+  border: 1px solid rgb(255 255 255 / 0.15);
+  border-radius: 1rem !important;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.35) !important;
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgb(255 255 255 / 0.12) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}

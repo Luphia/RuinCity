@@ -1,4 +1,5 @@
 import { WorldMap } from "@/components/WorldMap";
+import { budgetConfig } from "@/lib/server/config";
 
 /**
  * 世界地圖，視角從臺北 101 開始。開場畫面（`/`）的「進入城市」就是進到這裡。
@@ -15,5 +16,5 @@ export const metadata = { title: "世界地圖" };
 
 export default function WorldPage() {
   const styleUrl = process.env.MAP_STYLE_URL || "https://tiles.openfreemap.org/styles/liberty";
-  return <WorldMap styleUrl={styleUrl} />;
+  return <WorldMap styleUrl={styleUrl} twdPerUsd={budgetConfig().twdPerUsd} />;
 }
