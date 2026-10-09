@@ -3,7 +3,7 @@ import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import Nodemailer from "next-auth/providers/nodemailer";
 
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import {
   authAccounts,
   authSessions,
@@ -72,8 +72,12 @@ if (hasSmtp()) {
   );
 }
 
-export const authConfig: NextAuthConfig = {
-  adapter: DrizzleAdapter(db, {
+/**
+ * ★ 設定是**惰性**的（NextAuth 接受一個函式）：資料庫在第一個請求時才開，
+ *   `next build` 不會碰到資料庫，也不會在建置目錄留下一個空的 SQLite 檔。
+ */
+export const authConfig = (): NextAuthConfig => ({
+  adapter: DrizzleAdapter(getDb(), {
     usersTable: authUsers,
     accountsTable: authAccounts,
     sessionsTable: authSessions,
@@ -107,6 +111,6 @@ export const authConfig: NextAuthConfig = {
       return session;
     },
   },
-};
+});
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);

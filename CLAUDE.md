@@ -16,14 +16,14 @@
 
 ```bash
 pnpm install
-cp .env.example .env.local     # 填入 DATABASE_URL 與 AUTH_SECRET
+cp .env.example .env.local     # 填入 AUTH_SECRET；資料庫預設是本機 SQLite 檔 ./data/ruincity.db
 pnpm db:migrate
 pnpm dev                       # http://localhost:5000（不是 Next 預設的 3000）
 pnpm worker                    # 施工排程：每 10 秒打一次 /api/cron/build
 pnpm build && pnpm start       # 正式模式：migration → web + worker
 
-pnpm check                     # typecheck + lint + 單元測試 + 整合測試（PGlite）
-pnpm test:e2e                  # Playwright（需要 build、Postgres、示範模式）
+pnpm check                     # typecheck + lint + 單元測試 + 整合測試（暫存的 SQLite 檔）
+pnpm test:e2e                  # Playwright（需要 build、示範模式）
 pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是否同步
 pnpm scene:viewer              # 改完 lib/scene/standalone.* 一定要跑，CI 會檢查是否同步
 pnpm scene:verify <car|資料夾>  # 驗證並解出場景包；--gateway <Boltchain 閘道> <委託索引 CID> 直接從鏈上取回
@@ -76,7 +76,8 @@ pnpm splash:paint              # 畫開場圖（象山俯視 101）：需要 GEM
 | `server-only` | `lib/server`、`lib/providers` 的伺服器模組 import 了它。Node 腳本 import 會直接丟錯 —— 所以 `pnpm worker` 是打 HTTP 路由，不是直接 import 施工引擎 |
 | MapLibre | 它的 CSS 把容器設成 `position: relative`，蓋掉 class 上的 `absolute` → 畫布縮成 300px 高。容器尺寸用 inline style |
 | 底圖 | `MAP_STYLE_URL` 在伺服器端讀、當 prop 傳下去（不用 `NEXT_PUBLIC_`，否則 build 時寫死）。載不到時自動退回純色底 |
-| Neon driver | `neon-http` **不支援交易**，寫入一律走 `lib/db/tx.ts` 的 `withTransaction`。本機 Postgres 由 `lib/db/driver.ts` 依 host 改用 node-postgres |
+| 資料庫 | **SQLite（libSQL）**。沒設 `DATABASE_URL` 就是 `./data/ruincity.db`；serverless 部署要用遠端 libSQL（Turso）。時間是毫秒整數（`timestamp_ms`，拿到的是 `Date`）、列舉是 text + CHECK、JSON 是 text、位元組是 blob |
+| 交易與鎖 | 寫入一律走 `withTransaction`。SQLite 沒有 `FOR UPDATE`：libSQL 的交易是 `BEGIN IMMEDIATE`，一開始就拿到寫入鎖。本機驅動是**同步**的，同一行程內兩條連線互等會卡死事件迴圈 → `lib/db/serial.ts` 讓行程內的查詢先排隊。**交易的 callback 裡只能用 tx**，用了外面的 db 會排在自己後面（逾時後丟出明確的錯誤） |
 | 腳本的環境變數 | `scripts/*.ts` 的**第一個 import** 必須是 `./load-env` |
 | React Compiler | render 中不可呼叫 `Date.now()` 等不純函式；effect 本體裡不要同步 `setState` |
 | 失敗要看得見 | 每一個 fetch 都要有 catch，而 catch 裡要有 UI。只 `console.error` 不算 |

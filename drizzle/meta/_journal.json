@@ -1,26 +1,12 @@
 {
   "version": "7",
-  "dialect": "postgresql",
+  "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1791537235414,
-      "tag": "0000_friendly_onslaught",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1791539169496,
-      "tag": "0001_pretty_post",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1791540248071,
-      "tag": "0002_milky_mikhail_rasputin",
+      "version": "6",
+      "when": 1791560732076,
+      "tag": "0000_parallel_fallen_one",
       "breakpoints": true
     }
   ]

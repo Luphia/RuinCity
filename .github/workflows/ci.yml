@@ -10,9 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # build 與單元測試不需要真的連上資料庫；
-  # lib/db 是延遲連線的，只有實際查詢才會用到這個值。
-  DATABASE_URL: postgresql://ci:ci@localhost:5432/ruincity
+  # build 與單元測試不會開資料庫（lib/db 是惰性的；整合測試各自用暫存的 SQLite 檔）
   AUTH_SECRET: ci-placeholder-secret-not-used-for-anything-real
 
 jobs:
@@ -98,17 +96,9 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-latest
-    # 完整的區塊生命週期需要真的 Postgres；模型、街景與金流都用示範實作（不花錢、不連外）
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: ruincity
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    # 完整的區塊生命週期，資料庫是一個 SQLite 檔；模型、街景與金流都用示範實作（不花錢、不連外）
     env:
-      DATABASE_URL: postgresql://postgres:ruincity@127.0.0.1:5432/postgres
+      DATABASE_URL: file:./data/e2e.db
       AUTH_SECRET: ci-e2e-secret-not-used-for-anything-real
       AUTH_URL: http://127.0.0.1:3100
       CRON_SECRET: ci-cron

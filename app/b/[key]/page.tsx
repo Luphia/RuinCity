@@ -30,8 +30,8 @@ export default async function BlockPage({ params }: { params: Promise<{ key: str
     console.error("[b/key]", e);
     return (
       <main className="mx-auto max-w-md p-6 text-center">
-        <p className="text-alarm">資料庫無法連線</p>
-        <p className="text-ash mt-2 text-sm">設定 DATABASE_URL 並執行 pnpm db:migrate。</p>
+        <p className="text-alarm">資料庫無法使用</p>
+        <p className="text-ash mt-2 text-sm">執行 pnpm db:migrate 建立資料表（預設是本機的 ./data/ruincity.db）。</p>
       </main>
     );
   }

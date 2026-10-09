@@ -14,7 +14,7 @@
 
 ```bash
 pnpm install
-cp .env.example .env.local      # 填 DATABASE_URL、AUTH_SECRET
+cp .env.example .env.local      # 填 AUTH_SECRET；資料庫預設是本機 SQLite 檔 ./data/ruincity.db，不用另外架
 pnpm db:migrate
 pnpm dev                        # http://localhost:5000
 pnpm worker                     # 另一個終端機：施工排程（每 10 秒一輪）
@@ -27,8 +27,8 @@ FAKE_PROVIDERS=1 PAYMENTS=demo MAP_STYLE_URL=/map-style-blank.json pnpm dev
 ```
 
 ```bash
-pnpm check        # typecheck + lint + 單元與整合測試（PGlite，不需要資料庫）
-pnpm test:e2e     # Playwright：需要 Postgres 與示範模式（見 .github/workflows/ci.yml）
+pnpm check        # typecheck + lint + 單元與整合測試（整合測試用暫存的 SQLite 檔）
+pnpm test:e2e     # Playwright：示範模式（見 .github/workflows/ci.yml）
 pnpm splash:paint                                               # 畫開場圖：從象山俯視荒廢的 101（需要影像模型金鑰）
 pnpm scene:verify scene.car --extract ./scene                    # 驗證並解出一塊的場景包
 pnpm scene:verify --gateway http://<boltchain 閘道> <委託索引 CID>  # 直接從 Boltchain 取回

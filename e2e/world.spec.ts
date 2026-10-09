@@ -1,11 +1,11 @@
 import { config } from "dotenv";
 import { expect, test, type Page } from "@playwright/test";
-import { Client } from "pg";
+import { createClient } from "@libsql/client";
 
 /**
  * 端對端：世界地圖 → 區塊 → 捐款（示範金流）→ 施工 → 完工 → 進入。
  *
- * 需要一個真的 Postgres，並以示範模式啟動（CI 的 e2e job 有設定）：
+ * 需要以示範模式啟動（CI 的 e2e job 有設定）；資料庫是與 app 同一個 SQLite 檔：
  *   FAKE_PROVIDERS=1 PAYMENTS=demo MAP_STYLE_URL=/map-style-blank.json
  *
  * 登入不走 magic link（production build 不印連結）：直接在資料庫建一個 session，
@@ -14,18 +14,19 @@ import { Client } from "pg";
 
 config({ path: ".env.local", quiet: true });
 
-const DB = process.env.DATABASE_URL;
+/** 與 app 同一個資料庫（沒設就是 app 的預設檔） */
+const DB = process.env.DATABASE_URL || "file:./data/ruincity.db";
 
 async function signIn(page: Page, who: string) {
-  const db = new Client({ connectionString: DB });
-  await db.connect();
+  const db = createClient({ url: DB, authToken: process.env.DATABASE_AUTH_TOKEN || undefined, timeout: 10_000 });
   const id = `e2e-${who}-${Date.now()}`;
-  await db.query("insert into auth_users (id, email, name) values ($1, $2, $3)", [id, `${id}@e2e.local`, who]);
-  await db.query("insert into auth_sessions (session_token, user_id, expires) values ($1, $2, now() + interval '1 day')", [
-    `tok-${id}`,
-    id,
-  ]);
-  await db.end();
+  await db.execute({ sql: "insert into auth_users (id, email, name) values (?, ?, ?)", args: [id, `${id}@e2e.local`, who] });
+  // 時間是毫秒整數（schema 的 timestamp_ms）
+  await db.execute({
+    sql: "insert into auth_sessions (session_token, user_id, expires) values (?, ?, ?)",
+    args: [`tok-${id}`, id, Date.now() + 86_400_000],
+  });
+  db.close();
   await page.context().addCookies([{ name: "authjs.session-token", value: `tok-${id}`, url: "http://127.0.0.1:3100" }]);
 }
 
@@ -66,7 +67,6 @@ test.describe("世界地圖", () => {
 });
 
 test.describe("一塊地圖的一生", () => {
-  test.skip(!DB, "需要 DATABASE_URL");
   test.setTimeout(300_000);
 
   test("★ 捐款 → 施工中只有數字 → 投票翻盤換模型 → 完工後才能進入", async ({ page, request }) => {

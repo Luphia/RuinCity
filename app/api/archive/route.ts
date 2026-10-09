@@ -13,7 +13,6 @@ import { db } from "@/lib/server/runtime";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!process.env.DATABASE_URL) return NextResponse.json({ blocks: [] });
   const blocks = await archiveIndex(db());
   return NextResponse.json(
     { format: "ruincity.archive-index/1", generatedAt: new Date().toISOString(), blocks },

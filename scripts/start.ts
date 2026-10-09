@@ -14,8 +14,8 @@ import "./load-env";
  *      任一個死掉就把另一個也收掉 —— 「web 活著但施工早就停了」是最難察覺的半殘狀態。
  *      捐款入帳時 web 自己也會立刻開工（`lib/server/kick.ts`），worker 是安全網。
  *
- * ★ 沒設 DATABASE_URL（或還是範本的佔位值）時照樣啟動 web，但要講出來 ——
- *   地圖、認領、繪製全部需要資料庫，畫面會顯示「資料庫未設定」。
+ * ★ 資料庫是 SQLite：沒設 DATABASE_URL 就用本機檔 `./data/ruincity.db`（第一次自動建立），
+ *   不需要先架任何資料庫伺服器。web 與 worker 兩個行程共用這個檔案（WAL + busy timeout）。
  *
  * ★ Vercel 不走這裡（它自己 serve build）。這個入口是給本機與自架的。
  */
@@ -25,6 +25,8 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+
+import { DEFAULT_DATABASE_URL } from "../lib/db/url";
 
 /** 這個專案的預設埠。與 `package.json` 的 dev／start:web 是同一個號碼 */
 const DEFAULT_PORT = 5000;
@@ -62,16 +64,6 @@ function whoHolds(port: number): string | null {
   } catch {
     return null;
   }
-}
-
-/** 沒設定資料庫（而不是設定壞了）的判準 —— 這是模式不是錯誤 */
-function databaseConfigured(): boolean {
-  const url = process.env.DATABASE_URL ?? "";
-  if (!url) return false;
-  if (url.includes("unset.invalid")) return false;
-  // 還是 .env.example 的範本值 —— 複製了檔案但沒填
-  if (url.includes("user:password@host.neon.tech")) return false;
-  return true;
 }
 
 async function main() {
@@ -113,20 +105,14 @@ async function main() {
     process.exit(1);
   }
 
-  const hasDb = databaseConfigured();
-
   // ── 2. migration ─────────────────────────────────────────
-  if (hasDb) {
-    log("初始化：資料庫 migration…");
-    const r = spawnSync("pnpm", ["db:migrate"], { stdio: "inherit" });
-    if (r.status !== 0) {
-      // migrate.ts 已經把「下一步該做什麼」印出來了，這裡不重複
-      console.error(`[start] migration 失敗 —— 修好上面那件事再啟動。`);
-      process.exit(r.status ?? 1);
-    }
-  } else {
-    log("⚠ 沒有設定 DATABASE_URL —— web 會啟動，但地圖、認領與繪製都需要資料庫。");
-    log("  要玩的話：cp .env.example .env.local 填入連線字串，然後 pnpm db:migrate。");
+  if (!process.env.DATABASE_URL) log(`沒有設定 DATABASE_URL —— 使用本機 SQLite：${DEFAULT_DATABASE_URL}`);
+  log("初始化：資料庫 migration…");
+  const r = spawnSync("pnpm", ["db:migrate"], { stdio: "inherit" });
+  if (r.status !== 0) {
+    // migrate.ts 已經把「下一步該做什麼」印出來了，這裡不重複
+    console.error(`[start] migration 失敗 —— 修好上面那件事再啟動。`);
+    process.exit(r.status ?? 1);
   }
 
   // ── 3. 啟動服務 ───────────────────────────────────────────
@@ -168,10 +154,8 @@ async function main() {
   };
 
   launch("web", "pnpm", ["exec", "next", "start", ...extraArgs]);
-  if (hasDb) {
-    process.env.WORKER_BASE_URL ??= `http://127.0.0.1:${port}`;
-    launch("worker", "pnpm", ["worker"]);
-  }
+  process.env.WORKER_BASE_URL ??= `http://127.0.0.1:${port}`;
+  launch("worker", "pnpm", ["worker"]);
 
   const shutdown = (sig: NodeJS.Signals) => {
     if (shuttingDown) return;

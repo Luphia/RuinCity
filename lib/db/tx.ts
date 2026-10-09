@@ -1,84 +1,26 @@
 /**
- * 交易連線。
+ * 交易。
  *
- * ## ★ 為什麼結算路徑不能用 `neon-http`
+ * ★ 所有會寫入的動作都走這裡：讀 → 算 → 寫必須是原子的，
+ *   否則併發的兩個請求會各自讀到舊狀態、各自扣一次錢。
  *
- * `@neondatabase/serverless` 的 HTTP driver **不支援交易** ——
- * 每一句 SQL 都是獨立的一次往返。這對 Auth 與唯讀查詢沒問題，
- * 但結算是「讀狀態 → 算 → 扣資源 → 排事件」四步，
- * 中間任何一步失敗都會留下半套狀態（扣了錢沒排事件、或反過來）。
+ * ## SQLite 怎麼守住「同一時間只有一個人改」
  *
- * 所以**任何會寫入的遊戲動作都必須走這裡**。
- * 這是 M0 就記在 `docs/07` §1 與 CLAUDE.md 的已知地雷。
+ * Postgres 用 `SELECT … FOR UPDATE` 鎖一列；SQLite 沒有列鎖，但 libSQL 的交易預設是
+ * `BEGIN IMMEDIATE`（mode `"write"`）：**一開始就拿到整個資料庫的寫入鎖**，
+ * 其他寫入者在 busy timeout 內排隊。所以交易裡讀到的就是最新的、而且在提交前不會被別人改。
  *
- * ## Driver 由 URL 決定
- *
- * Neon 端點 → `neon-serverless` 的 WebSocket pool。
- * 其餘（本機 docker、Supabase、RDS…）→ `node-postgres` 的 TCP pool。
- * 兩者都支援真正的交易，上面那個保證不變。理由見 `./driver.ts`。
+ * ★ 代價是寫入完全序列化 —— 交易裡**不可以**等外部 API（施工引擎用租約，不抱交易，見 `builder.ts`）。
  */
 
-import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
-import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
-import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
-import { Pool as PgPool } from "pg";
-
-import { isNeonUrl } from "./driver";
-import * as schema from "./schema";
-import * as authSchema from "./auth-schema";
-
-const fullSchema = { ...schema, ...authSchema };
-
-export type TxDb = ReturnType<typeof drizzleNeon<typeof fullSchema>>;
-
-type Client = ReturnType<typeof drizzleNeon<typeof fullSchema>>;
-
-let pool: NeonPool | PgPool | null = null;
-let client: Client | null = null;
+import { getDb, type Db } from "./index";
 
 /**
- * Edge / Node 都能跑。在 Node 環境下 `ws` 需要顯式指定，
- * 但 Next.js 的 Node runtime 從 v22 起有全域 WebSocket，所以不用額外套件。
+ * 寫入路徑拿到的資料庫：可以是整個連線，也可以是交易。兩者的查詢介面相同。
+ * （型別上收斂成 `Db`；交易物件在執行期提供同樣的方法）
  */
-function ensureClient(): Client {
-  if (client) return client;
+export type TxDb = Db;
 
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      "DATABASE_URL is not set. 結算路徑需要真實連線，請填 .env.local。",
-    );
-  }
-
-  if (isNeonUrl(url)) {
-    if (typeof WebSocket !== "undefined") neonConfig.webSocketConstructor = WebSocket;
-    const p = new NeonPool({ connectionString: url });
-    pool = p;
-    client = drizzleNeon(p, { schema: fullSchema });
-  } else {
-    const p = new PgPool({ connectionString: url });
-    pool = p;
-    client = drizzlePg(p, { schema: fullSchema }) as unknown as Client;
-  }
-
-  return client;
-}
-
-/**
- * 在一個交易裡跑一段程式。
- *
- * ★ 所有的遊戲寫入都應該經過這個函式，而不是直接用 `db`。
- * 讀 → 算 → 寫必須是原子的，否則併發的兩個請求會各自讀到舊狀態、
- * 各自扣一次錢（經典的 double-spend）。
- */
 export async function withTransaction<T>(fn: (tx: TxDb) => Promise<T>): Promise<T> {
-  return ensureClient().transaction(async (tx) => fn(tx as unknown as TxDb));
-}
-
-/** 測試與 graceful shutdown 用 */
-export async function closePool() {
-  if (!pool) return;
-  await pool.end();
-  pool = null;
-  client = null;
+  return getDb().transaction(async (tx) => fn(tx as unknown as TxDb));
 }

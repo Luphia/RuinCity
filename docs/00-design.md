@@ -332,7 +332,7 @@ BOLT 還沒有市價，SwarmStorage 的費用沒辦法「照實際行情」估�
 | 2 | **金流商** | 只有示範金流 | **營運方**選定並提供商店帳號 |
 | 3 | **稅務與名目**：「捐款」在台灣若屬公益勸募，受公益勸募條例規範；若是營業人收取的贊助或服務費，則為營業稅銷售額。預設以 5% 營業稅計 | 稅率可調 | **會計師／法務**確認營運主體身分與名目（「捐款」或「贊助」） |
 | 4 | **模型價格與型號**：費率與型號來自第三方彙整（官方頁面在開發環境連不到）；`gemini-2.5-flash-image` 據報已於 2026-10-02 停用，故預設用 3.1 | 集中在 `lib/world/pricing.ts`，改價要 bump `PRICING_VERSION` | 上線前對照官方價目表 |
-| 5 | **影像儲存**：站內副本存在 Postgres（`bytea`）。一塊約 35 MB，長期應改物件儲存（站內保存費預設即以 R2 級單價估）；異地保存已交給 SwarmStorage（§10） | 可運作，未最佳化 | 工程 |
+| 5 | **影像儲存**：站內副本存在 SQLite（`blob`）。一塊約 35 MB，長期應改物件儲存（站內保存費預設即以 R2 級單價估）；異地保存已交給 SwarmStorage（§10） | 可運作，未最佳化 | 工程 |
 | 6 | **內容審核**：留言可能夾帶不當要求；模型可能畫出不當內容 | 留言當建議處理；各家各自有安全過濾；暫停機制 | 營運方決定是否加人工審核 |
 | 8 | **保存費的參考價與 BOLT 匯率**：容量與請求以 AWS S3、手續費以 Ethereum 主網 gas 估（§5.5），都是查核日的快照；Ethereum gas 起伏很大。`BOLT_USD` 是假設值，只用來把 S3 parity 換成 BOLT 出價 —— 出價低於所有提供者的最低報價時抽不到人（`NoProviders`，畫面會顯示並自動重試） | 可設定 | **營運方**：定期查核 S3 與 gas；主網上線後依 BOLT 市價與提供者報價調整 |
 | 9 | **公開、去中心化的保存撤不回來**：場景包是公開的（不加密，才能讓任何人重建），而且任何人都能再複製一份。之後若被認定侵權（§7 #1 的街景衍生）或內容不當（#6），平台可以取消自己的委託，但無法讓已流出的副本消失 | 已知 | **法務**：上鏈前要先解決 #1；要不要在保存前加一道人工審核 |
@@ -352,7 +352,7 @@ BOLT 還沒有市價，SwarmStorage 的費用沒辦法「照實際行情」估�
 | IPFS | `lib/ipfs/pack.ts` | 決定性的 UnixFS 打包、CAR、拆包 |
 | SwarmStorage | `lib/swarm/` | 委託索引（與 Rust 版逐位元組相同）、合約計價、Boltchain 用戶端與示範用戶端 |
 | 伺服器 | `lib/server/` | 狀態推導、捐款、施工引擎、出圖閘門、長期保存（`archive.ts`）、畫面用的 view |
-| 資料庫 | `lib/db/schema.ts` | `blocks`、`donations`、`steps`、`artifacts`、`scene_files`、`scene_archives`、`scene_deals` |
+| 資料庫 | `lib/db/` | SQLite（libSQL）：`schema.ts`（`blocks`、`donations`、`steps`、`artifacts`、`scene_files`、`scene_archives`、`scene_deals`）、連線（`index.ts`）、行程內排隊（`serial.ts`）、位置（`url.ts`） |
 | 頁面 | `app/` | `/` 開場畫面、`/world` 世界地圖、`/b/[key]` 區塊、`/about`、`/donate/demo/[id]` |
 | API | `app/api/` | 區塊查詢、捐款、改票、出圖、場景包（CAR 與瀏覽）、保存索引、金流 webhook、排程施工 |
 | 工具 | `scripts/scene-verify.ts` | 從 CAR、Boltchain 閘道或資料夾驗證並解出場景包（`pnpm scene:verify`） |
@@ -378,6 +378,7 @@ BOLT 還沒有市價，SwarmStorage 的費用沒辦法「照實際行情」估�
 | 儲存方案使用 Boltchain swarm storage | §10.4 |
 | 授權採用 CC0，寫進 scene.json | §10.2、§7 #10 |
 | 開場畫面：從象山俯視荒廢的 101，有「進入城市」按鈕 | §11 |
+| 資料庫改為使用 SQLite | §12 |
 | 儲存費用參考 Ethereum gas fee 與 AWS S3 收費 | §5.5 |
 
 ---
@@ -479,3 +480,22 @@ Boltchain 的 `storage put` 會用 bolt-vault 加密（只有委託者能解）�
 | 直式螢幕以 `focusX`（101 在畫面中的水平位置）為中心裁切 | 手機上塔不會被切掉 |
 | **還沒畫之前只有霧色的底與文字**；示範模式拒絕畫開場圖 | 畫面必須擬真 —— 寧可沒有圖，也不放插畫或示範圖頂替 |
 | 由平台付費（約一張場景圖，Gemini 約 US$0.04），授權 CC0 | 不屬於任何一塊，不從捐款扣 |
+
+---
+
+## 12. 資料庫：SQLite（libSQL）
+
+| 決定 | 理由 |
+| --- | --- |
+| **SQLite**，驅動用 libSQL（`@libsql/client` + drizzle 的 `libsql`） | 不必先架資料庫伺服器：沒設 `DATABASE_URL` 就是 `./data/ruincity.db`，`pnpm start` 一個指令就能跑。libSQL 同時支援本機檔與遠端（Turso），程式碼只有一份 |
+| 部署到 serverless（Vercel）**必須**用遠端 libSQL（`libsql://…` + `DATABASE_AUTH_TOKEN`） | 每個執行個體的檔案系統是暫時的；沒設時第一次查詢就講清楚原因，而不是默默寫進會消失的檔案 |
+| 時間存毫秒整數、列舉是 text + CHECK、JSON 是 text、位元組是 blob | SQLite 沒有 `timestamptz`／enum／`jsonb`／`bytea`。CHECK 約束與部分唯一索引（「同一步只能成功一次」）SQLite 都支援，照樣守在資料庫裡 |
+| 交易是 `BEGIN IMMEDIATE`，取代 Postgres 的 `SELECT … FOR UPDATE` | 交易一開始就拿到整個資料庫的寫入鎖：同一筆付款通知同時送到三次，只會入帳一次（整合測試） |
+| 行程內先排隊（`lib/db/serial.ts`） | libSQL 的本機驅動是同步的：同一行程裡一條連線拿著交易、另一條在 SQLite 的 busy handler 裡等，會把事件迴圈卡死到逾時。行程內用一把非同步的鎖排隊；跨行程（`pnpm db:migrate` 與 web）才交給 WAL + busy timeout（10 秒） |
+| 整合測試用暫存的 SQLite **檔**，不是 `:memory:` | libSQL 的交易會借一條專屬連線，而 in-memory 資料庫只存在於開它的那一條連線上 |
+
+代價與限制：
+
+- **寫入完全序列化**。一塊地圖的施工一步要幾十秒，但那段時間不抱交易（租約，§2.4），所以序列化的只有毫秒級的帳務寫入。
+- **Postgres 的舊資料不會自動搬過來**：migration 從頭重新產生（`drizzle/0000_*.sql`）。改版前的資料庫只在開發與測試用過；若有需要保留的資料，要另外匯出匯入。
+- 圖存在資料庫的 blob 裡（§7 #5）。SQLite 單一檔案可以到 TB 級，但備份與遠端 libSQL 的容量計費要留意；長期仍建議改物件儲存。

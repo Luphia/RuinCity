@@ -19,7 +19,6 @@ export async function GET(req: Request) {
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!process.env.DATABASE_URL) return NextResponse.json({ ok: true, skipped: "no database" });
   const start = Date.now();
   const deps = await builderDeps(`cron-${randomUUID().slice(0, 8)}`);
   const r = await runBuilder(deps, { deadline: start + 35_000 });

@@ -57,3 +57,6 @@ next-env.d.ts
 
 # 開發用的暫存腳本
 /scratch-*.ts
+
+# 本機 SQLite（DATABASE_URL 沒設時的預設位置）
+/data/

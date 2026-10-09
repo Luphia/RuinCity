@@ -1,28 +1,19 @@
 /**
- * Auth.js v5 所需的表。與遊戲的 `users` 表分開：
- * Auth.js 管身分，`users` 管跨賽季的傳承與頭銜，兩者以 email 對應。
- *
- * 不做訪客帳號 —— 12 天的賽季需要一個能收推播、
- * 能在第 11 日報名下一場、能延續傳承的真實身分。
+ * Auth.js v5 所需的表（SQLite 版，`@auth/drizzle-adapter` 的 SQLite 結構）。
+ * 時間是毫秒整數（`timestamp_ms`）。
  */
 
-import {
-  integer,
-  pgTable,
-  primaryKey,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const authUsers = pgTable("auth_users", {
+export const authUsers = sqliteTable("auth_users", {
   id: text("id").primaryKey(),
   name: text("name"),
   email: text("email").notNull().unique(),
-  emailVerified: timestamp("email_verified", { withTimezone: true }),
+  emailVerified: integer("email_verified", { mode: "timestamp_ms" }),
   image: text("image"),
 });
 
-export const authAccounts = pgTable(
+export const authAccounts = sqliteTable(
   "auth_accounts",
   {
     userId: text("user_id")
@@ -42,20 +33,20 @@ export const authAccounts = pgTable(
   (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] })],
 );
 
-export const authSessions = pgTable("auth_sessions", {
+export const authSessions = sqliteTable("auth_sessions", {
   sessionToken: text("session_token").primaryKey(),
   userId: text("user_id")
     .notNull()
     .references(() => authUsers.id, { onDelete: "cascade" }),
-  expires: timestamp("expires", { withTimezone: true }).notNull(),
+  expires: integer("expires", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const authVerificationTokens = pgTable(
+export const authVerificationTokens = sqliteTable(
   "auth_verification_tokens",
   {
     identifier: text("identifier").notNull(),
     token: text("token").notNull(),
-    expires: timestamp("expires", { withTimezone: true }).notNull(),
+    expires: integer("expires", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.identifier, t.token] })],
 );

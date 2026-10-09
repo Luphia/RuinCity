@@ -101,7 +101,7 @@ export async function createDonation(
       blockId,
       donorId: input.donorId,
       amountTwd: input.amountTwd,
-      twdPerUsd: String(input.config.twdPerUsd),
+      twdPerUsd: input.config.twdPerUsd,
       vote: input.vote,
       wish: cleanWish(input.wish),
       processor: input.processor,
@@ -127,6 +127,8 @@ export type ConfirmResult =
  * ★ 冪等：同一筆通知重送，第二次只回 `alreadyPaid`。
  * ★ 金額對不上就拒收 —— webhook 說付了 NT$30、訂單是 NT$3,000，那不是捐款，是攻擊。
  * ★ 匯率用**建立訂單時**的快照：捐款人看到的換算，和入帳的換算要是同一個。
+ * ★ 要在交易裡呼叫（`withTransaction`）。SQLite 沒有 `SELECT … FOR UPDATE`；
+ *   libSQL 的交易是 `BEGIN IMMEDIATE`，一開始就拿到寫入鎖，同一筆通知重送兩次也只會入帳一次。
  */
 export async function confirmDonation(
   db: TxDb,
@@ -142,8 +144,7 @@ export async function confirmDonation(
   const [d] = await db
     .select()
     .from(schema.donations)
-    .where(and(eq(schema.donations.processor, input.processor), eq(schema.donations.processorRef, input.processorRef)))
-    .for("update");
+    .where(and(eq(schema.donations.processor, input.processor), eq(schema.donations.processorRef, input.processorRef)));
   if (!d) return { ok: false, reason: "NOT_FOUND" };
   if (d.status === "PAID") return { ok: true, blockId: d.blockId, alreadyPaid: true };
   if (d.status !== "PENDING") return { ok: false, reason: "NOT_PENDING" };

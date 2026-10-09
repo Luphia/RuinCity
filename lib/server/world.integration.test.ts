@@ -14,7 +14,7 @@ import { readArtifact, listArtifacts } from "./artifacts";
 import { loadBlockState, type StateDeps } from "./blocks";
 import { runBlock, runOneStep, type BuilderDeps } from "./builder";
 import { attachProcessorRef, confirmDonation, createDonation, setMyVote } from "./donations";
-import { createHarness, seedUser, type Harness } from "./testing/pg-harness";
+import { createHarness, seedUser, type Harness } from "./testing/db-harness";
 
 const cfg = DEFAULT_BUDGET_CONFIG;
 const stateDeps: StateDeps = { enabled: [...PROVIDER_ORDER], fallback: "google", config: cfg };
@@ -111,6 +111,23 @@ describe("捐款", () => {
     const s = await state(key);
     expect(s!.donationCount).toBe(1);
     expect(s!.budget.grossReceivedMicros).toBe(15_625_000);
+  });
+
+  it("★ 同一筆付款通知同時送到兩次（兩條連線、兩個交易）：只入帳一次", async () => {
+    // Postgres 版靠 SELECT … FOR UPDATE；SQLite 靠 BEGIN IMMEDIATE 把兩個交易排成先後
+    const donor = await seedUser(h);
+    const key = "25.06_121.56";
+    const r = await createDonation(h.db, { blockKey: key, donorId: donor, amountTwd: 400, vote: null, processor: "demo", enabled: [...PROVIDER_ORDER], config: cfg });
+    if (!r.ok) throw new Error("create failed");
+    await attachProcessorRef(h.db, r.donationId, "ref-race");
+    const confirm = () =>
+      h.tx((tx) => confirmDonation(tx, { processor: "demo", processorRef: "ref-race", amountTwd: 400, now: now(), config: cfg }));
+    const results = await Promise.all([confirm(), confirm(), confirm()]);
+    expect(results.filter((x) => x.ok && !x.alreadyPaid)).toHaveLength(1);
+    expect(results.filter((x) => x.ok && x.alreadyPaid)).toHaveLength(2);
+    const s = await state(key);
+    expect(s!.donationCount).toBe(1);
+    expect(s!.budget.grossReceivedMicros).toBe(12_500_000);
   });
 
   it("★ 一筆捐款一張票；可以整批改投或撤回", async () => {

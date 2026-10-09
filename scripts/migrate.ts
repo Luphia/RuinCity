@@ -1,142 +1,100 @@
 /**
- * 套用 migration。
+ * 套用 migration（SQLite／libSQL）。
  *
  *   pnpm db:migrate
  *
+ * `DATABASE_URL` 沒設時用本機檔 `./data/ruincity.db`（資料夾會自動建立），見 `lib/db/url.ts`。
+ *
  * ## ★ 為什麼不直接用 `drizzle-kit migrate`
  *
- * 它**把錯誤吞掉了**。連不上資料庫、SQL 撞到既有物件、密碼錯 ——
- * 全部長成同一個樣子：
- *
- *     [⣷] applying migrations... ELIFECYCLE  Command failed with exit code 1
- *
- * 沒有訊息、沒有堆疊、沒有是哪一支 migration。第一次架環境的人
- * 只能靠猜，而最常見的原因（`.env.example` 的 placeholder 沒換掉）
- * 剛好是最容易一眼看穿、卻完全沒被說出來的那一個。
- *
- * 這支腳本用 `drizzle-orm` 的 migrator 做同一件事 ——
- * 同一個 `drizzle/` 資料夾、同一張 `drizzle.__drizzle_migrations` 紀錄表，
- * 所以與 `drizzle-kit generate` 完全相容 —— 但錯誤會照實印出來。
+ * 它**把錯誤吞掉了**：連不上、權杖錯、SQL 撞到既有物件，全部長成
+ * `ELIFECYCLE Command failed with exit code 1`，沒有訊息。
+ * 這支腳本用 `drizzle-orm` 的 migrator 做同一件事 —— 同一個 `drizzle/` 資料夾、
+ * 同一張 `__drizzle_migrations` 紀錄表 —— 但錯誤會照實印出來，並講出下一步。
  */
 
 // ★ 一定要是第一個 import —— 理由見該檔案
 import "./load-env";
 
-import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
-import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
-import { migrate as migrateNeon } from "drizzle-orm/neon-serverless/migrator";
-import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
-import { migrate as migratePg } from "drizzle-orm/node-postgres/migrator";
-import { Pool as PgPool } from "pg";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+import { migrate } from "drizzle-orm/libsql/migrator";
 
-import { isNeonUrl } from "../lib/db/driver";
-
-/** `.env.example` 裡的假值。原封不動貼過去是第一次架環境最常見的失手 */
-const PLACEHOLDER_HOST = "host.neon.tech";
-
-/**
- * 這個錯誤是「連不上」還是「SQL 有問題」？
- *
- * ★ 要走 cause 鏈。Neon 的 WebSocket 失敗丟的是一個 `ErrorEvent`
- *   （`console.error` 出來只有 `{ type: 'error', timeStamp: 832 }`），
- *   但 drizzle 會把它包進 `DrizzleQueryError` —— 只看最外層那一顆
- *   會判成一般的查詢錯誤，然後給出完全誤導的建議。
- */
-function looksLikeConnectionFailure(e: unknown): boolean {
-  const seen = new Set<unknown>();
-  let cur: unknown = e;
-  while (cur && typeof cur === "object" && !seen.has(cur)) {
-    seen.add(cur);
-    // 未包裝的 ErrorEvent：有 type 但不是 Error
-    if (!(cur instanceof Error) && "type" in cur) return true;
-    const msg = cur instanceof Error ? cur.message : "";
-    if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|password authentication|SASL|terminat/i.test(msg)) {
-      return true;
-    }
-    cur = (cur as { cause?: unknown }).cause;
-  }
-  return false;
-}
+import { BUSY_TIMEOUT_MS, databaseUrl, ensureLocalDir, isLocalFile, localPath } from "../lib/db/url";
 
 function fail(lines: string[]): never {
   console.error("\n" + lines.join("\n") + "\n");
   process.exit(1);
 }
 
+/** 走 cause 鏈找錯誤訊息（drizzle 會把 driver 的錯誤包起來） */
+function messages(e: unknown): string {
+  const out: string[] = [];
+  const seen = new Set<unknown>();
+  let cur: unknown = e;
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    if (cur instanceof Error) out.push(cur.message);
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return out.join(" ← ");
+}
+
 async function main() {
-  const url = process.env.DATABASE_URL;
-
-  if (!url) {
-    fail([
-      "DATABASE_URL 沒有設定。",
-      "",
-      "  cp .env.example .env.local     # 沒有這個檔案的話直接建 .env.local",
-      '  DATABASE_URL="postgresql://user:pass@ep-xxx.aws.neon.tech/dbname?sslmode=require"',
-    ]);
-  }
-
-  if (url.includes(PLACEHOLDER_HOST)) {
-    fail([
-      `DATABASE_URL 還是 .env.example 的範例值（${PLACEHOLDER_HOST}）。`,
-      "",
-      "兩條路都可以：",
-      "  · Neon：https://console.neon.tech 開一個免費專案，貼 connection string",
-      "  · 本機：docker run -e POSTGRES_PASSWORD=ruincity -p 5432:5432 -d postgres:17",
-      '           DATABASE_URL="postgresql://postgres:ruincity@127.0.0.1:5432/postgres"',
-    ]);
-  }
-
-  // 只印 host，不印帳密
-  let host = "(無法解析)";
+  let url: string;
   try {
-    host = new URL(url).host;
-  } catch {
-    fail([
-      "DATABASE_URL 不是合法的 URL。",
-      "",
-      "格式：postgresql://user:pass@host/dbname?sslmode=require",
-      "（密碼裡有 `@` 或 `/` 之類的字元時要 percent-encode）",
-    ]);
+    url = databaseUrl();
+  } catch (e) {
+    fail([e instanceof Error ? e.message : String(e)]);
   }
 
-  const neon = isNeonUrl(url);
-  console.log(`\n連線到 ${host}（${neon ? "neon-serverless" : "node-postgres"}）…`);
-
-  const pool = neon
-    ? new NeonPool({ connectionString: url })
-    : new PgPool({ connectionString: url });
-  if (neon && typeof WebSocket !== "undefined") neonConfig.webSocketConstructor = WebSocket;
-
-  try {
-    if (neon) {
-      await migrateNeon(drizzleNeon(pool as NeonPool), { migrationsFolder: "drizzle" });
-    } else {
-      await migratePg(drizzlePg(pool as PgPool), { migrationsFolder: "drizzle" });
+  const local = isLocalFile(url);
+  // 只印位置，不印權杖
+  let where = url;
+  if (local) where = localPath(url);
+  else {
+    try {
+      where = new URL(url).host;
+    } catch {
+      fail(["DATABASE_URL 不是合法的網址。", "", "本機：file:./data/ruincity.db", "遠端：libsql://<資料庫>-<帳號>.turso.io（配 DATABASE_AUTH_TOKEN）"]);
     }
+  }
+  console.log(`\n資料庫：${local ? "SQLite 檔" : "遠端 libSQL"} ${where}`);
+
+  try {
+    ensureLocalDir(url);
+  } catch (e) {
+    fail([`建不了資料夾：${messages(e)}`, "", "換一個有寫入權限的位置：DATABASE_URL=\"file:/某個可寫的路徑/ruincity.db\""]);
+  }
+
+  const client = createClient({
+    url,
+    authToken: process.env.DATABASE_AUTH_TOKEN || undefined,
+    timeout: BUSY_TIMEOUT_MS,
+  });
+  try {
+    if (local) await client.execute("PRAGMA journal_mode = WAL");
+    await migrate(drizzle(client), { migrationsFolder: "drizzle" });
     console.log("migration 套用完成。\n");
   } catch (e) {
-    if (looksLikeConnectionFailure(e)) {
-      fail([
-        `連不上 ${host}。`,
-        "",
-        "常見原因：",
-        ...(neon
-          ? [
-              "  · connection string 打錯，或專案已被 Neon 休眠/刪除",
-              "  · 少了 `?sslmode=require`",
-              "  · 網路擋掉了 WebSocket（Neon 的 serverless driver 走 wss）",
-            ]
-          : [
-              "  · Postgres 沒在跑，或 port 不對",
-              "  · 帳號密碼錯，或那個資料庫還不存在（createdb ruincity）",
-            ]),
-      ]);
+    const msg = messages(e);
+    if (/SQLITE_BUSY|database is locked/i.test(msg)) {
+      fail([`資料庫被鎖住了（${where}）。`, "", "另一個行程正在寫它（例如還開著的 pnpm dev／pnpm start）。關掉再試一次。"]);
+    }
+    if (/SQLITE_CANTOPEN|unable to open/i.test(msg)) {
+      fail([`開不了資料庫檔 ${where}。`, "", "檢查路徑與寫入權限。"]);
+    }
+    if (/401|403|unauthori[sz]ed|auth/i.test(msg) && !local) {
+      fail([`遠端 libSQL 拒絕連線（${where}）。`, "", "DATABASE_AUTH_TOKEN 沒設或過期：turso db tokens create <資料庫>"]);
+    }
+    if (/ENOTFOUND|ECONNREFUSED|fetch failed|getaddrinfo/i.test(msg) && !local) {
+      fail([`連不上 ${where}。`, "", "檢查網址與網路；Turso 的網址長得像 libsql://<資料庫>-<帳號>.turso.io"]);
     }
     console.error("\nmigration 失敗：");
     console.error(e);
     process.exit(1);
   } finally {
-    await pool.end().catch(() => undefined);
+    client.close();
   }
 }
 
