@@ -8,6 +8,13 @@
       "when": 1791537235414,
       "tag": "0000_friendly_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791539169496,
+      "tag": "0001_pretty_post",
+      "breakpoints": true
     }
   ]
 }

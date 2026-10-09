@@ -136,7 +136,7 @@ export const donations = pgTable(
     index("donations_donor_idx").on(t.donorId),
     uniqueIndex("donations_processor_ref_uq").on(t.processor, t.processorRef),
     check("donations_amount_positive", sql`${t.amountTwd} > 0`),
-    check("donations_vote_known", sql`${t.vote} IS NULL OR ${t.vote} IN ('google','openai','anthropic')`),
+    check("donations_vote_known", sql`${t.vote} IS NULL OR ${t.vote} IN ('google','openai')`),
   ],
 );
 

@@ -66,34 +66,6 @@ export async function imageDimensions(img: ImageBytes): Promise<{ width: number;
   return { width: m.width ?? 0, height: m.height ?? 0 };
 }
 
-/**
- * 從模型的回答裡取出 SVG 並淨化。
- *
- * 白名單太難維護（SVG 的元素與屬性幾百個），所以用黑名單擋掉**會往外伸手**的東西：
- * 腳本、事件屬性、外部參照、foreignObject（可以嵌 HTML）、DOCTYPE/ENTITY（XXE）。
- * 點陣化交給 librsvg —— 它本來就不執行腳本，這裡是第二道。
- */
-export function extractSvg(text: string): string | null {
-  const start = text.search(/<svg[\s>]/i);
-  const end = text.lastIndexOf("</svg>");
-  if (start < 0 || end < start) return null;
-  let svg = text.slice(start, end + "</svg>".length);
-  svg = svg
-    .replace(/<!DOCTYPE[\s\S]*?>/gi, "")
-    .replace(/<!ENTITY[\s\S]*?>/gi, "")
-    .replace(/<script[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<script[^>]*\/>/gi, "")
-    .replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    // 只允許指向同一份文件內部（#id）或內嵌 data: 的參照
-    .replace(/\s(?:xlink:)?href\s*=\s*("(?!#|data:image\/)[^"]*"|'(?!#|data:image\/)[^']*')/gi, "")
-    .replace(/url\(\s*(['"]?)(?!#)[^)]*\1\s*\)/gi, "none");
-  if (!svg.includes('xmlns="http://www.w3.org/2000/svg"')) {
-    svg = svg.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
-  }
-  return svg;
-}
-
 export async function rasterizeSvg(svg: string, aspect: Aspect): Promise<ImageBytes> {
   const { width, height } = aspectSize(aspect);
   const png = await sharp(Buffer.from(svg), { density: 144, limitInputPixels: 64_000_000 })

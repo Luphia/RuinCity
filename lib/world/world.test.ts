@@ -21,8 +21,10 @@ import {
 } from "./grid";
 import {
   MODEL_PROFILES,
+  PAINTERS,
   PROVIDER_ORDER,
   REFERENCE_FEE_MICROS,
+  isPainterId,
   supports,
   usageCostMicros,
   type ProviderId,
@@ -50,6 +52,7 @@ import {
   wishesText,
 } from "./prompts";
 import { chooseViewpoints } from "./survey";
+import { BIBLE_VERSION } from "./bible";
 
 describe("經緯度網格", () => {
   it("★ 臺北 101 落在 25.03_121.56 —— 世界的原點", () => {
@@ -143,9 +146,10 @@ describe("價格與施工計畫", () => {
     expect(usageCostMicros(g.rates, { textIn: 0, imageIn: 0, textOut: 0, imageOut: 1120 })).toBe(67_200);
   });
 
-  it("每一家做得了的步驟都有先驗；GPT Image 不寫文字", () => {
+  it("每一家做得了的步驟都有先驗；畫師都畫得了每一種圖，Claude 只寫參數", () => {
     expect([...PROVIDER_ORDER].sort()).toEqual(Object.keys(MODEL_PROFILES).sort());
-    for (const id of PROVIDER_ORDER) {
+    expect(PAINTERS).toEqual(["google", "openai"]);
+    for (const id of PAINTERS) {
       for (const k of ["SCENE", "TILE", "DSM", "TEXTURE"] as const) {
         expect(supports(id, k), `${id} ${k}`).toBe(true);
         const cost = usageCostMicros(MODEL_PROFILES[id].rates, MODEL_PROFILES[id].typical[k]!);
@@ -156,6 +160,9 @@ describe("價格與施工計畫", () => {
     expect(supports("openai", "PARAMS")).toBe(false);
     expect(supports("google", "PARAMS")).toBe(true);
     expect(supports("anthropic", "PARAMS")).toBe(true);
+    for (const k of ["SCENE", "TILE", "DSM", "TEXTURE"] as const) expect(supports("anthropic", k)).toBe(false);
+    expect(isPainterId("anthropic")).toBe(false);
+    expect(isPainterId("openai")).toBe(true);
   });
 
   it("★ 施工順序：勘查 → 參數 → 100 張場景 → 底圖 → 3D → 8 張材質", () => {
@@ -205,14 +212,14 @@ describe("依捐款金額加權投票", () => {
   it("★ 權重是錢不是人頭：一位捐 300 的勝過兩位各捐 100", () => {
     const t = tallyVotes(
       [
-        { donorId: "a", paidMicros: 300, vote: "anthropic" },
+        { donorId: "a", paidMicros: 300, vote: "google" },
         { donorId: "b", paidMicros: 100, vote: "openai" },
         { donorId: "c", paidMicros: 100, vote: "openai" },
       ],
       enabled,
-      "google",
+      "openai",
     );
-    expect(t.winner).toBe("anthropic");
+    expect(t.winner).toBe("google");
     expect(t.weights.openai).toBe(200);
     expect(t.decidedBy).toBe("VOTES");
   });
@@ -234,10 +241,10 @@ describe("依捐款金額加權投票", () => {
   it("沒有人投票就用平台預設；預設停用時用第一個可用的", () => {
     const t0 = tallyVotes([{ donorId: "a", paidMicros: 5, vote: null }], enabled, "openai");
     expect(t0.winner).toBe("openai");
-    expect(t0.ranking).toEqual(["openai", "google", "anthropic"]);
+    expect(t0.ranking).toEqual(["openai", "google"]);
     expect(t0.decidedBy).toBe("DEFAULT");
-    const t = tallyVotes([], ["anthropic"], "google");
-    expect(t.winner).toBe("anthropic");
+    const t = tallyVotes([], ["openai", "anthropic"], "google");
+    expect(t.winner).toBe("openai");
     expect(t.decidedBy).toBe("DEFAULT");
   });
 
@@ -248,7 +255,7 @@ describe("依捐款金額加權投票", () => {
         { donorId: "b", paidMicros: 100, vote: "google" },
       ],
       ["google", "anthropic"],
-      "anthropic",
+      "google",
     );
     expect(t.weights.openai).toBe(900);
     expect(t.winner).toBe("google");
@@ -257,28 +264,33 @@ describe("依捐款金額加權投票", () => {
   it("平手依固定順位，不是隨機", () => {
     const t = tallyVotes(
       [
-        { donorId: "a", paidMicros: 100, vote: "anthropic" },
-        { donorId: "b", paidMicros: 100, vote: "openai" },
+        { donorId: "a", paidMicros: 100, vote: "openai" },
+        { donorId: "b", paidMicros: 100, vote: "google" },
       ],
       enabled,
-      "google",
+      "openai",
     );
-    expect(t.winner).toBe("openai");
+    expect(t.winner).toBe("google");
   });
 
-  it("★ GPT Image 贏了也寫不了地圖參數：那一步交給排名下一家", () => {
+  it("★ 畫面必須擬真：只有影像模型能被投，Claude 只當勘查員寫地圖參數", () => {
     const t = tallyVotes(
       [
         { donorId: "a", paidMicros: 900, vote: "openai" },
-        { donorId: "b", paidMicros: 100, vote: "anthropic" },
+        { donorId: "b", paidMicros: 100, vote: "google" },
       ],
       enabled,
       "google",
     );
-    expect(t.ranking).toEqual(["openai", "anthropic", "google"]);
+    expect(t.ranking).toEqual(["openai", "google"]);
+    expect(t.ranking).not.toContain("anthropic");
+    expect(t.surveyor).toBe("anthropic");
     expect(pickFor(t, "SCENE")).toBe("openai");
+    expect(pickFor(t, "TEXTURE")).toBe("openai");
     expect(pickFor(t, "PARAMS")).toBe("anthropic");
-    expect(pickFor(t, "SURVEY")).toBe("openai");
+    // 沒有 Claude 時由 Gemini 勘查；都沒有就是 null（預設參數，不花錢）
+    expect(tallyVotes([], ["openai", "google"], "google").surveyor).toBe("google");
+    expect(tallyVotes([], ["openai"], "openai").surveyor).toBeNull();
   });
 
   it("一家都沒有啟用時誰也不能畫", () => {
@@ -345,6 +357,21 @@ describe("繪製工作", () => {
     expect(job.output).toBe("image");
     expect((job.parts[0] as { text: string }).text).toContain("One Thousand Years After");
     expect(images(job)).toEqual([{ type: "streetview", viewpoint: 7 }]);
+  });
+
+  it("★ 畫面必須擬真：每一種出圖都帶相機與光線的規格，並明列不要的畫風", () => {
+    const scene = JSON.stringify(sceneJob({ block: ORIGIN_BLOCK, viewpoint: vp, viewpointIndex: 0 }));
+    const tile = JSON.stringify(tileJob({ block: ORIGIN_BLOCK, scenes: 0, neighbors: [] }));
+    const tex = JSON.stringify(textureJob({ block: ORIGIN_BLOCK, material: "moss", textureIndex: 0, scenes: 0 }));
+    for (const t of [scene, tile, tex]) {
+      expect(t).toContain("indistinguishable from a real, unedited photograph");
+      expect(t).toContain("concept art");
+    }
+    expect(scene).toContain("24–35 mm");
+    expect(tile).toContain("orthophoto");
+    expect(tile).toContain("satellite image");
+    expect(tex).toContain("photogrammetry");
+    expect(BIBLE_VERSION).toBe("2");
   });
 
   it("★ 101 只在看得到的距離內被提起", () => {

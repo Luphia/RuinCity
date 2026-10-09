@@ -3,7 +3,7 @@ import Link from "next/link";
 import { budgetConfig } from "@/lib/server/config";
 import { BIBLE_SUMMARY_ZH } from "@/lib/world/bible";
 import { MAX_SCENES, TEXTURES_PER_BLOCK } from "@/lib/world/plan";
-import { MODEL_PROFILES, PROVIDER_ORDER } from "@/lib/world/pricing";
+import { MODEL_PROFILES, PAINTERS, SURVEYORS } from "@/lib/world/pricing";
 
 export const metadata = { title: "怎麼運作" };
 
@@ -50,20 +50,27 @@ export default function About() {
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-bold">誰來畫：依捐款金額投票</h2>
         <p className="text-ash">
-          每一筆捐款都可以選一家模型（也可以不投）。每一個施工步驟開工的那一刻計票，
-          得票金額最高、而且做得了這一步的那一家來畫。所以施工途中只要有人捐款改變了票數，
-          下一步就會換模型 —— 一塊地圖裡出現好幾種畫風，是設計的一部分。
+          每一筆捐款都可以選一家模型（也可以不投）。每一張圖開工的那一刻計票，
+          得票金額最高的那一家來畫。所以施工途中只要有人捐款改變了票數，
+          下一張就會換模型 —— 同一塊裡會有兩家的筆觸，是設計的一部分。
         </p>
         <ul className="text-ash list-disc pl-5">
-          {PROVIDER_ORDER.map((p) => (
+          {PAINTERS.map((p) => (
             <li key={p}>
               {MODEL_PROFILES[p].company} · {MODEL_PROFILES[p].displayName}
-              {MODEL_PROFILES[p].medium === "vector" ? "（畫的是向量插畫，不是照片）" : ""}
-              {!MODEL_PROFILES[p].canWriteText ? "（只會出圖；地圖參數那一步交給排名下一家）" : ""}
             </li>
           ))}
         </ul>
         <p className="text-ash">同票時依上面的順序決定；沒有任何人投票時用平台預設。</p>
+        <p className="text-ash">
+          <b className="text-parchment">畫面必須擬真。</b>
+          每一張圖都要看起來像在現場拍的照片：地面是紀實攝影、地圖是航測正射影像、材質是掃描貼圖，
+          不是插畫、不是概念圖、不是遊戲畫面。只有畫得出照片的模型能被投票。
+        </p>
+        <p className="text-ash">
+          「地圖參數」那一步只寫設定、不出圖，由勘查員負責，不參與投票：
+          {SURVEYORS.map((p) => MODEL_PROFILES[p].displayName).join("，沒有的話由 ")}；兩家都沒有就用預設參數。
+        </p>
       </section>
 
       <section className="flex flex-col gap-2">

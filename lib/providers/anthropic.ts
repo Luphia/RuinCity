@@ -1,16 +1,16 @@
 /**
- * Anthropic：Claude 畫**向量插畫**。
+ * Anthropic：Claude 是**勘查員**，不畫圖。
  *
- * ★ Claude 不輸出點陣影像。它看得懂參考照（視覺輸入），然後寫出一份 SVG ——
- *   伺服器淨化、點陣化成 PNG（`image.ts`）。成品是插畫風格，
- *   和 Gemini、GPT Image 的寫實影像明顯不同。這一點寫在投票選項上
- *   （`pricing.ts` 的 `medium: "vector"`），捐款人投它就是選了這種畫風。
+ * ★ 畫面必須擬真，而 Claude 不輸出點陣影像 —— 所以它不在投票名單上（`PAINTERS`）。
+ *   它做它最擅長的那一步：看今天的衛星影像與幾張街景，寫出這一塊的
+ *   **地圖參數**（JSON）——水位、植被、地標、每個標記點的說明、材質清單。
+ *   後面一百多張圖不論出自哪一家，都對齊這份設定。
  *
  * 模型：Claude Opus 5.5。思考恆開（這個模型不能關），努力程度設 `medium`
- * —— 畫一張插畫不是需要最深推理的工作，而 token 就是捐款人的錢。
+ * —— 這一步要讀圖與推理，但不是需要最深推理的工作，而 token 就是捐款人的錢。
  *
  * ★ 開啟伺服器端 fallback（`fallbacks: "default"`）：安全分類器偶爾會誤擋
- *   一張「廢墟」的請求；有 fallback 時由另一個模型接手，而不是整步失敗。
+ *   一個「廢墟」的請求；有 fallback 時由另一個模型接手，而不是整步失敗。
  *   帳記在**實際服務的模型**身上（`response.model`）。
  */
 
@@ -20,7 +20,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { MODEL_PROFILES, type TokenUsage } from "@/lib/world/pricing";
 
-import { aspectSize, extractSvg, imageDimensions, rasterizeSvg } from "./image";
+import { imageDimensions } from "./image";
 import { PainterError, toBase64, redact, type PaintRequest, type PaintResult, type Painter } from "./painter";
 
 type MediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -28,14 +28,6 @@ type MediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 const SUPPORTED: readonly string[] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 const SYSTEM_TEXT = `You are the surveyor for a shared world map. Follow the output format you are given exactly.`;
-
-const SYSTEM_SVG = `You are an illustrator for a shared world map. You draw by writing SVG.
-Respond with exactly one complete, self-contained <svg> document and nothing else — no Markdown fences, no explanation.
-Rules for the SVG:
-- Use the exact viewBox you are given. Fill the entire canvas edge to edge.
-- Build texture and depth with layered shapes, gradients and SVG filters (feTurbulence, feDisplacementMap, feGaussianBlur) rather than flat colours.
-- No <text>, no <image>, no <script>, no <foreignObject>, no external references of any kind.
-- Keep the file under about 60 KB.`;
 
 /** Claude 的影像 token 約等於 寬×高/750（官方文件的估算式） */
 function imageTokens(dim: { width: number; height: number }): number {
@@ -49,7 +41,10 @@ export function anthropicPainter(apiKey: string, client?: Anthropic): Painter {
     provider: "anthropic",
     model,
     async paint(req: PaintRequest, signal?: AbortSignal): Promise<PaintResult> {
-      const { width, height } = aspectSize(req.aspect);
+      if (req.output !== "text") {
+        // 施工引擎只會把 PARAMS 交給勘查員（`vote.pickFor`）—— 走到這裡是程式錯誤
+        throw new PainterError("BAD_REQUEST", "Claude 只寫地圖參數，不出圖");
+      }
       let estimatedImageTokens = 0;
       const content: Anthropic.Beta.BetaContentBlockParam[] = [];
       for (const p of req.parts) {
@@ -66,13 +61,6 @@ export function anthropicPainter(apiKey: string, client?: Anthropic): Painter {
           source: { type: "base64", media_type: p.image.mime as MediaType, data: toBase64(p.image.data) },
         });
       }
-      if (req.output === "image") {
-        content.push({
-          type: "text",
-          text: `Draw it now as one SVG with viewBox="0 0 ${width} ${height}" (aspect ${req.aspect}).`,
-        });
-      }
-
       let message: Anthropic.Beta.BetaMessage;
       try {
         message = await anthropic.beta.messages
@@ -84,7 +72,7 @@ export function anthropicPainter(apiKey: string, client?: Anthropic): Painter {
               fallbacks: "default",
               thinking: { type: "adaptive" },
               output_config: { effort: "medium" },
-              system: req.output === "image" ? SYSTEM_SVG : SYSTEM_TEXT,
+              system: SYSTEM_TEXT,
               messages: [{ role: "user", content }],
             },
             { signal },
@@ -129,22 +117,8 @@ export function anthropicPainter(apiKey: string, client?: Anthropic): Painter {
         .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n");
-      if (req.output === "text") {
-        if (!text.trim()) throw new PainterError("NO_IMAGE", "Claude 沒有回傳文字", usage, message.model);
-        return { output: "text", text, usage, model: message.model };
-      }
-      const svg = extractSvg(text);
-      if (!svg) {
-        const why = message.stop_reason === "max_tokens" ? "（輸出被截斷）" : "";
-        throw new PainterError("NO_IMAGE", `Claude 沒有回傳完整的 SVG${why}`, usage, message.model);
-      }
-      let image;
-      try {
-        image = await rasterizeSvg(svg, req.aspect);
-      } catch {
-        throw new PainterError("NO_IMAGE", "Claude 的 SVG 無法點陣化", usage, message.model);
-      }
-      return { output: "image", image, usage, model: message.model, note: null };
+      if (!text.trim()) throw new PainterError("NO_IMAGE", "Claude 沒有回傳文字", usage, message.model);
+      return { output: "text", text, usage, model: message.model };
     },
   };
 }

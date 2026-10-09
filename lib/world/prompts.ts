@@ -7,7 +7,15 @@
  * 差別只在各家 painter 怎麼把它翻成自己的 API（`lib/providers`）。
  */
 
-import { BIBLE_CANON, BIBLE_TAIPEI_101 } from "./bible";
+import {
+  BIBLE_CANON,
+  BIBLE_TAIPEI_101,
+  STYLE_NEGATIVE,
+  STYLE_PHOTO,
+  STYLE_SCENE,
+  STYLE_TEXTURE,
+  STYLE_TILE,
+} from "./bible";
 import {
   COLS,
   ROWS,
@@ -124,7 +132,7 @@ export function paramsJob(input: {
       text: [
         `TASK — you are the surveyor for one block of a shared world map: ${blockText(input.block)}.`,
         "Decide how this exact place looks 1,000 years after humanity vanished, so that over a hundred images drawn later by different artists all agree.",
-        "The first image is today's road map of this block (plan only).",
+        "The first image is today's satellite image of this block (plan only).",
         samples.length > 0
           ? `The next ${samples.length} image(s) are present-day street photos from inside the block.`
           : "There are no street photos for this block (no ground coverage) — infer from the map.",
@@ -180,7 +188,10 @@ export function sceneJob(input: {
 }): PaintJob {
   const { viewpoint: v, params } = input;
   const caption = params?.markers[input.viewpointIndex]?.caption;
-  const parts: PromptPart[] = [{ kind: "text", text: canonFor(input.block) }];
+  const parts: PromptPart[] = [
+    { kind: "text", text: canonFor(input.block) },
+    { kind: "text", text: `${STYLE_PHOTO}\n${STYLE_SCENE}` },
+  ];
   if (params) parts.push({ kind: "text", text: paramsBrief(params) });
   parts.push({
     kind: "text",
@@ -189,13 +200,12 @@ export function sceneJob(input: {
       `The reference photo below was taken here in ${v.date ?? "recent years"} (lat ${fmt(v.location.lat)}, lng ${fmt(v.location.lng)}), camera heading ${Math.round(v.heading)}°, eye height about 2 m.`,
       "Keep the exact same camera position, framing, horizon line and perspective. Keep every large shape where it is — the road's direction, the skyline, hills, rivers and the masses of buildings — so someone who knows this street would recognise it.",
       caption ? `What this viewpoint should show now: ${caption}` : "",
-      "Photorealistic, natural daylight.",
     ]
       .filter(Boolean)
       .join("\n"),
   });
   parts.push({ kind: "image", ref: { type: "streetview", viewpoint: input.viewpointIndex } });
-  tail(parts, input.wishes, "Output exactly one image in 16:9. No text, no borders.");
+  tail(parts, input.wishes, `${STYLE_NEGATIVE}\nOutput exactly one photograph in 16:9. No text, no borders.`);
   return { kind: "SCENE", output: "image", aspect: "16:9", parts };
 }
 
@@ -233,14 +243,17 @@ export function tileJob(input: {
   readonly params?: MapParams | null;
   readonly wishes?: readonly string[];
 }): PaintJob {
-  const parts: PromptPart[] = [{ kind: "text", text: canonFor(input.block) }];
+  const parts: PromptPart[] = [
+    { kind: "text", text: canonFor(input.block) },
+    { kind: "text", text: `${STYLE_PHOTO}\n${STYLE_TILE}` },
+  ];
   if (input.params) parts.push({ kind: "text", text: paramsBrief(input.params) });
   parts.push({
     kind: "text",
     text: [
       "TASK — paint the map tile for one block of a shared world map: a straight-down orthographic aerial photograph, north up, no perspective tilt, 1,000 years after humanity vanished.",
       `The block spans ${blockText(input.block)}. The image must cover exactly this area, edge to edge.`,
-      "The FIRST image below is today's road map of exactly this block. Use it only as the plan: rivers, coastlines and lakes stay where they are; major roads become overgrown straight corridors; building footprints become ruins and green mounds. Do not copy its colours, labels or style.",
+      "The FIRST image below is today's satellite image of exactly this block. Use it as the plan: rivers, coastlines and lakes stay where they are; major roads become overgrown straight corridors; tall buildings remain as roofless, weathered shells seen from above; low buildings become green mounds of rubble. Nothing modern may remain: no cars, no road markings, no clean roofs, no lawns.",
     ].join("\n"),
   });
   parts.push({ kind: "image", ref: { type: "layout" } });
@@ -263,7 +276,11 @@ export function tileJob(input: {
   }
 
   const aspect = tileAspect(input.block);
-  tail(parts, input.wishes, `Output exactly one image in ${aspect}, covering the whole block. No text, labels, grid lines or borders.`);
+  tail(
+    parts,
+    input.wishes,
+    `${STYLE_NEGATIVE}\nOutput exactly one aerial photograph in ${aspect}, covering the whole block. No text, labels, grid lines or borders.`,
+  );
   return { kind: "TILE", output: "image", aspect, parts };
 }
 
@@ -286,14 +303,14 @@ export function dsmJob(input: { readonly block: BlockId; readonly params?: MapPa
         "TASK — produce a digital surface model (DSM) height map for one block of a world map, as a grayscale image.",
         `The block spans ${blockText(input.block)}.`,
         "Black = the lowest point (water surface), white = the highest point (tallest standing ruin or tree canopy). Smooth, continuous gradients; no shading from a light source, no colour, no text.",
-        "It must align pixel-for-pixel with the aerial tile below (same framing, north up). Use the road map only to locate rivers and the original street grid.",
+        "It must align pixel-for-pixel with the aerial tile below (same framing, north up). Use today's satellite image only to locate rivers and the original street grid.",
       ].join("\n"),
     },
   ];
   if (input.params) parts.push({ kind: "text", text: paramsBrief(input.params) });
   parts.push({ kind: "text", text: "Aerial tile of this block (1,000 years later):" });
   parts.push({ kind: "image", ref: { type: "tile" } });
-  parts.push({ kind: "text", text: "Today's road map of this block (plan only):" });
+  parts.push({ kind: "text", text: "Today's satellite image of this block (plan only):" });
   parts.push({ kind: "image", ref: { type: "layout" } });
   parts.push({ kind: "text", text: `Output exactly one grayscale image in ${aspect}.` });
   return { kind: "DSM", output: "image", aspect, parts };
@@ -316,7 +333,9 @@ export function textureJob(input: {
       kind: "text",
       text: [
         `TASK — create a seamless, tileable surface texture: "${input.material.replace(/"/g, "'")}".`,
-        "Viewed straight down, evenly lit (no shadows from a single light direction, no vignette), square. The left edge must continue into the right edge and the top into the bottom with no visible seam.",
+        STYLE_PHOTO,
+        STYLE_TEXTURE,
+        "Square. The left edge must continue into the right edge and the top into the bottom with no visible seam.",
         "It is one of the materials of a ruined place 1,000 years after humanity vanished; match the colours and wear seen in the references below. No text, no objects that would repeat noticeably.",
       ].join("\n"),
     },
@@ -327,7 +346,7 @@ export function textureJob(input: {
   if (scene !== undefined && input.scenes > 0) {
     parts.push({ kind: "image", ref: { type: "scene", sceneIndex: scene } });
   }
-  parts.push({ kind: "text", text: "Output exactly one square image." });
+  parts.push({ kind: "text", text: `${STYLE_NEGATIVE}\nOutput exactly one square texture photograph.` });
   return { kind: "TEXTURE", output: "image", aspect: "1:1", parts };
 }
 

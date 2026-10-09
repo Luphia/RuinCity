@@ -5,7 +5,7 @@ import { schema } from "@/lib/db";
 import { DEFAULT_BUDGET_CONFIG } from "@/lib/world/budget";
 import { ORIGIN_BLOCK, blockBounds, blockKey, blockOf } from "@/lib/world/grid";
 import { TEXTURES_PER_BLOCK } from "@/lib/world/plan";
-import { PROVIDER_ORDER, type ProviderId } from "@/lib/world/pricing";
+import { PROVIDER_ORDER, type PainterId, type ProviderId } from "@/lib/world/pricing";
 import { fakePainter } from "@/lib/providers/fake";
 import type { ReferenceSource } from "@/lib/providers/google-maps";
 import { PainterError, type Painter } from "@/lib/providers/painter";
@@ -62,7 +62,7 @@ function deps(over: Partial<BuilderDeps> & { key: string }): BuilderDeps {
   };
 }
 
-async function donate(key: string, donorId: string, amountTwd: number, vote: ProviderId | null, wish?: string) {
+async function donate(key: string, donorId: string, amountTwd: number, vote: PainterId | null, wish?: string) {
   const r = await createDonation(h.db, {
     blockKey: key,
     donorId,
@@ -119,18 +119,18 @@ describe("捐款", () => {
     const b = await seedUser(h);
     await donate(key, a, 300, "google");
     await donate(key, a, 100, null);
-    await donate(key, b, 200, "anthropic");
+    await donate(key, b, 200, "openai");
     let s = await state(key);
     expect(s!.tally.weights.google).toBe(9_375_000);
-    expect(s!.tally.weights.anthropic).toBe(6_250_000);
+    expect(s!.tally.weights.openai).toBe(6_250_000);
     expect(s!.tally.votedMicros).toBe(15_625_000);
     expect(s!.tally.totalMicros).toBe(18_750_000);
     expect(s!.tally.winner).toBe("google");
 
-    expect(await setMyVote(h.db, { blockKey: key, donorId: a, vote: "anthropic", enabled: [...PROVIDER_ORDER] })).toEqual({ ok: true, changed: 2 });
+    expect(await setMyVote(h.db, { blockKey: key, donorId: a, vote: "openai", enabled: [...PROVIDER_ORDER] })).toEqual({ ok: true, changed: 2 });
     s = await state(key);
-    expect(s!.tally.winner).toBe("anthropic");
-    expect(s!.tally.weights.anthropic).toBe(18_750_000);
+    expect(s!.tally.winner).toBe("openai");
+    expect(s!.tally.weights.openai).toBe(18_750_000);
   });
 });
 
@@ -212,18 +212,20 @@ describe("施工", () => {
     await donate(key, a, 500, "google");
     const d = deps({ key });
     for (let i = 0; i < 4; i++) await runOneStep(d, key); // 勘查、參數、兩張場景
-    await donate(key, b, 3000, "anthropic");
+    await donate(key, b, 3000, "openai");
     await runBlock(d, key, Infinity);
 
     const steps = await h.db.select().from(schema.steps).where(eq(schema.steps.blockId, (await state(key))!.row!.id)).orderBy(schema.steps.seq);
-    const providers = steps.filter((s) => s.kind !== "SURVEY").map((s) => s.provider);
-    expect(providers.slice(0, 3)).toEqual(["google", "google", "google"]);
-    expect(providers.slice(3).every((p) => p === "anthropic")).toBe(true);
+    const painted = steps.filter((s) => s.kind !== "SURVEY" && s.kind !== "PARAMS").map((s) => s.provider);
+    expect(painted.slice(0, 2)).toEqual(["google", "google"]);
+    expect(painted.slice(2).every((p) => p === "openai")).toBe(true);
+    // 地圖參數不投票：勘查員寫的
+    expect(steps.find((s) => s.kind === "PARAMS")!.provider).toBe("anthropic");
     // 每一步都記下了開工當下的排名
-    expect(steps.at(-1)!.tally!.ranking[0]).toBe("anthropic");
+    expect(steps.at(-1)!.tally!.ranking[0]).toBe("openai");
   });
 
-  it("★ GPT Image 贏了，地圖參數那一步交給排名下一家", async () => {
+  it("★ 地圖參數歸勘查員（Claude，不投票）；出圖歸票選第一", async () => {
     const key = "25.03_121.54";
     const donor = await seedUser(h);
     await donate(key, donor, 2000, "openai");
@@ -234,9 +236,30 @@ describe("施工", () => {
     const steps = await h.db.select().from(schema.steps).where(eq(schema.steps.blockId, (await state(key))!.row!.id)).orderBy(schema.steps.seq);
     expect(steps.map((s) => [s.kind, s.provider])).toEqual([
       ["SURVEY", null],
-      ["PARAMS", "google"],
+      ["PARAMS", "anthropic"],
       ["SCENE", "openai"],
     ]);
+  });
+
+  it("★ 沒有勘查員時用預設參數，不花錢，施工照常往下走", async () => {
+    const key = "25.02_121.54";
+    const donor = await seedUser(h);
+    const only = { ...stateDeps, enabled: ["openai"] as ProviderId[] };
+    await donate(key, donor, 2000, "openai");
+    const d = deps({ key, state: only });
+    await runOneStep(d, key); // 勘查
+    await runOneStep(d, key); // 參數（預設）
+    await runOneStep(d, key); // 第一張場景
+    const s = await loadBlockState(h.db, key, now() + 10 * 60_000 + 5_000, only);
+    const steps = await h.db.select().from(schema.steps).where(eq(schema.steps.blockId, s!.row!.id)).orderBy(schema.steps.seq);
+    expect(steps.map((x) => [x.kind, x.provider, x.status])).toEqual([
+      ["SURVEY", null, "SUCCEEDED"],
+      ["PARAMS", null, "SUCCEEDED"],
+      ["SCENE", "openai", "SUCCEEDED"],
+    ]);
+    expect(steps[1]!.tokenMicros).toBe(0);
+    expect(s!.row!.paramsRepaired).toBe(true);
+    expect(s!.row!.params!.materials).toHaveLength(8);
   });
 
   it("★ 失敗照樣記帳；連續失敗三次就暫停；金鑰被拒立刻暫停", async () => {

@@ -7,7 +7,7 @@ import { anthropicPainter } from "./anthropic";
 import { fakePainter, fakeReferenceSource } from "./fake";
 import { geminiPainter, geminiUsage } from "./gemini";
 import { googleMapsSource } from "./google-maps";
-import { extractSvg, normalizeImage, rasterizeSvg } from "./image";
+import { normalizeImage, rasterizeSvg } from "./image";
 import { flattenForOpenAI, openaiPainter, openaiSize } from "./openai";
 import { PainterError, redact, type FetchLike, type PaintRequest } from "./painter";
 import { enabledProviders, painterFor, usingFakeProviders } from "./registry";
@@ -177,7 +177,7 @@ describe("OpenAI", () => {
   });
 });
 
-describe("Claude（向量插畫）", () => {
+describe("Claude（勘查員：只寫地圖參數）", () => {
   function stubClient(message: Partial<Anthropic.Beta.BetaMessage>) {
     const seen: unknown[] = [];
     const client = {
@@ -201,16 +201,14 @@ describe("Claude（向量插畫）", () => {
     } as unknown as Anthropic;
     return { client, seen };
   }
+  const paramsReq = { ...imageReq, kind: "PARAMS" as const, output: "text" as const };
 
-  it("★ SVG 淨化後點陣化成 PNG；fallback 與努力程度照設定送出", async () => {
-    const svg = '<svg viewBox="0 0 10 10"><script>alert(1)</script><rect width="10" height="10" fill="#3a5" onclick="x()"/></svg>';
-    const { client, seen } = stubClient({ content: [{ type: "text", text: "Here:\n" + svg, citations: null }] as never });
-    const r = await anthropicPainter("k", client).paint(imageReq);
-    expect(r.output).toBe("image");
-    if (r.output !== "image") return;
-    expect(r.image.mime).toBe("image/png");
-    const meta = await sharp(Buffer.from(r.image.data)).metadata();
-    expect(meta.width).toBe(1536);
+  it("★ 回傳文字；fallback 與努力程度照設定送出", async () => {
+    const { client, seen } = stubClient({ content: [{ type: "text", text: '{"biome":"x"}', citations: null }] as never });
+    const r = await anthropicPainter("k", client).paint(paramsReq);
+    expect(r.output).toBe("text");
+    if (r.output !== "text") return;
+    expect(r.text).toBe('{"biome":"x"}');
     const params = seen[0] as Record<string, unknown>;
     expect(params.model).toBe("claude-opus-5-5");
     expect(params.fallbacks).toBe("default");
@@ -220,34 +218,22 @@ describe("Claude（向量插畫）", () => {
     expect(r.usage.textIn + r.usage.imageIn).toBe(1500);
   });
 
+  it("★ 不出圖：畫面必須擬真，Claude 不畫任何一張", async () => {
+    const { client, seen } = stubClient({});
+    const err = (await anthropicPainter("k", client).paint(imageReq).catch((e: unknown) => e)) as PainterError;
+    expect(err.code).toBe("BAD_REQUEST");
+    expect(seen).toHaveLength(0);
+  });
+
   it("婉拒時丟出 SAFETY 並帶著 usage", async () => {
     const { client } = stubClient({ stop_reason: "refusal", stop_details: { type: "refusal", category: null, explanation: null } as never });
-    const err = (await anthropicPainter("k", client).paint(imageReq).catch((e: unknown) => e)) as PainterError;
+    const err = (await anthropicPainter("k", client).paint(paramsReq).catch((e: unknown) => e)) as PainterError;
     expect(err.code).toBe("SAFETY");
     expect(err.usage?.textOut).toBe(9000);
   });
-
-  it("沒有完整 SVG 就是 NO_IMAGE", async () => {
-    const { client } = stubClient({ content: [{ type: "text", text: "<svg><rect", citations: null }] as never, stop_reason: "max_tokens" });
-    const err = (await anthropicPainter("k", client).paint(imageReq).catch((e: unknown) => e)) as PainterError;
-    expect(err.code).toBe("NO_IMAGE");
-    expect(err.message).toContain("截斷");
-  });
 });
 
-describe("SVG 淨化", () => {
-  it("★ 拿掉腳本、事件、外部參照與 foreignObject", () => {
-    const svg = extractSvg(
-      'x <svg viewBox="0 0 1 1"><!DOCTYPE x [<!ENTITY a SYSTEM "file:///etc/passwd">]><script>1</script>' +
-        '<foreignObject><iframe/></foreignObject><image href="https://evil/x.png"/><use xlink:href="#ok"/>' +
-        '<rect onload="x()" style="fill:url(https://evil)"/></svg> y',
-    )!;
-    expect(svg).not.toMatch(/script|foreignObject|onload|evil|ENTITY|DOCTYPE/i);
-    expect(svg).toContain('xlink:href="#ok"');
-    expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(extractSvg("no svg here")).toBeNull();
-  });
-
+describe("影像正規化", () => {
   it("正規化：任何輸入都裁成目標比例的 WebP，並產生縮圖", async () => {
     const png = await rasterizeSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 30"><rect width="10" height="30"/></svg>', "1:1");
     const out = await normalizeImage(png, "16:9");
@@ -275,14 +261,15 @@ describe("Google Maps 參考來源", () => {
     expect(err.message).not.toContain("AIzaXXXX");
   });
 
-  it("街景要求 404 而不是灰圖；版型隱藏文字", async () => {
+  it("街景要求 404 而不是灰圖；版型是衛星影像（擬真的航照需要航照當參考）", async () => {
     const img = capture(() => new Response(PNG_1x1, { headers: { "content-type": "image/png" } }));
     const src = googleMapsSource("k", img.fetchImpl);
     await src.streetView({ panoId: "P", location: { lat: 0, lng: 0 }, heading: 10, pitch: 0, fov: 90, date: null });
     await src.layout({ center: { lat: 25, lng: 121 }, zoom: 16, width: 466, height: 514 });
     expect(img.calls[0]!.url).toContain("return_error_code=true");
     expect(img.calls[0]!.url).toContain("size=640x360");
-    expect(decodeURIComponent(img.calls[1]!.url)).toContain("feature:all|element:labels|visibility:off");
+    expect(img.calls[1]!.url).toContain("maptype=satellite");
+    expect(img.calls[1]!.url).not.toContain("style=");
     expect(img.calls[1]!.url).toContain("size=466x514");
   });
 
@@ -293,8 +280,8 @@ describe("Google Maps 參考來源", () => {
 
 describe("示範模式與註冊表", () => {
   it("★ 示範畫師照表上的先驗回報 usage —— 帳與估計照真的跑", async () => {
-    const r = await fakePainter("anthropic").paint({ ...imageReq, kind: "TILE", aspect: "1:1" });
-    expect(r.usage).toEqual(MODEL_PROFILES.anthropic.typical.TILE);
+    const r = await fakePainter("openai").paint({ ...imageReq, kind: "TILE", aspect: "1:1" });
+    expect(r.usage).toEqual(MODEL_PROFILES.openai.typical.TILE);
     expect(r.output).toBe("image");
   });
 

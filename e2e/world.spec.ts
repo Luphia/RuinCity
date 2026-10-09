@@ -50,7 +50,7 @@ test.describe("世界地圖", () => {
 
   test("怎麼運作：列出每一項經費", async ({ page }) => {
     await page.goto("/about");
-    for (const t of ["金流手續費", "保存", "稅金與規費", "材質", "3D 圖資", "依捐款金額投票"]) {
+    for (const t of ["金流手續費", "保存", "稅金與規費", "材質", "3D 圖資", "依捐款金額投票", "畫面必須擬真"]) {
       await expect(page.getByText(t).first()).toBeVisible();
     }
   });
@@ -84,14 +84,17 @@ test.describe("一塊地圖的一生", () => {
     expect(blocked.status()).toBe(403);
     await expect(page.getByTestId("meter-tokens-spent")).not.toHaveText("0", { timeout: 60_000 });
 
-    // 再捐一筆投 Anthropic，票數翻盤
+    // 再捐一筆投 OpenAI，票數翻盤
     await page.getByTestId("donate-amount").fill("1500");
-    await page.getByTestId("donate-vote").selectOption("anthropic");
+    await page.getByTestId("donate-vote").selectOption("openai");
     await page.getByTestId("donate-submit").click();
     await page.waitForURL(/\/donate\/demo\//);
     await page.getByTestId("demo-pay").click();
     await page.waitForURL(new RegExp(`/b/${key}`));
     await expect(page.getByTestId("vote-panel")).toContainText("目前領先");
+    // 擬真：Claude 不在投票選項裡，只當勘查員
+    await expect(page.getByTestId("donate-vote").locator("option[value=anthropic]")).toHaveCount(0);
+    await expect(page.getByTestId("vote-note")).toContainText("Claude");
 
     // 等完工（背景施工 + worker）
     await expect
@@ -111,12 +114,12 @@ test.describe("一塊地圖的一生", () => {
     expect(art.status()).toBe(200);
     expect(art.headers()["content-type"]).toBe("image/webp");
 
-    // 兩家都畫過：Google 在翻盤前、Anthropic 在翻盤後
+    // 兩家都畫過：Google 在翻盤前、OpenAI 在翻盤後
     const data = (await (await request.get(`/api/blocks/${key}`)).json()) as {
       view: { completed: { credits: { provider: string }[] } };
     };
     const credited = data.view.completed.credits.map((c) => c.provider).join(" ");
     expect(credited).toContain("Gemini");
-    expect(credited).toContain("Claude");
+    expect(credited).toContain("GPT Image");
   });
 });

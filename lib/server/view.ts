@@ -11,7 +11,7 @@ import "server-only";
 import { GROUP_LABEL, type BudgetGroup } from "@/lib/world/budget";
 import { blockBounds, blockLabel, blockShortLabel, distanceFromOriginM, isOrigin } from "@/lib/world/grid";
 import { STATUS_LABEL, formatTokens, formatTwd, formatUsd, type BlockStatus } from "@/lib/world/ledger";
-import { MODEL_PROFILES, PROVIDER_ORDER, type ProviderId } from "@/lib/world/pricing";
+import { MODEL_PROFILES, PAINTERS, PROVIDER_ORDER, type PainterId, type ProviderId } from "@/lib/world/pricing";
 
 import type { ArtifactIndexEntry } from "./artifacts";
 import type { BlockState } from "./blocks";
@@ -64,12 +64,13 @@ export interface BlockView {
   }[];
   readonly vote: {
     readonly decidedBy: "VOTES" | "DEFAULT" | "NONE";
-    readonly current: ProviderId | null;
+    readonly current: PainterId | null;
+    /** 寫地圖參數的那一家（不出圖、不投票）；沒有就是預設參數 */
+    readonly surveyor: string | null;
     readonly options: readonly {
-      readonly provider: ProviderId;
+      readonly provider: PainterId;
       readonly company: string;
       readonly model: string;
-      readonly medium: "photo" | "vector";
       readonly enabled: boolean;
       readonly weight: Money;
       readonly share: number;
@@ -194,11 +195,11 @@ export function toBlockView(
     vote: {
       decidedBy: s.tally.decidedBy,
       current: s.tally.winner,
-      options: PROVIDER_ORDER.map((p) => ({
+      surveyor: s.tally.surveyor ? `${MODEL_PROFILES[s.tally.surveyor].company} · ${MODEL_PROFILES[s.tally.surveyor].displayName}` : null,
+      options: PAINTERS.map((p) => ({
         provider: p,
         company: MODEL_PROFILES[p].company,
         model: MODEL_PROFILES[p].displayName,
-        medium: MODEL_PROFILES[p].medium,
         enabled: opts.enabled.includes(p),
         weight: money(s.tally.weights[p]),
         share: totalVoted > 0 ? s.tally.weights[p] / totalVoted : 0,

@@ -23,7 +23,14 @@ import {
   type Observed,
   type PlannedStep,
 } from "@/lib/world/plan";
-import { isProviderId, supports, type PaidStepKind, type ProviderId, type StepKind } from "@/lib/world/pricing";
+import {
+  isPainterId,
+  isProviderId,
+  type PaidStepKind,
+  type PainterId,
+  type ProviderId,
+  type StepKind,
+} from "@/lib/world/pricing";
 import { pickFor, tallyVotes, type Tally } from "@/lib/world/vote";
 
 export type BlockRow = typeof schema.blocks.$inferSelect;
@@ -58,12 +65,12 @@ export interface BlockState {
   /** 最近的捐款留言（給 AI 的建議），新的在前 */
   readonly wishes: readonly string[];
   /** 如果剩下的步驟全部交給某一家，完成這一塊的募款總額（投票時參考） */
-  readonly estimates: Partial<Record<ProviderId, number>>;
+  readonly estimates: Partial<Record<PainterId, number>>;
 }
 
 export interface StateDeps {
   readonly enabled: readonly ProviderId[];
-  readonly fallback: ProviderId;
+  readonly fallback: PainterId;
   readonly config: BudgetConfig;
   /** 全站的實際用量平均（`loadObserved`）；不給就只用表上的先驗 */
   readonly observed?: Observed;
@@ -156,7 +163,7 @@ export function deriveState(
     paid.map((d) => ({
       donorId: d.donorId,
       paidMicros: d.grossMicros,
-      vote: isProviderId(d.vote) ? d.vote : null,
+      vote: isPainterId(d.vote) ? d.vote : null,
     })),
     deps.enabled,
     deps.fallback,
@@ -214,10 +221,10 @@ export function deriveState(
     });
   const budget = budgetFor((kind) => pickFor(tally, kind));
 
-  const estimates: Partial<Record<ProviderId, number>> = {};
+  // 「如果改投某一家」的總額：出圖換成那一家，地圖參數仍歸勘查員
+  const estimates: Partial<Record<PainterId, number>> = {};
   for (const p of tally.ranking) {
-    const order = [p, ...tally.ranking.filter((x) => x !== p)];
-    estimates[p] = budgetFor((kind) => order.find((x) => supports(x, kind)) ?? null).meters.grossNeededMicros;
+    estimates[p] = budgetFor((kind) => (kind === "PARAMS" ? tally.surveyor : p)).meters.grossNeededMicros;
   }
 
   const running = !!row?.leaseUntil && row.leaseUntil.getTime() > now;

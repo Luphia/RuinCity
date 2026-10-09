@@ -13,7 +13,7 @@ import { emptyKindTotals, planSteps } from "./plan";
 import type { ProviderId } from "./pricing";
 
 const cfg = DEFAULT_BUDGET_CONFIG;
-const pickAll = (p: ProviderId) => (kind: string) => (kind === "PARAMS" && p === "openai" ? "google" : p);
+const pickAll = (p: ProviderId) => (kind: string): ProviderId => (kind === "PARAMS" ? "anthropic" : p);
 
 function input(over: Partial<BudgetInput> = {}): BudgetInput {
   return {
@@ -95,11 +95,11 @@ describe("預算書", () => {
     expect(scene.microsProjected).toBeGreaterThan(0.8 * tokenLines.reduce((s, l) => s + l.microsProjected, 0));
   });
 
-  it("★ 投票換模型，預算跟著變：Claude 的向量插畫比 Gemini 貴", () => {
+  it("★ 投票換模型，預算跟著變：GPT Image 的影像比 Gemini 貴", () => {
     const g = buildBudget(input({ pick: pickAll("google") }));
-    const c = buildBudget(input({ pick: pickAll("anthropic") }));
-    expect(c.meters.grossNeededMicros).toBeGreaterThan(g.meters.grossNeededMicros);
-    expect(c.meters.tokensNeeded).toBeGreaterThan(g.meters.tokensNeeded);
+    const o = buildBudget(input({ pick: pickAll("openai") }));
+    expect(o.meters.grossNeededMicros).toBeGreaterThan(g.meters.grossNeededMicros);
+    expect(o.meters.tokensNeeded).not.toBe(g.meters.tokensNeeded);
   });
 
   it("★ 收款成本倒推：淨額要的是 X，總額得募到 X ÷ (1 − 費率 − 稅 − 準備) 再加每筆固定費", () => {

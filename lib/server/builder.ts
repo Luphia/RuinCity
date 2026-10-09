@@ -28,7 +28,7 @@ import type { TxDb } from "@/lib/db/tx";
 import { BIBLE_VERSION } from "@/lib/world/bible";
 import { blockKey, mercatorFrame, surveyProbes, surveyRadiusM, type BlockId } from "@/lib/world/grid";
 import { canStartStep } from "@/lib/world/ledger";
-import { parseMapParams } from "@/lib/world/params";
+import { fallbackParams, parseMapParams } from "@/lib/world/params";
 import type { PlannedStep } from "@/lib/world/plan";
 import {
   MODEL_PROFILES,
@@ -136,7 +136,8 @@ export async function runOneStep(deps: BuilderDeps, key: string): Promise<StepOu
       return "WAITING_FOR_FUNDS";
     }
     const provider = step.kind === "SURVEY" ? null : pickFor(state.tally, step.kind);
-    if (step.kind !== "SURVEY" && provider === null) return "NO_PROVIDER";
+    // 沒有勘查員時地圖參數用預設值（不花錢）；出圖步驟沒有畫師就只能等
+    if (step.kind !== "SURVEY" && step.kind !== "PARAMS" && provider === null) return "NO_PROVIDER";
 
     return await execute(deps, state, state.done, step, provider);
   } finally {
@@ -201,6 +202,21 @@ async function execute(
     }
 
     const viewpoints = state.row!.viewpoints ?? [];
+    if (step.kind === "PARAMS" && provider === null) {
+      await deps.tx(async (tx) => {
+        await tx.insert(schema.steps).values({
+          ...base,
+          status: "SUCCEEDED",
+          note: "沒有可用的勘查員，使用預設地圖參數",
+          finishedAt: new Date(deps.now()),
+        });
+        await tx
+          .update(schema.blocks)
+          .set({ params: fallbackParams(viewpoints.length), paramsRepaired: true, consecutiveFailures: 0 })
+          .where(eq(schema.blocks.id, blockRowId));
+      });
+      return "SUCCEEDED";
+    }
     const params = state.row!.params ?? null;
     const wishes = state.wishes.slice(0, 5);
     const scenesDone = state.log.filter((l) => l.status === "SUCCEEDED" && l.kind === "SCENE").length;

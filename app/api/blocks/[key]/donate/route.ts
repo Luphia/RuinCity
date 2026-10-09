@@ -14,11 +14,11 @@ import { budgetConfig } from "@/lib/server/config";
 import { REJECTION_TEXT, attachProcessorRef, createDonation } from "@/lib/server/donations";
 import { enabledProviders } from "@/lib/providers/registry";
 import { blockShortLabel, parseBlockKey } from "@/lib/world/grid";
-import { PROVIDER_ORDER } from "@/lib/world/pricing";
+import { PAINTERS } from "@/lib/world/pricing";
 
 const body = z.object({
   amountTwd: z.number().int(),
-  vote: z.enum(PROVIDER_ORDER as unknown as [string, ...string[]]).nullable(),
+  vote: z.enum(PAINTERS as unknown as [string, ...string[]]).nullable(),
   wish: z.string().max(500).nullable().optional(),
 });
 
@@ -44,7 +44,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ key: st
       blockKey: key,
       donorId: session.user!.id!,
       amountTwd: parsed.data.amountTwd,
-      vote: (parsed.data.vote as (typeof PROVIDER_ORDER)[number] | null) ?? null,
+      vote: (parsed.data.vote as (typeof PAINTERS)[number] | null) ?? null,
       wish: parsed.data.wish ?? null,
       processor: provider.id,
       enabled: enabledProviders(),

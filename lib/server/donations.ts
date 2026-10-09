@@ -24,7 +24,7 @@ import type { BudgetConfig } from "@/lib/world/budget";
 import { blockCenter, blockKey, parseBlockKey } from "@/lib/world/grid";
 import { splitDonation } from "@/lib/world/ledger";
 import { WISH_MAX_CHARS } from "@/lib/world/prompts";
-import { isProviderId, type ProviderId } from "@/lib/world/pricing";
+import { isPainterId, type PainterId, type ProviderId } from "@/lib/world/pricing";
 
 import { DONATION_MAX_TWD, DONATION_MIN_TWD } from "./config";
 
@@ -69,7 +69,7 @@ export async function createDonation(
     readonly blockKey: string;
     readonly donorId: string;
     readonly amountTwd: number;
-    readonly vote: ProviderId | null;
+    readonly vote: PainterId | null;
     readonly wish?: string | null;
     readonly processor: string;
     readonly enabled: readonly ProviderId[];
@@ -191,7 +191,7 @@ export async function failDonation(db: TxDb, processor: string, processorRef: st
  */
 export async function setMyVote(
   db: TxDb,
-  input: { readonly blockKey: string; readonly donorId: string; readonly vote: ProviderId | null; readonly enabled: readonly ProviderId[] },
+  input: { readonly blockKey: string; readonly donorId: string; readonly vote: PainterId | null; readonly enabled: readonly ProviderId[] },
 ): Promise<{ ok: true; changed: number } | { ok: false; reason: "NOT_FOUND" | "BLOCK_COMPLETE" | "PROVIDER_DISABLED" }> {
   if (input.vote !== null && !input.enabled.includes(input.vote)) return { ok: false, reason: "PROVIDER_DISABLED" };
   const [block] = await db
@@ -219,7 +219,7 @@ export interface MyDonation {
   readonly blockKey: string;
   readonly amountTwd: number;
   readonly status: string;
-  readonly vote: ProviderId | null;
+  readonly vote: PainterId | null;
   readonly createdAt: number;
 }
 
@@ -244,7 +244,7 @@ export async function myDonations(db: TxDb, donorId: string, blockKeyFilter?: st
     .limit(200);
   return rows.map((r) => ({
     ...r,
-    vote: isProviderId(r.vote) ? r.vote : null,
+    vote: isPainterId(r.vote) ? r.vote : null,
     createdAt: r.createdAt.getTime(),
   }));
 }

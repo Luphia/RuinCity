@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import type { BlockPageData } from "@/lib/server/block-page";
-import type { ProviderId } from "@/lib/world/pricing";
+import type { PainterId } from "@/lib/world/pricing";
 
 import { BudgetSheet } from "./BudgetSheet";
 
@@ -177,7 +177,7 @@ function VotePanel({ data, signedIn, onChanged }: { data: BlockPageData; signedI
   const myPaid = data.mine.filter((d) => d.status === "PAID" || d.status === "PENDING");
   const myVote = myPaid.length > 0 && myPaid.every((d) => d.vote === myPaid[0]!.vote) ? myPaid[0]!.vote : null;
 
-  const change = async (vote: ProviderId | null) => {
+  const change = async (vote: PainterId | null) => {
     setBusy(true);
     setError(null);
     try {
@@ -202,16 +202,20 @@ function VotePanel({ data, signedIn, onChanged }: { data: BlockPageData; signedI
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">由誰來畫</h2>
         <span className="text-ash text-xs">
-          依捐款金額加權；每一步開工時才計票，所以施工途中可能換模型
+          依捐款金額加權；每一張圖開工時才計票，所以施工途中可能換模型
         </span>
       </div>
+      <p className="text-ash-deep text-xs leading-relaxed" data-testid="vote-note">
+        畫面必須擬真，只有畫得出照片的影像模型可以投。地圖參數由
+        {v.vote.surveyor ? ` ${v.vote.surveyor} ` : "預設值"}
+        {v.vote.surveyor ? "撰寫（不出圖、不參與投票）。" : "提供（目前沒有可用的勘查員）。"}
+      </p>
       <ul className="flex flex-col gap-2">
         {v.vote.options.map((o) => (
           <li key={o.provider} className="border-ink-mid rounded border p-3">
             <div className="flex flex-wrap items-baseline gap-2">
               <b>{o.company}</b>
               <span className="text-ash text-sm">{o.model}</span>
-              {o.medium === "vector" ? <span className="text-rust text-xs">向量插畫風格</span> : null}
               {!o.enabled ? <span className="text-alarm text-xs">停用中</span> : null}
               {v.vote.current === o.provider ? (
                 <span className="bg-moss text-ink rounded px-1.5 text-xs font-bold">
@@ -254,7 +258,7 @@ function VotePanel({ data, signedIn, onChanged }: { data: BlockPageData; signedI
 function DonateForm({ data, signedIn, canDonate }: { data: BlockPageData; signedIn: boolean; canDonate: boolean }) {
   const v = data.view;
   const [amount, setAmount] = useState(300);
-  const [vote, setVote] = useState<ProviderId | "">("");
+  const [vote, setVote] = useState<PainterId | "">("");
   const [wish, setWish] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -327,7 +331,7 @@ function DonateForm({ data, signedIn, canDonate }: { data: BlockPageData; signed
         <select
           data-testid="donate-vote"
           value={vote}
-          onChange={(e) => setVote(e.target.value as ProviderId | "")}
+          onChange={(e) => setVote(e.target.value as PainterId | "")}
           className="border-ink-mid bg-ink-soft rounded border px-2 py-2"
         >
           <option value="">不投票</option>

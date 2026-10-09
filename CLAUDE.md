@@ -52,12 +52,13 @@ pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是
 | 經緯度與浮點 | `25.03 * 100` 是 `2502.9999…`。比較一律在整數列/欄上做（`grid.ts` 的 `blockOf`），西南角剛好在格線上時才不會被分到隔壁 |
 | 完成前不能進入 | 守在**出圖的 API**（`lib/server/artifacts.ts`，未完成回 403），不是只靠頁面不顯示 —— 圖的網址猜得到 |
 | 入帳 | 只認金流商 webhook（驗簽後），而且**冪等**。瀏覽器導回頁可以偽造 |
-| 投票 | 一筆捐款一張票，權重 = 那一筆的總額。**每一步開工時計票**（`vote.pickFor`），所以會換模型；GPT Image 不寫文字，「地圖參數」交給排名下一家 |
+| 投票 | 一筆捐款一張票，權重 = 那一筆的總額。**每一張圖開工時計票**（`vote.pickFor`），所以會換模型。只有 `PAINTERS`（擬真影像模型）能被投；「地圖參數」不投票，歸勘查員（`SURVEYORS` 第一個啟用的，都沒有就用預設參數） |
+| 擬真 | 畫面必須擬真。風格規格寫在 `bible.ts` 的 `STYLE_*`（相機、光線、不要的畫風），每一種出圖都要帶。改正典或風格要 bump `BIBLE_VERSION`。**不要**把使用者給的參考截圖存起來或送給模型 —— 把它的特質寫成文字 |
 | 預算書 | 各行加總 = 換算金額；**結餘不算進換算金額**（否則捐得愈多「所需」愈高）。預備金只對還沒做的步驟提列 |
 | 失敗也要記帳 | 被擋、沒回圖的那一次上游照樣收費。`PainterError` 帶著 usage，`steps` 記一列 FAILED |
 | 施工租約 | 一步要呼叫外部 API 幾十秒，**不抱交易鎖**，用 `blocks.lease_until`。`steps` 的部分唯一索引保證同一步只能成功一次 |
-| Claude | 不輸出點陣圖，畫 SVG → `providers/image.ts` 淨化後點陣化。**不存、不送 SVG**。開啟 `fallbacks: "default"`，帳記在 `response.model` |
-| Google Maps | 只存全景 ID，**不存街景與地圖影像**（條款只允許保存 pano ID）。條款風險見 design §7 #1 |
+| Claude | 勘查員，**只寫地圖參數、不出圖**（不輸出點陣圖，畫不出照片）。開啟 `fallbacks: "default"`，帳記在 `response.model` |
+| Google Maps | 只存全景 ID，**不存街景與衛星影像**（條款只允許保存 pano ID）。版型參考是 `maptype=satellite`。條款風險見 design §7 #1 |
 | 捐款留言 | 不受信任的輸入。只能經由 `prompts.wishesText` 進提示詞（截斷、去控制字元、標成建議） |
 | `server-only` | `lib/server`、`lib/providers` 的伺服器模組 import 了它。Node 腳本 import 會直接丟錯 —— 所以 `pnpm worker` 是打 HTTP 路由，不是直接 import 施工引擎 |
 | MapLibre | 它的 CSS 把容器設成 `position: relative`，蓋掉 class 上的 `absolute` → 畫布縮成 300px 高。容器尺寸用 inline style |

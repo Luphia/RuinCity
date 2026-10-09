@@ -7,9 +7,9 @@ import { auth } from "@/auth";
 import { withTransaction } from "@/lib/db/tx";
 import { setMyVote } from "@/lib/server/donations";
 import { enabledProviders } from "@/lib/providers/registry";
-import { PROVIDER_ORDER, type ProviderId } from "@/lib/world/pricing";
+import { PAINTERS, type PainterId } from "@/lib/world/pricing";
 
-const body = z.object({ vote: z.enum(PROVIDER_ORDER as unknown as [string, ...string[]]).nullable() });
+const body = z.object({ vote: z.enum(PAINTERS as unknown as [string, ...string[]]).nullable() });
 
 const TEXT = {
   NOT_FOUND: "這一塊還沒有任何捐款。",
@@ -27,7 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ key: st
     setMyVote(tx, {
       blockKey: key,
       donorId: session.user!.id!,
-      vote: parsed.data.vote as ProviderId | null,
+      vote: parsed.data.vote as PainterId | null,
       enabled: enabledProviders(),
     }),
   );

@@ -15,6 +15,9 @@
  *   - **不存** Street View 與地圖的原始影像，只在繪製當下抓、用完即丟。
  *     資料庫裡只有全景 ID（Google 明文允許無限期保存 pano ID）。
  *   - metadata 查詢免費且不回傳影像，勘查只用它。
+ *
+ * ★ 版型參考改用**衛星影像**之後（為了擬真），衛星圖也落在同一條款裡，
+ *   而且衛星影像另有第三方供應商的著作權。風險沒有變小，只是多了一種影像。
  */
 
 import type { LatLng } from "@/lib/world/grid";
@@ -28,7 +31,7 @@ export interface ReferenceSource {
   nearestPano(near: LatLng, radiusM: number): Promise<PanoCandidate | null>;
   /** 一張街景（16:9） */
   streetView(v: Viewpoint): Promise<ImageBytes>;
-  /** 一塊的地圖版型（剛好框住那一塊，見 `grid.mercatorFrame`） */
+  /** 一塊今天的衛星影像（剛好框住那一塊，見 `grid.mercatorFrame`） */
   layout(frame: { center: LatLng; zoom: number; width: number; height: number }): Promise<ImageBytes>;
 }
 
@@ -36,20 +39,6 @@ const BASE = "https://maps.googleapis.com/maps/api";
 
 /** 街景尺寸：Static API 上限 640，取 16:9 */
 export const STREET_VIEW_SIZE = { width: 640, height: 360 } as const;
-
-/**
- * 版型樣式：拿掉所有文字與 POI，只留水系、綠地、道路與建物輪廓。
- * 模型只需要「哪裡是河、哪裡是路」，地名與店家只會被它畫成招牌。
- */
-const LAYOUT_STYLES = [
-  "feature:all|element:labels|visibility:off",
-  "feature:poi|visibility:off",
-  "feature:transit|visibility:off",
-  "feature:landscape.man_made|element:geometry|color:0xd9d9d9",
-  "feature:water|color:0x7aa6c2",
-  "feature:landscape.natural|color:0xb7d3a8",
-  "feature:road|element:geometry|color:0xffffff",
-];
 
 export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): ReferenceSource {
   const getImage = async (url: URL, what: string): Promise<ImageBytes> => {
@@ -117,9 +106,10 @@ export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): 
       url.searchParams.set("zoom", String(frame.zoom));
       url.searchParams.set("size", `${frame.width}x${frame.height}`);
       url.searchParams.set("scale", "2");
-      url.searchParams.set("maptype", "roadmap");
-      for (const s of LAYOUT_STYLES) url.searchParams.append("style", s);
-      return getImage(url, "地圖靜態圖");
+      // ★ 衛星影像，不是道路圖：要畫擬真的航照，參考也得是航照 ——
+      //   給它一張配色過的道路圖，模型會連那套配色與線條一起「轉繪」出來。
+      url.searchParams.set("maptype", "satellite");
+      return getImage(url, "衛星靜態圖");
     },
   };
 }
