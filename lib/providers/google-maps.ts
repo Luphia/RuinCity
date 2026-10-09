@@ -42,12 +42,18 @@ export const STREET_VIEW_SIZE = { width: 640, height: 360 } as const;
 
 export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): ReferenceSource {
   const getImage = async (url: URL, what: string): Promise<ImageBytes> => {
-    url.searchParams.set("key", apiKey);
-    const res = await fetchImpl(url);
+    const res = await fetchImage(url);
     if (!res.ok) {
       const body = redact(await res.text().catch(() => ""));
       throw new PainterError(codeForStatus(res.status), `${what} 失敗（HTTP ${res.status}）：${body}`);
     }
+    return readImage(res, what);
+  };
+  const fetchImage = (url: URL) => {
+    url.searchParams.set("key", apiKey);
+    return fetchImpl(url);
+  };
+  const readImage = async (res: Response, what: string): Promise<ImageBytes> => {
     const mime = res.headers.get("content-type")?.split(";")[0] ?? "image/jpeg";
     if (!mime.startsWith("image/")) {
       throw new PainterError("UPSTREAM", `${what} 回傳的不是影像（${mime}）`);
@@ -88,16 +94,34 @@ export function googleMapsSource(apiKey: string, fetchImpl: FetchLike = fetch): 
       };
     },
 
-    streetView(v) {
-      const url = new URL(`${BASE}/streetview`);
-      url.searchParams.set("pano", v.panoId);
-      url.searchParams.set("size", `${STREET_VIEW_SIZE.width}x${STREET_VIEW_SIZE.height}`);
-      url.searchParams.set("heading", String(Math.round(v.heading)));
-      url.searchParams.set("pitch", String(Math.round(v.pitch)));
-      url.searchParams.set("fov", String(Math.round(v.fov)));
-      // 沒有影像時回 404，而不是一張「抱歉，沒有影像」的灰圖被當成參考照
-      url.searchParams.set("return_error_code", "true");
-      return getImage(url, "Street View 影像");
+    async streetView(v) {
+      const params = (url: URL) => {
+        url.searchParams.set("size", `${STREET_VIEW_SIZE.width}x${STREET_VIEW_SIZE.height}`);
+        url.searchParams.set("heading", String(Math.round(v.heading)));
+        url.searchParams.set("pitch", String(Math.round(v.pitch)));
+        url.searchParams.set("fov", String(Math.round(v.fov)));
+        // 沒有影像時回 404，而不是一張「抱歉，沒有影像」的灰圖被當成參考照
+        url.searchParams.set("return_error_code", "true");
+        return url;
+      };
+      const byPano = params(new URL(`${BASE}/streetview`));
+      byPano.searchParams.set("pano", v.panoId);
+      const res = await fetchImage(byPano);
+      if (res.ok) return readImage(res, "Street View 影像");
+      /**
+       * ★ metadata 查得到、用 pano ID 卻取不到影像（404）：使用者上傳的全景、或 Google 已經下架的那一張。
+       *   改用同一個座標取最近的戶外街景 —— 同一個地點、同一個朝向，構圖參考的作用一樣。
+       *   不退的話，這一張場景圖每次都失敗，整塊卡在這一步。
+       */
+      if (res.status !== 404) {
+        const body = redact(await res.text().catch(() => ""));
+        throw new PainterError(codeForStatus(res.status), `Street View 影像失敗（HTTP ${res.status}）：${body}`);
+      }
+      const byLocation = params(new URL(`${BASE}/streetview`));
+      byLocation.searchParams.set("location", `${v.location.lat},${v.location.lng}`);
+      byLocation.searchParams.set("radius", "50");
+      byLocation.searchParams.set("source", "outdoor");
+      return getImage(byLocation, `Street View 影像（全景 ${v.panoId} 取不到，改用座標）`);
     },
 
     layout(frame) {

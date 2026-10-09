@@ -45,6 +45,8 @@ export interface StepLogEntry {
   readonly tokens: number;
   readonly micros: number;
   readonly errorCode: string | null;
+  /** 上游的錯誤訊息（金鑰已遮蔽）。只給管理員看，區塊頁只顯示 errorCode */
+  readonly errorMessage: string | null;
   readonly finishedAt: number;
 }
 
@@ -271,6 +273,7 @@ export function deriveState(
       tokens: s.textIn + s.imageIn + s.textOut + s.imageOut,
       micros: s.tokenMicros + s.referenceMicros,
       errorCode: s.errorCode,
+      errorMessage: s.errorMessage,
       finishedAt: s.finishedAt.getTime(),
     })),
     wishes,

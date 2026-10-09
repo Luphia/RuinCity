@@ -34,6 +34,7 @@ interface Report {
   apiRemaining: string;
   apiSpent: string;
   fake: boolean;
+  lastError: { step: string; code: string | null; message: string | null } | null;
   grantedNow?: string | null;
   resumed?: boolean;
   outcomes?: string[];
@@ -92,7 +93,10 @@ async function main() {
   console.log(`  需要撥款　　 ${q.grantNeeded}（平台撥款，不經金流；已撥 ${q.granted}）`);
   console.log(`  預計 API 費用 ${q.apiRemaining}（還沒做的步驟：模型 token ＋ 街景與地圖靜態圖）`);
   console.log(`  畫師　　　　 ${painter ? MODEL_PROFILES[painter].displayName : (q.painter ?? "平台預設")}`);
-  if (q.pauseReason) console.log(`  ⚠ 暫停中：${q.pauseReason}${args.includes("--resume") ? "（會解除暫停）" : "（加 --resume 解除）"}`);
+  if (q.pauseReason) {
+    console.log(`  ⚠ 暫停中：${q.pauseReason}${args.includes("--resume") ? "（會解除暫停）" : "（加 --resume 解除）"}`);
+    if (q.lastError) console.log(`    最近一次失敗：${q.lastError.step} · ${q.lastError.code} · ${q.lastError.message ?? "—"}`);
+  }
   if (q.fake) console.log("  （示範模式：FAKE_PROVIDERS=1，畫的是示範圖，不花錢）");
   if (args.includes("--quote")) return;
 
@@ -120,7 +124,10 @@ async function main() {
       console.log(`✓ 完成：${base}/b/${r.key}（場景包會在下一輪排程打包保存）`);
       return;
     }
-    if (r.status === "PAUSED") fail(`施工暫停：${r.pauseReason ?? "連續失敗"}。處理之後加 --resume 再跑一次`);
+    if (r.status === "PAUSED") {
+      if (r.lastError) console.error(`  最近一次失敗：${r.lastError.step} · ${r.lastError.code} · ${r.lastError.message ?? "—"}`);
+      fail(`施工暫停：${r.pauseReason ?? "連續失敗"}。處理之後加 --resume 再跑一次`);
+    }
     if (r.outcomes?.includes("NO_PROVIDER")) fail("沒有可用的畫師：設定 GEMINI_API_KEY 或 OPENAI_API_KEY（或示範模式 FAKE_PROVIDERS=1）");
     if (r.outcomes?.at(-1) === "LOCKED") {
       // 排程（pnpm worker）正在畫這一塊：讓它畫，我們看著

@@ -40,6 +40,7 @@ function unauthorized(req: Request): NextResponse | null {
 
 function report(s: BlockState, twdPerUsd: number) {
   const step = s.steps[s.done];
+  const failed = s.log.findLast((l) => l.status === "FAILED");
   return {
     key: s.key,
     status: s.status,
@@ -54,6 +55,14 @@ function report(s: BlockState, twdPerUsd: number) {
     apiRemaining: formatUsd(remainingApiMicros(s)),
     apiSpent: formatUsd(apiSpentMicros(s)),
     fake: usingFakeProviders(),
+    /** 最近一次失敗（暫停時就是暫停的原因） */
+    lastError: failed
+      ? {
+          step: `${KIND_LABEL[failed.kind] ?? failed.kind}${failed.kind === "SCENE" || failed.kind === "TEXTURE" ? ` #${failed.kindIndex + 1}` : ""}`,
+          code: failed.errorCode,
+          message: failed.errorMessage,
+        }
+      : null,
   };
 }
 

@@ -273,6 +273,29 @@ describe("Google Maps 參考來源", () => {
     expect(img.calls[1]!.url).toContain("size=466x514");
   });
 
+  it("★ 全景 ID 取不到影像（404）→ 改用同一個座標取最近的戶外街景；其他錯誤照丟", async () => {
+    const v = { panoId: "CAoSLEFGMVFpcE", location: { lat: 25.031, lng: 121.562 }, heading: 90, pitch: 0, fov: 90, date: null };
+    let n = 0;
+    const fallback = capture(() => (n++ === 0 ? new Response("", { status: 404 }) : new Response(PNG_1x1, { headers: { "content-type": "image/png" } })));
+    const img = await googleMapsSource("k", fallback.fetchImpl).streetView(v);
+    expect(img.mime).toBe("image/png");
+    expect(fallback.calls[0]!.url).toContain("pano=CAoSLEFGMVFpcE");
+    expect(fallback.calls[1]!.url).toContain("location=25.031%2C121.562");
+    expect(fallback.calls[1]!.url).toContain("source=outdoor");
+    expect(fallback.calls[1]!.url).toContain("heading=90");
+    expect(fallback.calls[1]!.url).toContain("return_error_code=true");
+
+    const gone = capture(() => new Response("", { status: 404 }));
+    const err = (await googleMapsSource("k", gone.fetchImpl).streetView(v).catch((e: unknown) => e)) as PainterError;
+    expect(gone.calls).toHaveLength(2);
+    expect(err.message).toContain("改用座標");
+
+    const denied = capture(() => new Response("", { status: 403 }));
+    const e2 = (await googleMapsSource("k", denied.fetchImpl).streetView(v).catch((e: unknown) => e)) as PainterError;
+    expect(e2.code).toBe("AUTH");
+    expect(denied.calls).toHaveLength(1);
+  });
+
   it("錯誤訊息不會洩漏金鑰", () => {
     expect(redact("https://x?key=AIzaSyABCDEFGHIJKLMNOPQRSTUVWX&y=1 sk-abcdefghijklmnop")).toBe("https://x?key=***&y=1 sk-***");
   });
