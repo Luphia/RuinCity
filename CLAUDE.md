@@ -4,6 +4,7 @@
 
 把地球依經緯度切成 0.01° × 0.01° 的區塊，用**捐款**請 AI 畫出每一塊在人類離開一千年後的樣子。
 從臺北 101（`25.03_121.56`）開始。每一塊完成前不能進入；捐款人依金額加權投票決定由哪一家模型來畫。
+完成的塊打包成 IPFS 場景包，交給 Boltchain SwarmStorage 付費保存四年，任何人都能重建一模一樣的場景（design §10）。
 
 **先讀 [`docs/00-design.md`](docs/00-design.md)。** 那是規格，程式碼與它不一致時以它為準。
 上線前必須處理的事在 §7（Google Maps 條款、金流商、稅務名目、價格查核）。
@@ -24,6 +25,8 @@ pnpm build && pnpm start       # 正式模式：migration → web + worker
 pnpm check                     # typecheck + lint + 單元測試 + 整合測試（PGlite）
 pnpm test:e2e                  # Playwright（需要 build、Postgres、示範模式）
 pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是否同步
+pnpm scene:viewer              # 改完 lib/scene/standalone.* 一定要跑，CI 會檢查是否同步
+pnpm scene:verify <car|資料夾>  # 驗證並解出場景包；--gateway <Boltchain 閘道> <委託索引 CID> 直接從鏈上取回
 ```
 
 示範模式（不花錢、不連外，帳照真的算）：`FAKE_PROVIDERS=1 PAYMENTS=demo MAP_STYLE_URL=/map-style-blank.json`。
@@ -60,6 +63,12 @@ pnpm db:generate               # 改完 schema.ts 一定要跑，CI 會檢查是
 | Claude | 勘查員，**只寫地圖參數、不出圖**（不輸出點陣圖，畫不出照片）。開啟 `fallbacks: "default"`，帳記在 `response.model` |
 | Google Maps | 只存全景 ID，**不存街景與衛星影像**（條款只允許保存 pano ID）。版型參考是 `maptype=satellite`。條款風險見 design §7 #1 |
 | 捐款留言 | 不受信任的輸入。只能經由 `prompts.wishesText` 進提示詞（截斷、去控制字元、標成建議） |
+| 場景包的附檔 | `scene.json`、`index.html`、`viewer.js`、`README.txt` 在第一次打包時存進 `scene_files`，**之後永不改寫** —— 它們決定 CID。改了清單欄位或檢視器只影響之後完工的塊。需要改舊包就是新的 CID、新的委託，不是覆寫 |
+| 「一模一樣」 | 重建用的是成品，不是重畫。3D 照 `scene.json` 的 `render` 畫；網站與包共用 `lib/scene/terrain-gl.ts`。`RENDER_V1` 不能改數字，要改就開 `RENDER_V2` |
+| IPFS 打包 | `lib/ipfs/pack.ts` 的每一個 UnixFS 設定都明寫，不靠函式庫預設（預設會隨版本變，CID 就跟著變）。CI 的 `scene-kubo` 工作用真的 Kubo 比對 CID |
+| ESM | `package.json` 是 `"type": "module"`：IPFS 的套件只有 ESM。腳本可以用 top-level await，不能用 `__dirname` |
+| SwarmStorage | 委託索引的編碼與 Boltchain 的 Rust 版逐位元組相同（測試釘住向量，改編碼前先跑 Rust 對照）。一筆委託總長 ≤ 3,650 個 epoch（含 `extendDeal`）→ 四年是**接力的多筆委託**。`createDeal` 要 2 倍 gas：抽保存者用 `prevrandao`，估計值會不夠。場景包**不加密**（公開才能重建），代價見 design §7 #9 |
+| Boltchain 閘道 | 匯出 CAR 只跟隨 dag-cbor 連結、不懂 UnixFS。取整包要拿**委託索引** CID，不是場景包 CID |
 | `server-only` | `lib/server`、`lib/providers` 的伺服器模組 import 了它。Node 腳本 import 會直接丟錯 —— 所以 `pnpm worker` 是打 HTTP 路由，不是直接 import 施工引擎 |
 | MapLibre | 它的 CSS 把容器設成 `position: relative`，蓋掉 class 上的 `absolute` → 畫布縮成 300px 高。容器尺寸用 inline style |
 | 底圖 | `MAP_STYLE_URL` 在伺服器端讀、當 prop 傳下去（不用 `NEXT_PUBLIC_`，否則 build 時寫死）。載不到時自動退回純色底 |

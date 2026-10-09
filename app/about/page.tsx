@@ -79,13 +79,31 @@ export default function About() {
           <li>建設 token：各步驟實際用掉的 token × 該模型的公開費率</li>
           <li>參考影像費：Google 街景與地圖靜態圖的每次請求費</li>
           <li>失敗重試準備 {pct(c.retryReserveRate)}、匯率與價格波動緩衝 {pct(c.volatilityRate)}：只對還沒做的步驟提列，沒用完列為結餘</li>
-          <li>地圖資料 {c.retentionMonths / 12} 年保存：{c.storageReplicas} 份副本加上瀏覽傳輸費，完工時一次撥入保存基金</li>
+          <li>
+            地圖資料 {c.retentionMonths / 12} 年保存：Boltchain SwarmStorage {c.swarmReplicas} 個副本（以 BOLT 支付），加上站內{" "}
+            {c.storageReplicas} 份與瀏覽傳輸費，完工時一次撥入保存基金
+          </li>
           <li>伺服器運算與資料庫分攤：每塊 US${c.computeUsdPerBlock}</li>
           <li>平台管理費：{c.platformFeeRate > 0 ? pct(c.platformFeeRate) : "0%（不抽成）"}</li>
           <li>金流手續費 {pct(c.paymentFeeRate)} + 每筆 NT${c.paymentFeeFixedTwd}、稅金與規費 {pct(c.taxRate)}、退款與拒付準備 {pct(c.chargebackRate)}</li>
         </ul>
         <p className="text-ash">
           金額以美元計價、以新台幣（目前 1 美元 = {c.twdPerUsd} 元）收款；每筆捐款入帳時記下當時的匯率。
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-bold">永久保存：任何人都能重建</h2>
+        <p className="text-ash">
+          每一塊完成後，所有的圖、座標、地圖參數、3D 的渲染規格，以及一個不連網、不依賴任何函式庫的檢視器，
+          會打包成一個 IPFS 資料夾。它的 CID 由內容決定：同樣的內容永遠是同一個 CID，任何人都能用標準的 IPFS 工具重算。
+        </p>
+        <p className="text-ash">
+          這個資料夾交給 Boltchain 的 SwarmStorage 付費保存：合約隨機抽出 {c.swarmReplicas} 個節點各存一份，每個 epoch
+          抽查，保存失敗會被罰款並換人。任何 Boltchain 節點的閘道都能把整包取回來；打開裡面的 index.html，就是同一個場景。
+        </p>
+        <p className="text-ash">
+          AI 繪製無法重現（同一個提示詞畫兩次是兩張圖），所以重建用的是當初畫出來的成品，而不是重畫一次。
         </p>
       </section>
 

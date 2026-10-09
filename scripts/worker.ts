@@ -30,10 +30,22 @@ async function tick() {
   const headers: Record<string, string> = {};
   if (process.env.CRON_SECRET) headers.authorization = `Bearer ${process.env.CRON_SECRET}`;
   const res = await fetch(`${BASE}/api/cron/build`, { headers });
-  const json = (await res.json().catch(() => ({}))) as { steps?: number; completed?: number; error?: string; skipped?: string };
+  const json = (await res.json().catch(() => ({}))) as {
+    steps?: number;
+    completed?: number;
+    error?: string;
+    skipped?: string;
+    archive?: { packed: number; submitted: number; confirmed: number; errors: number };
+  };
   if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
   if (json.skipped) return `略過（${json.skipped}）`;
-  return json.steps || json.completed ? `施工 ${json.steps} 步、完工 ${json.completed} 塊` : "無事";
+  const parts: string[] = [];
+  if (json.steps || json.completed) parts.push(`施工 ${json.steps} 步、完工 ${json.completed} 塊`);
+  const a = json.archive;
+  if (a && (a.packed || a.submitted || a.confirmed || a.errors)) {
+    parts.push(`保存：打包 ${a.packed}、送出委託 ${a.submitted}、確認 ${a.confirmed}${a.errors ? `、失敗 ${a.errors}` : ""}`);
+  }
+  return parts.join("；") || "無事";
 }
 
 async function main() {

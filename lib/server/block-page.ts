@@ -5,8 +5,12 @@
 
 import "server-only";
 
+import type { RenderSpec } from "@/lib/scene/format";
+import { swarmGateways } from "@/lib/swarm/registry";
 import { parseBlockKey } from "@/lib/world/grid";
 
+import { archiveOf, frozenRender } from "./archive";
+import { DEFAULT_RENDER, toArchiveView, type ArchiveView } from "./archive-view";
 import { listArtifacts } from "./artifacts";
 import { loadBlockState, deriveState } from "./blocks";
 import { myDonations, type MyDonation } from "./donations";
@@ -17,6 +21,10 @@ export interface BlockPageData {
   readonly view: BlockView;
   readonly mine: readonly MyDonation[];
   readonly serverTime: number;
+  /** 完成的塊才有：場景包與 SwarmStorage 的保存狀態 */
+  readonly archive: ArchiveView | null;
+  /** 3D 的渲染規格（凍結在場景包裡的那一份） */
+  readonly render: RenderSpec;
 }
 
 export async function getBlockPage(key: string, viewerId: string | null): Promise<BlockPageData | null> {
@@ -33,5 +41,9 @@ export async function getBlockPage(key: string, viewerId: string | null): Promis
     artifacts,
   });
   const mine = viewerId ? await myDonations(db(), viewerId, key) : [];
-  return { view, mine, serverTime: now };
+  const blockId = state.row?.id ?? null;
+  const done = state.status === "COMPLETE" && blockId !== null;
+  const archive = done ? toArchiveView(key, await archiveOf(db(), blockId), swarmGateways()) : null;
+  const render = done ? await frozenRender(db(), blockId) : DEFAULT_RENDER;
+  return { view, mine, serverTime: now, archive, render };
 }

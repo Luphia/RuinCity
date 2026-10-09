@@ -82,7 +82,7 @@
   模型回的 JSON 格式不對時**修正而不是拒絕**（夾回範圍、補足材質與標記說明）；完全解析不了就用預設值 ——
   施工不能卡死在第二步。
 - **3D 用高度圖，不用網格模型**：影像模型畫得出灰階高度圖，畫不出可靠的 mesh；
-  「正射底圖 + 對齊的高度圖」本來就是地圖做 3D 地景的標準做法（2.5D）。網站用 three.js 疊成 3D 預覽。
+  「正射底圖 + 對齊的高度圖」本來就是地圖做 3D 地景的標準做法（2.5D）。網站與場景包的檢視器用同一份無相依的 WebGL 程式疊成 3D（§10.1）。
 - **接縫**：畫底圖時，已完成的鄰塊（北東南西）底圖會一起送給模型，要求邊界上的河流、海岸線、道路延續。
 
 ### 2.4 施工引擎
@@ -211,7 +211,7 @@
 | **參考資料** | 參考影像費 | Street View 每千張 US$7、地圖靜態圖每千張 US$2；metadata 免費 | — |
 | **預備** | 失敗重試準備 | 剩餘 token 成本 × 比例 | 10% |
 | | 匯率與價格波動緩衝 | 剩餘建設成本 × 比例 | 5% |
-| **保存與營運** | 地圖資料 4 年保存 | 容量 × 副本 × 單價 × 48 個月 + 瀏覽傳輸 | 2 份副本、US$0.015/GB‧月、2,000 次瀏覽 × 5 MB × US$0.01/GB |
+| **保存與營運** | 地圖資料 4 年保存 | **Boltchain SwarmStorage**：合約算式 × 副本 × epoch（含接力委託的 gas），以 BOLT 計再換美元；加上站內 1 份 × 48 個月 + 瀏覽傳輸（§10） | 3 個副本、0.01 BOLT/GiB‧epoch、1 epoch = 1 小時、US$0.005/BOLT（**假設值**）；站內 US$0.015/GB‧月、2,000 次瀏覽 × 5 MB × US$0.01/GB |
 | | 伺服器運算與資料庫分攤 | 每塊固定 | US$0.25 |
 | | 平台管理費 | 以上合計 × 比例 | **0%**（不抽成） |
 | **收款成本** | 金流手續費 | 總額 × 費率 + 每筆固定費（含電子收據） | 2.8% + NT$5 |
@@ -249,8 +249,10 @@
 
 | 全部由 | 預計所需 Token | 換算金額 |
 | --- | --- | --- |
-| Google · Gemini（參數由 Claude） | ≈ 42 萬 | ≈ NT$363 |
-| OpenAI · GPT Image（參數由 Claude） | ≈ 49 萬 | ≈ NT$370 |
+| Google · Gemini（參數由 Claude） | ≈ 42 萬 | ≈ NT$369 |
+| OpenAI · GPT Image（參數由 Claude） | ≈ 49 萬 | ≈ NT$375 |
+
+其中 4 年保存約 NT$9.6：SwarmStorage 約 35 BOLT（3 個副本、10 筆接力委託）≈ NT$5.6，站內副本與傳輸 ≈ NT$4。
 
 （價格為 2026-10-09 查核的第三方彙整，見 §7。）
 
@@ -307,8 +309,11 @@
 | 2 | **金流商** | 只有示範金流 | **營運方**選定並提供商店帳號 |
 | 3 | **稅務與名目**：「捐款」在台灣若屬公益勸募，受公益勸募條例規範；若是營業人收取的贊助或服務費，則為營業稅銷售額。預設以 5% 營業稅計 | 稅率可調 | **會計師／法務**確認營運主體身分與名目（「捐款」或「贊助」） |
 | 4 | **模型價格與型號**：費率與型號來自第三方彙整（官方頁面在開發環境連不到）；`gemini-2.5-flash-image` 據報已於 2026-10-02 停用，故預設用 3.1 | 集中在 `lib/world/pricing.ts`，改價要 bump `PRICING_VERSION` | 上線前對照官方價目表 |
-| 5 | **影像儲存**：目前存在 Postgres（`bytea`）。一塊約 35 MB，長期應改物件儲存（保存費預設即以 R2 級單價估） | 可運作，未最佳化 | 工程 |
+| 5 | **影像儲存**：站內副本存在 Postgres（`bytea`）。一塊約 35 MB，長期應改物件儲存（站內保存費預設即以 R2 級單價估）；異地保存已交給 SwarmStorage（§10） | 可運作，未最佳化 | 工程 |
 | 6 | **內容審核**：留言可能夾帶不當要求；模型可能畫出不當內容 | 留言當建議處理；各家各自有安全過濾；暫停機制 | 營運方決定是否加人工審核 |
+| 8 | **BOLT 的價格與 SwarmStorage 的報價**：BOLT 目前只有測試網、沒有市價；`BOLT_USD` 與 `SWARM_PRICE_BOLT` 是假設值。出價低於所有提供者的最低報價時抽不到人（`NoProviders`，畫面會顯示並自動重試） | 可設定 | **營運方**：主網上線後依市價與提供者報價調整 |
+| 9 | **公開、去中心化的保存撤不回來**：場景包是公開的（不加密，才能讓任何人重建），而且任何人都能再複製一份。之後若被認定侵權（§7 #1 的街景衍生）或內容不當（#6），平台可以取消自己的委託，但無法讓已流出的副本消失 | 已知 | **法務**：上鏈前要先解決 #1；要不要在保存前加一道人工審核 |
+| 10 | **場景包的授權**：任何人「可以」重建，不等於任何人「被允許」再散布。生成圖的授權條款（例如 CC BY 4.0 或 CC0）還沒定，`scene.json` 沒有授權欄位 | 待定 | **營運方／法務** |
 | 7 | **擬真的品質**：規格寫在提示詞裡，但沒有自動檢查。模型偶爾仍會畫出「很精緻的概念圖」 | 未做 | 可加一道品質閘門（例如由勘查員評分，低於門檻重畫），代價是每張圖多一次判讀的 token |
 
 ---
@@ -320,10 +325,14 @@
 | 純邏輯（無 I/O） | `lib/world/` | 網格、價格、施工計畫、投票、帳、預算書、參數、提示詞、勘查 |
 | 模型與參考來源 | `lib/providers/` | Gemini、GPT Image（畫師）、Claude（勘查員）、Google Maps、示範實作、註冊表 |
 | 金流 | `lib/payments/` | 介面與示範金流 |
-| 伺服器 | `lib/server/` | 狀態推導、捐款、施工引擎、出圖閘門、畫面用的 view |
-| 資料庫 | `lib/db/schema.ts` | `blocks`、`donations`、`steps`、`artifacts` |
+| 場景包 | `lib/scene/` | 格式與正規化 JSON、組包與驗證、WebGL 3D（網站與包共用）、獨立檢視器（`viewer.generated.ts` 由 `pnpm scene:viewer` 產生） |
+| IPFS | `lib/ipfs/pack.ts` | 決定性的 UnixFS 打包、CAR、拆包 |
+| SwarmStorage | `lib/swarm/` | 委託索引（與 Rust 版逐位元組相同）、合約計價、Boltchain 用戶端與示範用戶端 |
+| 伺服器 | `lib/server/` | 狀態推導、捐款、施工引擎、出圖閘門、長期保存（`archive.ts`）、畫面用的 view |
+| 資料庫 | `lib/db/schema.ts` | `blocks`、`donations`、`steps`、`artifacts`、`scene_files`、`scene_archives`、`scene_deals` |
 | 頁面 | `app/` | `/` 世界地圖、`/b/[key]` 區塊、`/about`、`/donate/demo/[id]` |
-| API | `app/api/` | 區塊查詢、捐款、改票、出圖、金流 webhook、排程施工 |
+| API | `app/api/` | 區塊查詢、捐款、改票、出圖、場景包（CAR 與瀏覽）、保存索引、金流 webhook、排程施工 |
+| 工具 | `scripts/scene-verify.ts` | 從 CAR、Boltchain 閘道或資料夾驗證並解出場景包（`pnpm scene:verify`） |
 
 ---
 
@@ -341,3 +350,86 @@
 | 未完成前不能進入，只顯示 Token 與金額 | §2.2，守在出圖 API |
 | 捐款人決定用哪一家、依金額比例、可不投、會切換模型 | §4 |
 | 金流手續費、稅、4 年保存、100 張場景、3D、材質、其他參數，並合理化補齊 | §5 |
+| 畫面必須擬真 | §6.1 |
+| 每一塊透過 IPFS 保存，任何人都能重建一模一樣的場景 | §10 |
+| 儲存方案使用 Boltchain swarm storage | §10.4 |
+
+---
+
+## 10. 永久保存：場景包 × Boltchain SwarmStorage
+
+需求：每一塊地圖資料透過 IPFS 保存，**任何人**都能透過 IPFS 內容重建**一模一樣**的場景；
+儲存方案使用 [Boltchain](https://github.com/Luphia/Boltchain) 的 SwarmStorage。
+
+### 10.1 「一模一樣」的定義與三個前提
+
+AI 繪製不可重現：同一個提示詞畫兩次是兩張圖。所以「重建」指的是**用當初畫出來的成品重建場景**，不是重新畫一次。
+做得到一模一樣，靠三件事：
+
+| 前提 | 做法 |
+| --- | --- |
+| **成品原封不動** | 包裡的圖就是資料庫裡的那批位元組（網站出的也是它們），不重新編碼 |
+| **怎麼畫寫在包裡** | `scene.json` 的 `render` 是 3D 的完整規格（網格段數、高度比例、相機、光線）。檢視器只照它畫，不讀自己的預設值 |
+| **檢視器跟著包走** | 每一包都帶著發布當下的 `index.html` + `viewer.js`（約 25 KB、無相依、CSP 只允許同源）。網站上的 3D 用的是**同一份**渲染程式（`lib/scene/terrain-gl.ts`）。IPFS 依內容去重，一萬包裡同一版檢視器只佔一份空間 |
+
+3D 原本用 three.js；為了讓檢視器能放進「永久保存」的包裡，改寫成約 400 行無相依的 WebGL。
+
+### 10.2 場景包
+
+```
+<根 CID>/
+  index.html  viewer.js        獨立檢視器
+  scene.json                   清單：座標、地圖參數、渲染規格、繪製者、施工紀錄，與其他每個檔案的 SHA-256
+  README.txt                   怎麼取回、怎麼打開、怎麼驗證
+  map/tile.webp  map/dsm.webp  正射底圖、高度圖
+  scenes/000.webp …            標記座標場景圖
+  textures/0.webp …            材質貼圖
+```
+
+- **決定性**：UnixFS 以 IPIP-499 的 `unixfs-v1-2025` 設定打包（CIDv1、raw leaves、1 MiB 分塊、每節點最多 1024 個連結），每一項都明寫、不依賴函式庫預設；沒有 mtime、沒有 mode。`scene.json` 是正規化 JSON（鍵排序、固定縮排）。同樣的檔案不論順序，永遠是同一個根 CID。
+- **任何人都能重算 CID**：`ipfs add -r --only-hash --cid-version=1 --raw-leaves --chunker=size-1048576 <資料夾>`（CI 的 `scene-kubo` 工作用真的 Kubo 比對）。
+- **附檔凍結**：`scene.json`、檢視器、README 在第一次打包時存進 `scene_files`，之後只讀不寫。網站之後改了清單欄位或檢視器，已發布的包仍重建得出同一個 CID。
+- **付錢之前先驗證**：第一次打包時把區塊拆回檔案、逐一比對；每次要開新委託都重新打包並與記下的 CID 比對 —— 對不上就停下來報錯，不付錢保存一份不一樣的東西。
+- **不放進包裡的**：Street View 與衛星參考影像（條款不允許保存，§7 #1）。清單只記拍攝年月。
+
+### 10.3 為什麼不加密
+
+Boltchain 的 `storage put` 會用 bolt-vault 加密（只有委託者能解），那是給私人檔案的。
+完成的地圖本來就公開，加密了就沒有人能重建 —— 所以場景包以**明文**的 IPLD 區塊交給 SwarmStorage。
+合約與抽查只看區塊、不在乎內容是不是密文（Boltchain ADR 0014 §4）。代價見 §7 #9。
+
+### 10.4 SwarmStorage 委託
+
+| 步驟 | 做法 |
+| --- | --- |
+| 委託索引 | dag-cbor：`{v: 1, size, count, groups, root}`；分組列出場景包 DAG 的**每一個**區塊，`root` = 場景包 CID。編碼與 Boltchain 的 Rust 實作（`bolt-ipld` 的 `deal_index`）**逐位元組相同**（測試釘住了由 Rust 算出的向量） |
+| 交給節點 | `bolt_hostBlocks(索引, [[cid, bytes], …])` 到**平台自己的** Boltchain 節點（`--rpc-storage`，RPC 只綁內網）；每批 ≤ 3 MiB |
+| 送出委託 | `SwarmStorage.createDeal(索引 CID, 區塊數, 位元組, 副本數, epoch 數, 單價)`，託管款 = `ceil(單價 × MiB / 1024) × 副本 × epoch`（與合約同一個算式）。先模擬、再以 **2 倍 gas** 送出 —— 合約用 `prevrandao` 抽保存者，估 gas 的那一塊與上鏈的那一塊重抽次數不同，照估計值送會 out of gas（本機 devnet 實測） |
+| 確認 | 讀交易收據的 `DealCreated` → 委託編號、起訖 epoch；之後每小時讀一次 `dealSlots`（各副本是誰、是否在線） |
+| 接力 | 一筆委託的**總長**上限 3,650 個 epoch（`extendDeal` 也不能超過）。測試網 1 小時一個 epoch，四年 ≈ 35,064 個 → **10 筆接力的委託**，同一個委託索引，前一筆剩 24 個 epoch 時開下一筆（重新交給節點，讓新保存者有地方取資料） |
+| 失敗 | 沒有提供者（`NoProviders`）、交易回退等：記在 `scene_archives.last_error`，15 分鐘後重試，畫面上看得到 |
+
+設定（`lib/swarm/registry.ts`）：`BOLT_RPC_URL`、`BOLT_STORAGE_RPC_URL`、`BOLT_PRIVATE_KEY`、`BOLT_CHAIN_ID`、`BOLT_GATEWAYS`；
+都沒設時只打包、不上鏈（CID 照算，整包照樣能下載與驗證）；示範模式（`FAKE_PROVIDERS=1` 或 `SWARM_MODE=demo`）走完整條流程但不上鏈，畫面會標明。
+
+### 10.5 任何人怎麼取回與重建
+
+| 管道 | 做法 |
+| --- | --- |
+| 任何 Boltchain 節點的閘道 | `GET /ipfs/<委託索引 CID>?format=car`。閘道匯出 CAR 時只跟隨 dag-cbor 的連結（不懂 UnixFS），但委託索引的分組正是 dag-cbor 的 CID 清單 —— 所以這個 CAR 含整包 |
+| Bitswap | Boltchain 的 Bitswap 與 Kubo／Helia 相容；直接連上一個 Boltchain 節點（它不在公共 IPFS DHT 上）即可 `ipfs get <場景包 CID>` |
+| 這個網站 | `/api/blocks/<key>/scene.car`（每次重新打包並比對 CID，對不上就拒絕送出）；`/api/blocks/<key>/scene/index.html` 直接用包裡的檢視器開 |
+| 整個世界 | `/api/archive`：每一塊的場景包 CID、委託索引 CID 與生效中的委託編號 |
+
+拿到之後：`pnpm scene:verify <檔案.car | 資料夾> --extract <資料夾>`，或 `--gateway <閘道> <委託索引 CID>`。它檢查每個區塊的雜湊、委託索引列出的區塊都在、
+每個檔案符合 `scene.json` 的 SHA-256、**重新打包得到同一個 CID**，然後把資料夾解出來。用任何 HTTP 伺服器打開就是同一個場景
+（瀏覽器不允許 `file://` 頁面把圖當 WebGL 貼圖，所以 3D 要經 HTTP）。檢視器打開時也會自己核對每個檔案的 SHA-256 並顯示結果。
+
+### 10.6 已驗證到哪裡
+
+- 在本機起了一條 Boltchain devnet（`genesis/dev.json`：7 位驗證者、`--rpc-storage`、`--gateway`），驗證者 1–3 開放報價。
+  網站完工的兩塊各成立一筆真的委託（3 個副本），節點記錄 `keeping deal deal=0 blocks=118`；
+  再**只從閘道**取回委託索引的 CAR → `scene:verify` 全部通過、重算得到同一個場景包 CID → 解出的資料夾在瀏覽器裡打開，
+  2D、3D 都畫得出來，檢視器顯示「全部 113 個檔案的 SHA-256 都與 scene.json 相符」。
+- **沒驗證到的**：抽查（devnet 一個 epoch 是 14,400 塊）、接力委託在真的鏈上換保存者、公開測試網上的報價與 gas。
+- Kubo 對同一個資料夾算出相同 CID：本機無法下載 Kubo，交給 CI 的 `scene-kubo` 工作。

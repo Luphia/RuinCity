@@ -22,6 +22,7 @@
  * - **已花費金額**：實際花掉的錢（token、參考影像、手續費、稅、準備金、已撥付的保存費）
  */
 
+import { boltToWei, quoteRetention, weiToBolt, type SwarmTerms } from "@/lib/swarm/quote";
 import { MICROS_PER_USD, toMicros } from "./ledger";
 import {
   addKind,
@@ -53,10 +54,20 @@ export interface BudgetConfig {
   readonly chargebackRate: number;
   /** 平均每筆捐款（新台幣），只拿來估「要收幾筆」→ 每筆固定費的總額 */
   readonly avgDonationTwd: number;
-  /** 物件儲存單價（美元／GB／月）。預設 0.015 ≈ Cloudflare R2 標準儲存 */
+  /** 站內儲存單價（美元／GB／月）。預設 0.015 ≈ Cloudflare R2 標準儲存 */
   readonly storageUsdPerGbMonth: number;
-  /** 保存副本數：主存放 + 一份異地備份 */
+  /** 站內副本數。異地保存交給 SwarmStorage，所以站內只留 1 份 */
   readonly storageReplicas: number;
+  /** SwarmStorage 副本數（1–16）：合約從開放報價的提供者中隨機抽出這麼多位分別保存 */
+  readonly swarmReplicas: number;
+  /** SwarmStorage 出價（BOLT / GiB / epoch）。要 ≥ 提供者的最低報價才抽得到人 */
+  readonly swarmPriceBolt: number;
+  /** 一個 epoch 幾秒。公開測試網 PoS 階段 600 塊 × 6 秒 = 3,600 */
+  readonly swarmEpochSeconds: number;
+  /** BOLT 兌美元（假設值：測試網的 BOLT 沒有市價） */
+  readonly boltUsd: number;
+  /** 每一筆委託的手續費（gas，BOLT）。四年在測試網要接力約 10 筆 */
+  readonly boltGasPerDeal: number;
   /** 保存月數：4 年 */
   readonly retentionMonths: number;
   /** 傳輸單價（美元／GB）。R2 出口免費，留一點給 CDN 與請求次數費 */
@@ -83,7 +94,12 @@ export const DEFAULT_BUDGET_CONFIG: BudgetConfig = {
   chargebackRate: 0.01,
   avgDonationTwd: 300,
   storageUsdPerGbMonth: 0.015,
-  storageReplicas: 2,
+  storageReplicas: 1,
+  swarmReplicas: 3,
+  swarmPriceBolt: 0.01,
+  swarmEpochSeconds: 3_600,
+  boltUsd: 0.005,
+  boltGasPerDeal: 0.01,
   retentionMonths: 48,
   egressUsdPerGb: 0.01,
   expectedViews: 2000,
@@ -228,17 +244,51 @@ export function grossUp(netMicros: number, config: BudgetConfig): { gross: numbe
   return { gross: Math.ceil(gross), donations: n };
 }
 
-/** 四年保存費：容量 × 副本 × 單價 × 月數 + 瀏覽傳輸 */
+/** SwarmStorage 的保存條件（從預算參數換算） */
+export function swarmTerms(config: BudgetConfig): SwarmTerms {
+  return {
+    replicas: Math.min(16, Math.max(1, Math.round(config.swarmReplicas))),
+    priceBolt: config.swarmPriceBolt.toFixed(18),
+    epochSeconds: config.swarmEpochSeconds,
+    months: config.retentionMonths,
+    renewLeadEpochs: 24,
+  };
+}
+
+/**
+ * 四年保存費 = 站內副本 + Boltchain SwarmStorage + 瀏覽傳輸。
+ *
+ * SwarmStorage 的部分照合約的算式（`lib/swarm/quote.ts`），以 BOLT 計，再用 `boltUsd` 換成美元；
+ * 四年要接力幾筆委託，每筆另計 gas。
+ */
 export function storageMicros(artifactCounts: Record<PaidStepKind, number>, config: BudgetConfig): {
   micros: number;
   bytes: number;
+  siteMicros: number;
+  swarmMicros: number;
+  swarmBolt: string;
+  swarmDeals: number;
+  swarmEpochs: number;
 } {
   let bytes = METADATA_BYTES;
   for (const k of PAID_STEP_KINDS) bytes += ARTIFACT_BYTES[k] * artifactCounts[k];
   const gb = bytes / 1e9;
   const storeUsd = gb * config.storageReplicas * config.storageUsdPerGbMonth * config.retentionMonths;
   const egressUsd = (config.expectedViews * config.viewPayloadMb * 1e6 * config.egressUsdPerGb) / 1e9;
-  return { micros: Math.ceil((storeUsd + egressUsd) * MICROS_PER_USD), bytes };
+  const q = quoteRetention(bytes, swarmTerms(config));
+  const swarmWei = q.totalWei + boltToWei(config.boltGasPerDeal.toFixed(18)) * BigInt(q.deals);
+  const swarmUsd = (Number(swarmWei) / 1e18) * config.boltUsd;
+  const siteMicros = Math.ceil((storeUsd + egressUsd) * MICROS_PER_USD);
+  const swarmMicros = Math.ceil(swarmUsd * MICROS_PER_USD);
+  return {
+    micros: siteMicros + swarmMicros,
+    bytes,
+    siteMicros,
+    swarmMicros,
+    swarmBolt: weiToBolt(swarmWei, 4),
+    swarmDeals: q.deals,
+    swarmEpochs: q.epochs,
+  };
 }
 
 export function buildBudget(input: BudgetInput): Budget {
@@ -327,8 +377,8 @@ export function buildBudget(input: BudgetInput): Budget {
   lines.push({
     key: "operations.storage",
     group: "operations",
-    label: "地圖資料 4 年保存",
-    basis: `約 ${(storage.bytes / 1e6).toFixed(1)} MB × ${config.storageReplicas} 份副本 × ${config.retentionMonths} 個月 × US$${config.storageUsdPerGbMonth}/GB‧月，加上 ${config.expectedViews.toLocaleString("en-US")} 次瀏覽的傳輸費；完成時一次撥入保存基金`,
+    label: `地圖資料 ${config.retentionMonths / 12} 年保存`,
+    basis: `約 ${(storage.bytes / 1e6).toFixed(1)} MB。Boltchain SwarmStorage：${swarmTerms(config).replicas} 個副本 × ${storage.swarmEpochs.toLocaleString("en-US")} 個 epoch（${storage.swarmDeals} 筆接力委託）× ${config.swarmPriceBolt} BOLT/GiB‧epoch，共約 ${storage.swarmBolt} BOLT（含手續費）× US$${config.boltUsd}/BOLT；站內 ${config.storageReplicas} 份 × US$${config.storageUsdPerGbMonth}/GB‧月，加上 ${config.expectedViews.toLocaleString("en-US")} 次瀏覽的傳輸費。完成時一次撥入保存基金`,
     tokensProjected: 0,
     tokensActual: 0,
     microsProjected: input.allocated?.storageMicros ?? storage.micros,

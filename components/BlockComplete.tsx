@@ -10,8 +10,10 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { markerPosition } from "@/lib/scene/format";
 import type { BlockPageData } from "@/lib/server/block-page";
 
+import { ArchivePanel } from "./ArchivePanel";
 import { StatusBadge } from "./BlockLive";
 import { BudgetSheet } from "./BudgetSheet";
 import { Terrain3D } from "./Terrain3D";
@@ -28,11 +30,11 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
   const [view, setView] = useState<"map" | "3d">("map");
   const [scene, setScene] = useState<number | null>(scenes.length ? 0 : null);
 
-  const { south, north, west, east } = v.bounds;
-  const pos = (lat: number, lng: number) => ({
-    left: `${((lng - west) / (east - west)) * 100}%`,
-    top: `${((north - lat) / (north - south)) * 100}%`,
-  });
+  // 與場景包裡的獨立檢視器用同一個算式
+  const pos = (lat: number, lng: number) => {
+    const p = markerPosition(v.bounds, lat, lng);
+    return { left: `${p.left}%`, top: `${p.top}%` };
+  };
   const current = scene === null ? null : done.markers[scene];
 
   return (
@@ -61,7 +63,7 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
             ) : null}
           </div>
           {view === "3d" && tile ? (
-            <Terrain3D tileUrl={art("TILE", 0)} dsmUrl={art("DSM", 0)} aspect={tile.height / tile.width} />
+            <Terrain3D tileUrl={art("TILE", 0)} dsmUrl={art("DSM", 0)} aspect={tile.height / tile.width} render={data.render} />
           ) : tile ? (
             <div className="relative w-full" style={{ aspectRatio: `${tile.width} / ${tile.height}` }}>
               {/* eslint-disable-next-line @next/next/no-img-element -- 區塊圖從自己的 API 出，不經 next/image 的最佳化管線 */}
@@ -132,6 +134,8 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
           </div>
         </section>
       ) : null}
+
+      <ArchivePanel archive={data.archive} />
 
       <BudgetSheet budget={v.budget} total={v.meters.moneyNeeded.twd} />
       {v.surplus && v.surplus.micros > 0 ? (

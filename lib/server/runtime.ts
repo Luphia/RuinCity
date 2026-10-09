@@ -11,6 +11,9 @@ import { withTransaction, type TxDb } from "@/lib/db/tx";
 import type { Observed } from "@/lib/world/plan";
 import { defaultProvider, enabledProviders, painterFor, referenceSource } from "@/lib/providers/registry";
 
+import { swarmClient } from "@/lib/swarm/registry";
+
+import type { ArchiveDeps } from "./archive";
 import { loadObserved, type StateDeps } from "./blocks";
 import type { BuilderDeps } from "./builder";
 import { budgetConfig } from "./config";
@@ -48,5 +51,16 @@ export async function builderDeps(holder: string): Promise<BuilderDeps> {
     state: await stateDeps(),
     now: () => Date.now(),
     holder,
+  };
+}
+
+export function archiveDeps(): ArchiveDeps {
+  const config = budgetConfig();
+  return {
+    db: db(),
+    tx: withTransaction,
+    now: () => Date.now(),
+    swarm: swarmClient(process.env, config.swarmEpochSeconds),
+    config,
   };
 }

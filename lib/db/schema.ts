@@ -8,6 +8,12 @@
  *   steps      施工紀錄。每一次嘗試一列（成功或失敗都記），帳由這裡加總
  *   artifacts  產出的圖。**區塊完成前不對外提供**（`lib/server/artifacts.ts`）
  *
+ * 長期保存（`lib/server/archive.ts`）：
+ *
+ *   scene_files     場景包裡「圖以外」的檔案（scene.json、檢視器、README），完工後凍結
+ *   scene_archives  每塊一列：場景包的根 CID、Boltchain 委託索引的 CID、保存目標
+ *   scene_deals     SwarmStorage 的保存委託。四年是一串接力的委託（見 `lib/swarm/quote.ts`）
+ *
  * ★ 狀態（募款中／建設中／已完成）**不存欄位**，由帳推導（`lib/world/ledger.ts`）。
  *   唯一存下來的是 `completed_at` 與 `paused_at` —— 它們是事件，不是餘額。
  *
@@ -27,6 +33,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -218,4 +225,85 @@ export const artifacts = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("artifacts_block_kind_uq").on(t.blockId, t.kind, t.kindIndex)],
+);
+
+// ─────────────────────────────────────────────────────────────
+// 長期保存：場景包 → Boltchain SwarmStorage
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 場景包裡圖以外的檔案。**第一次打包時寫入，之後永不改寫** ——
+ * 檢視器與清單的程式之後會改版，但已發布的包必須永遠重建得出同一個 CID。
+ * 圖本身不重複存：它們就是 `artifacts` 的位元組。
+ */
+export const sceneFiles = pgTable(
+  "scene_files",
+  {
+    blockId: bigint("block_id", { mode: "number" })
+      .notNull()
+      .references(() => blocks.id),
+    path: text("path").notNull(),
+    data: bytea("data").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.blockId, t.path] })],
+);
+
+export const archiveStatusEnum = pgEnum("archive_status", ["PACKED", "STORED", "DONE"]);
+
+export const sceneArchives = pgTable(
+  "scene_archives",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    blockId: bigint("block_id", { mode: "number" })
+      .notNull()
+      .references(() => blocks.id),
+    /** 場景包（UnixFS 目錄）的根 CID —— 任何人都能用 `ipfs add` 重算 */
+    sceneCid: text("scene_cid").notNull(),
+    /** Boltchain 委託索引（dag-cbor）的根 CID；鏈上記的就是它 */
+    dealIndexCid: text("deal_index_cid").notNull(),
+    /** 委託索引列出的區塊數與位元組數（不含索引自己） */
+    blockCount: integer("block_count").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+    /** PACKED：打包好、還沒有保存委託；STORED：有委託在保存中；DONE：保存期滿 */
+    status: archiveStatusEnum("status").notNull().default("PACKED"),
+    /** 保存到什麼時候（完工 + 保存月數） */
+    retainUntil: timestamp("retain_until", { withTimezone: true }).notNull(),
+    lastError: text("last_error"),
+    /** 失敗後不要每分鐘重試 */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("scene_archives_block_uq").on(t.blockId)],
+);
+
+export const dealStatusEnum = pgEnum("deal_status", ["SUBMITTED", "ACTIVE", "FAILED"]);
+
+export const sceneDeals = pgTable(
+  "scene_deals",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    archiveId: bigint("archive_id", { mode: "number" })
+      .notNull()
+      .references(() => sceneArchives.id),
+    /** `boltchain:<chainId>` 或 `demo` */
+    network: text("network").notNull(),
+    status: dealStatusEnum("status").notNull(),
+    txHash: text("tx_hash").notNull(),
+    /** 合約的委託編號（uint256，十進位字串）。交易確認前為 null */
+    dealId: text("deal_id"),
+    replicas: integer("replicas").notNull(),
+    epochs: integer("epochs").notNull(),
+    /** wei / GiB / epoch（十進位字串） */
+    priceWei: text("price_wei").notNull(),
+    /** 送出的託管款（wei，十進位字串） */
+    costWei: text("cost_wei").notNull(),
+    startEpoch: bigint("start_epoch", { mode: "number" }),
+    endEpoch: bigint("end_epoch", { mode: "number" }),
+    /** 最近一次讀到的副本狀態：[{provider, since, paidThrough, open}] */
+    slots: jsonb("slots").$type<{ provider: number; since: number; paidThrough: number; open: boolean }[]>(),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("scene_deals_tx_uq").on(t.network, t.txHash), index("scene_deals_archive_idx").on(t.archiveId)],
 );

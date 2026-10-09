@@ -21,6 +21,11 @@ const ENV_NAME: Record<keyof BudgetConfig, string> = {
   avgDonationTwd: "AVG_DONATION_TWD",
   storageUsdPerGbMonth: "STORAGE_USD_PER_GB_MONTH",
   storageReplicas: "STORAGE_REPLICAS",
+  swarmReplicas: "SWARM_REPLICAS",
+  swarmPriceBolt: "SWARM_PRICE_BOLT",
+  swarmEpochSeconds: "SWARM_EPOCH_SECONDS",
+  boltUsd: "BOLT_USD",
+  boltGasPerDeal: "BOLT_GAS_PER_DEAL",
   retentionMonths: "RETENTION_MONTHS",
   egressUsdPerGb: "EGRESS_USD_PER_GB",
   expectedViews: "EXPECTED_VIEWS_PER_BLOCK",
@@ -41,6 +46,16 @@ const RATE_KEYS: readonly (keyof BudgetConfig)[] = [
   "volatilityRate",
 ];
 
+/** 為 0 就沒有意義（除以零、或保存零份）的參數 */
+const NONZERO_KEYS: readonly (keyof BudgetConfig)[] = [
+  "twdPerUsd",
+  "avgDonationTwd",
+  "storageReplicas",
+  "swarmReplicas",
+  "swarmPriceBolt",
+  "swarmEpochSeconds",
+];
+
 export function budgetConfig(env: Env = process.env): BudgetConfig {
   const out: Record<string, number> = { ...DEFAULT_BUDGET_CONFIG };
   for (const key of Object.keys(ENV_NAME) as (keyof BudgetConfig)[]) {
@@ -49,7 +64,8 @@ export function budgetConfig(env: Env = process.env): BudgetConfig {
     const v = Number(raw);
     if (!Number.isFinite(v) || v < 0) continue;
     if (RATE_KEYS.includes(key) && v >= 1) continue;
-    if ((key === "twdPerUsd" || key === "avgDonationTwd" || key === "storageReplicas") && v === 0) continue;
+    if (NONZERO_KEYS.includes(key) && v === 0) continue;
+    if (key === "swarmReplicas" && (v > 16 || !Number.isInteger(v))) continue;
     out[key] = v;
   }
   return out as unknown as BudgetConfig;

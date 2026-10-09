@@ -121,5 +121,40 @@ test.describe("一塊地圖的一生", () => {
     const credited = data.view.completed.credits.map((c) => c.provider).join(" ");
     expect(credited).toContain("Gemini");
     expect(credited).toContain("GPT Image");
+
+    // 永久保存：下一輪排程打包成場景包、交給（示範的）SwarmStorage
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/api/blocks/${key}`);
+          return ((await res.json()) as { archive: { status: string } | null }).archive?.status ?? "NONE";
+        },
+        { timeout: 90_000, intervals: [3000] },
+      )
+      .toBe("STORED");
+    await page.reload();
+    await expect(page.getByTestId("archive-panel")).toBeVisible();
+    await expect(page.getByTestId("archive-status")).toContainText("示範模式");
+    const sceneCid = (await page.getByTestId("scene-cid").textContent())!.trim();
+    expect(sceneCid).toMatch(/^bafy/);
+    await expect(page.getByTestId("archive-deals")).toContainText("3 個副本");
+
+    // 整包下載：根就是畫面上的 CID
+    const car = await request.get(`/api/blocks/${key}/scene.car`);
+    expect(car.status()).toBe(200);
+    expect(car.headers()["content-type"]).toContain("application/vnd.ipld.car");
+    expect(car.headers()["x-ipfs-roots"]).toBe(sceneCid);
+
+    // 在網站上用包裡的檢視器開：讀到 scene.json、雜湊驗證通過
+    const viewer = await page.context().newPage();
+    await viewer.goto(`/api/blocks/${key}/scene/index.html`);
+    await expect(viewer.getByText(/全部 \d+ 個檔案的 SHA-256 都與 scene\.json 相符/)).toBeVisible({ timeout: 30_000 });
+    await viewer.close();
+  });
+
+  test("沒有完成的塊拿不到場景包", async ({ request }) => {
+    expect((await request.get(`/api/blocks/-45.67_12.34/scene.car`)).status()).toBe(404);
+    expect((await request.get(`/api/blocks/-45.67_12.34/scene/index.html`)).status()).toBe(404);
+    expect((await request.get(`/api/archive`)).status()).toBe(200);
   });
 });

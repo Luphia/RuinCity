@@ -2,6 +2,7 @@
   "name": "ruincity",
   "version": "0.2.0",
   "private": true,
+  "type": "module",
   "description": "臺北 101 為中心、以 1km 為單位、由玩家自備 API 金鑰繪製的「人類離開一千年後」協作地圖遊戲",
   "scripts": {
     "dev": "next dev --port 5000",
@@ -17,14 +18,24 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --tsconfig tsconfig.scripts.json scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm scene:viewer --check && pnpm test",
+    "scene:viewer": "tsx scripts/build-viewer.ts",
+    "scene:verify": "tsx --tsconfig tsconfig.scripts.json scripts/scene-verify.ts",
+    "scene:fixture": "tsx --tsconfig tsconfig.scripts.json scripts/scene-fixture.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
     "@auth/drizzle-adapter": "1.11.3",
+    "@ipld/car": "5.4.7",
+    "@ipld/dag-cbor": "10.0.2",
+    "@ipld/dag-pb": "4.2.0",
     "@neondatabase/serverless": "1.1.0",
+    "blockstore-core": "7.0.1",
     "drizzle-orm": "0.45.2",
+    "ipfs-unixfs-exporter": "16.2.3",
+    "ipfs-unixfs-importer": "17.1.1",
     "maplibre-gl": "5.24.0",
+    "multiformats": "14.0.5",
     "next": "16.3.0",
     "next-auth": "5.0.0-beta.32",
     "nodemailer": "7.0.11",
@@ -32,7 +43,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "sharp": "0.34.5",
-    "three": "0.186.1",
+    "viem": "2.57.4",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -44,9 +55,9 @@
     "@types/pg": "^8.20.4",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.4",
-    "@types/three": "0.186.0",
     "dotenv": "17.4.2",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "4.3.3",

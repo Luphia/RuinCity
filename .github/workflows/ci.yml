@@ -39,6 +39,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Scene viewer is in sync with its source
+        run: pnpm scene:viewer --check
+
       - name: Unit tests
         run: pnpm test
 
@@ -51,6 +54,44 @@ jobs:
           if ! git diff --quiet -- drizzle/; then
             echo "::error::schema.ts 有改動但沒有重新產生 migration。請執行 pnpm db:generate 並提交。"
             git diff --stat -- drizzle/
+            exit 1
+          fi
+
+  scene-kubo:
+    name: scene CID = Kubo CID
+    # 「任何人都能用標準 IPFS 工具重算場景包的 CID」：拿真的 Kubo 算同一個資料夾，兩邊必須相同
+    runs-on: ubuntu-latest
+    env:
+      KUBO_VERSION: v0.34.1
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Kubo
+        run: |
+          curl -sSfL "https://dist.ipfs.tech/kubo/${KUBO_VERSION}/kubo_${KUBO_VERSION}_linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/kubo" >> "$GITHUB_PATH"
+
+      - name: Compare CIDs
+        run: |
+          ours=$(pnpm -s scene:fixture "$RUNNER_TEMP/scene")
+          export IPFS_PATH="$RUNNER_TEMP/ipfs-repo"
+          ipfs init --profile test > /dev/null
+          kubo=$(ipfs add -r -Q --only-hash --cid-version=1 --raw-leaves --chunker=size-1048576 "$RUNNER_TEMP/scene")
+          echo "ours: $ours"
+          echo "kubo: $kubo"
+          if [ "$ours" != "$kubo" ]; then
+            echo "::error::場景包的 CID 與 Kubo 算出來的不同（lib/ipfs/pack.ts 的設定與 Kubo 的旗標不一致）"
             exit 1
           fi
 

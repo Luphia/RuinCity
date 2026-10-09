@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'">
+<title>RuinCity · 千年之後</title>
+<link rel="icon" href="data:,">
+<style>
+:root { --ink:#141311; --ink-soft:#1d1b18; --ink-mid:#33302a; --parchment:#e8dcc0; --ash:#a39a88; --ash-deep:#7a7364; --moss:#8fb07a; --rust:#c2703d; --alarm:#e0614a; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--ink); color:var(--parchment); font:15px/1.6 system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif; }
+main { max-width:72rem; margin:0 auto; padding:24px 16px 48px; display:flex; flex-direction:column; gap:28px; }
+h1 { font-size:1.25rem; margin:0; } h2 { font-size:1.05rem; margin:0 0 8px; }
+.muted { color:var(--ash); font-size:.875rem; } .deep { color:var(--ash-deep); font-size:.75rem; }
+.ok { color:var(--moss); } .bad { color:var(--alarm); }
+.grid2 { display:grid; gap:16px; } @media (min-width:768px) { .grid2 { grid-template-columns:3fr 2fr; } }
+.tabs button { background:none; border:0; color:var(--ash); font:inherit; padding:0 12px 0 0; cursor:pointer; } .tabs button[aria-pressed=true] { color:var(--moss); font-weight:700; }
+.map { position:relative; width:100%; } .map img { width:100%; height:100%; display:block; border-radius:4px; object-fit:cover; }
+.dot { position:absolute; width:12px; height:12px; transform:translate(-50%,-50%); border-radius:50%; border:1px solid var(--rust); background:rgba(20,19,17,.7); padding:0; cursor:pointer; }
+.dot[aria-pressed=true] { background:var(--rust); border-color:var(--parchment); }
+.terrain { position:relative; height:24rem; width:100%; border-radius:4px; overflow:hidden; }
+.thumbs { display:grid; gap:8px; grid-template-columns:repeat(3,1fr); } @media (min-width:640px) { .thumbs { grid-template-columns:repeat(5,1fr); } } @media (min-width:900px) { .thumbs { grid-template-columns:repeat(8,1fr); } }
+.thumbs button { padding:0; border:0; background:none; cursor:pointer; border-radius:4px; } .thumbs button[aria-pressed=true] { outline:2px solid var(--rust); }
+.thumbs img, .tex img, .scene img { width:100%; display:block; border-radius:4px; }
+.tex { display:grid; gap:12px; grid-template-columns:repeat(2,1fr); } @media (min-width:640px) { .tex { grid-template-columns:repeat(4,1fr); } }
+blockquote { margin:8px 0 0; padding-left:12px; border-left:2px solid var(--moss); font-size:.875rem; }
+code { font-size:.75rem; word-break:break-all; color:var(--ash); }
+</style>
+<script src="viewer.js" defer></script>
+</head>
+<body>
+<main id="app"><p class="muted">載入中…（需要以 HTTP 開啟，例如 IPFS 閘道或 <code>python3 -m http.server</code>）</p></main>
+</body>
+</html>

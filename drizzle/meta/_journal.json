@@ -15,6 +15,13 @@
       "when": 1791539169496,
       "tag": "0001_pretty_post",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791540248071,
+      "tag": "0002_milky_mikhail_rasputin",
+      "breakpoints": true
     }
   ]
 }

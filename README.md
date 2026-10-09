@@ -6,6 +6,7 @@
 - **畫面必須擬真**：地面是紀實攝影、地圖是航測正射影像、材質是掃描貼圖
 - 每一筆捐款可以投票決定由哪一家影像模型來畫（Google / OpenAI），依金額加權；每一張圖開工時才計票，所以施工途中會換模型。Claude 擔任勘查員，寫每一塊的地圖參數
 - 一塊的產出：100 張標記座標場景圖、正射地圖底圖、3D 高度圖、8 張材質貼圖
+- **永久保存**：完成的塊打包成一個 IPFS 資料夾（圖、座標、渲染規格與無相依的檢視器），由 [Boltchain](https://github.com/Luphia/Boltchain) SwarmStorage 付費委託多個節點保存四年、每個 epoch 抽查。任何人拿到它都能重建一模一樣的場景，不需要這個網站
 
 完整規格：[`docs/00-design.md`](docs/00-design.md)。上線前請先看其中 **§7 風險與待決事項**。
 
@@ -28,5 +29,7 @@ FAKE_PROVIDERS=1 PAYMENTS=demo MAP_STYLE_URL=/map-style-blank.json pnpm dev
 ```bash
 pnpm check        # typecheck + lint + 單元與整合測試（PGlite，不需要資料庫）
 pnpm test:e2e     # Playwright：需要 Postgres 與示範模式（見 .github/workflows/ci.yml）
+pnpm scene:verify scene.car --extract ./scene                    # 驗證並解出一塊的場景包
+pnpm scene:verify --gateway http://<boltchain 閘道> <委託索引 CID>  # 直接從 Boltchain 取回
 pnpm build && pnpm start   # 正式模式：migration → web + worker
 ```
