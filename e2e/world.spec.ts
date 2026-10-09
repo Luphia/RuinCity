@@ -119,6 +119,18 @@ test.describe("一塊地圖的一生", () => {
     await page.goto(`/b/${key}`);
     await expect(page.getByTestId("status")).toHaveText("已完成");
     await expect(page.getByTestId("tile-image")).toBeVisible();
+
+    // 漫遊：第三人稱走進這一塊；從第一個標記座標出發，按「查看」看 AI 在那裡畫的景象
+    await page.getByTestId("walk-start").click();
+    await expect(page.getByTestId("walk-mode")).toBeVisible();
+    await expect(page.getByTestId("walk-position")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("walk-joystick")).toBeVisible(); // 手機：觸控搖桿
+    await page.getByTestId("walk-interact").click();
+    await expect(page.getByTestId("walk-scene")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("walk-scene")).toBeHidden();
+    await page.getByTestId("walk-close").click();
+    await expect(page.getByTestId("walk-mode")).toBeHidden();
     const art = await request.get(`/api/blocks/${key}/art/TILE/0`);
     expect(art.status()).toBe(200);
     expect(art.headers()["content-type"]).toBe("image/webp");

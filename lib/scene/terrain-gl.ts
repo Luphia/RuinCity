@@ -27,8 +27,8 @@ export interface TerrainHandle {
   dispose(): void;
 }
 
-type Vec3 = [number, number, number];
-type Mat4 = Float32Array;
+export type Vec3 = [number, number, number];
+export type Mat4 = Float32Array;
 
 const VS = `#version 300 es
 in vec3 aPos;
@@ -65,7 +65,7 @@ void main() {
   outColor = vec4(toSrgb(albedo * (hemi + sun)), 1.0);
 }`;
 
-function hexToRgb(hex: string): Vec3 {
+export function hexToRgb(hex: string): Vec3 {
   const n = Number.parseInt(hex.replace("#", ""), 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
@@ -81,14 +81,14 @@ function norm(a: Vec3): Vec3 {
   return [a[0] / l, a[1] / l, a[2] / l];
 }
 
-function perspective(fovDeg: number, aspect: number, near: number, far: number): Mat4 {
+export function perspective(fovDeg: number, aspect: number, near: number, far: number): Mat4 {
   const f = 1 / Math.tan((fovDeg * Math.PI) / 360);
   const nf = 1 / (near - far);
   // 欄優先（column-major）
   return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
 }
 
-function lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
+export function lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
   const z = norm(sub(eye, target));
   const x = norm(cross(up, z));
   const y = cross(z, x);
@@ -103,7 +103,7 @@ function lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
   ]);
 }
 
-function multiply(a: Mat4, b: Mat4): Mat4 {
+export function multiply(a: Mat4, b: Mat4): Mat4 {
   const out = new Float32Array(16);
   for (let c = 0; c < 4; c++) {
     for (let r = 0; r < 4; r++) {
@@ -115,7 +115,7 @@ function multiply(a: Mat4, b: Mat4): Mat4 {
   return out;
 }
 
-async function decode(url: string): Promise<ImageBitmap> {
+export async function decode(url: string): Promise<ImageBitmap> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return createImageBitmap(await res.blob(), {
@@ -126,7 +126,7 @@ async function decode(url: string): Promise<ImageBitmap> {
 }
 
 /** 高度圖 → 0..1 的灰階陣列（取 R 通道；灰階圖三個通道相同） */
-function heights(bitmap: ImageBitmap): { data: Float32Array; width: number; height: number } {
+export function heights(bitmap: ImageBitmap): { data: Float32Array; width: number; height: number } {
   const canvas = document.createElement("canvas");
   canvas.width = bitmap.width;
   canvas.height = bitmap.height;

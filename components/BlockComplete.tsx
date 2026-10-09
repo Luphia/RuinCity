@@ -4,7 +4,7 @@
  * 完成的區塊：終於可以進入了。
  *
  * 正射底圖上標出每一個標記座標，點一個就看那裡的場景圖；
- * 3D 預覽、材質貼圖、勘查筆記、由誰畫了多少，以及決算後的預算書。
+ * 3D 預覽、漫遊（第三人稱走進這一塊，`WalkMode`）、材質貼圖、勘查筆記、由誰畫了多少，以及決算後的預算書。
  */
 
 import { useState } from "react";
@@ -15,8 +15,13 @@ import type { BlockPageData } from "@/lib/server/block-page";
 import { ArchivePanel } from "./ArchivePanel";
 import { BlockHeader } from "./BlockHeader";
 import { BudgetSheet } from "./BudgetSheet";
-import { CardTitle, IconImage, IconLayers, glass } from "./hud";
+import { CardTitle, IconArrowRight, IconImage, IconLayers, cta, glass } from "./hud";
 import { Terrain3D } from "./Terrain3D";
+import { WalkMode, type WalkMarkerInfo } from "./WalkMode";
+
+/** 漫遊時近處的材質細節：一張硬的（混凝土、柏油…）、一張長了東西的（苔、林床…），依材質名稱挑 */
+const HARD = /concrete|asphalt|steel|metal|brick|tile|stone|rubble|road|pavement|glass/i;
+const GREEN = /moss|forest|grass|fern|root|leaf|leaves|vine|reed|banyan|floor|soil|mud|undergrowth/i;
 
 export function BlockComplete({ data }: { data: BlockPageData }) {
   const v = data.view;
@@ -29,6 +34,20 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
   const textures = done.artifacts.filter((a) => a.kind === "TEXTURE");
   const [view, setView] = useState<"map" | "3d">("map");
   const [scene, setScene] = useState<number | null>(scenes.length ? 0 : null);
+  const [walking, setWalking] = useState(false);
+  const canWalk = hasDsm && !!tile;
+  const pickTexture = (re: RegExp, fallback: number) => {
+    const t = textures.find((x) => x.label && re.test(x.label)) ?? textures[fallback] ?? null;
+    return t ? art("TEXTURE", t.kindIndex) : null;
+  };
+  const walkMarkers: WalkMarkerInfo[] = done.markers.map((m) => ({
+    index: m.index,
+    lat: m.lat,
+    lng: m.lng,
+    heading: m.heading,
+    caption: m.caption,
+    sceneUrl: scenes.some((s) => s.kindIndex === m.index) ? art("SCENE", m.index) : null,
+  }));
 
   // 與場景包裡的獨立檢視器用同一個算式
   const pos = (lat: number, lng: number) => {
@@ -45,7 +64,30 @@ export function BlockComplete({ data }: { data: BlockPageData }) {
       <BlockHeader
         view={v}
         subtitle={`${v.label} · 人類離開一千年後 · 共用 ${v.meters.tokensSpent} token、花費 ${v.meters.moneySpent.twd}${v.funding.granted ? ` · 平台撥款 ${v.funding.granted.twd}` : ""}`}
-      />
+      >
+        {canWalk ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" className={cta} onClick={() => setWalking(true)} data-testid="walk-start">
+              走進這一塊 <IconArrowRight className="h-4 w-4" />
+            </button>
+            <span className="text-xs text-white/55">第三人稱漫遊：走到標記座標旁邊，看 AI 在那裡畫的景象</span>
+          </div>
+        ) : null}
+      </BlockHeader>
+      {walking && tile ? (
+        <WalkMode
+          blockKey={v.key}
+          title={v.shortLabel}
+          tileUrl={art("TILE", 0)}
+          dsmUrl={art("DSM", 0)}
+          detailUrls={{ hard: pickTexture(HARD, 0), green: pickTexture(GREEN, 1) }}
+          aspect={tile.height / tile.width}
+          bounds={v.bounds}
+          markers={walkMarkers}
+          render={data.render}
+          onClose={() => setWalking(false)}
+        />
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-[3fr_2fr]">
         <div className={`${glass} flex flex-col gap-3 p-3`}>

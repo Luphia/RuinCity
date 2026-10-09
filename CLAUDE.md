@@ -73,6 +73,7 @@ pnpm block:paint <區塊>         # 管理員：平台撥款並畫到完成，�
 | 保存費 | 參考價：容量、請求、傳輸照 **AWS S3**，委託手續費照 **Ethereum 主網 gas**（design §5.5）。不是 BOLT 行情 —— BOLT 沒有市價。出價預設是 S3 parity（`s3ParityPriceBolt`）。`SWARM_EPOCH_SECONDS` 決定要接力幾筆，手續費跟著乘 |
 | 授權 | 場景包是 **CC0 1.0**，寫在 `scene.json` 的 `license`（`SCENE_LICENSE`）與 README。改授權只影響之後完工的塊 —— 已凍結的包不改 |
 | 視覺風格 | 全站是毛玻璃 HUD：卡片、按鈕、欄位、圖示都從 `components/hud.tsx` 拿（`glass`／`glassDark`、`cta`、`ghost`、`field`、`CardTitle`、`Meter`）。天藍＝主要動作、琥珀＝施工中、翠綠＝已完成、玫瑰＝錯誤。不要自己另寫一套顏色 |
+| 漫遊 | 完成的塊可以第三人稱走進去（design §13）。數學在 `lib/scene/walk.ts`（純函式、有測試），畫面在 `walk-gl.ts`，HUD 在 `components/WalkMode.tsx`。數字只寫在 `WALK_V1`，要改就開 `WALK_V2`。碰撞的坡度看前方固定一段（`probeM`），不要改回看這一格的步長 —— 會一點一點爬上牆 |
 | 開場畫面 | `/` 是開場畫面，世界地圖在 `/world`。開場圖照區塊的正典與擬真規格畫（`splashJob`），沒畫之前**只有文字**，不放任何頂替的圖 |
 | Boltchain 閘道 | 匯出 CAR 只跟隨 dag-cbor 連結、不懂 UnixFS。取整包要拿**委託索引** CID，不是場景包 CID |
 | `server-only` | `lib/server`、`lib/providers` 的伺服器模組 import 了它。Node 腳本 import 會直接丟錯 —— 所以 `pnpm worker` 是打 HTTP 路由，不是直接 import 施工引擎 |

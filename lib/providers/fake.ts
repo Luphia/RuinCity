@@ -90,13 +90,17 @@ function fakeSvg(provider: ProviderId, kind: PaidStepKind, seedText: string, w: 
       );
     }
   } else if (kind === "DSM") {
+    // 模糊過的圓：示範的地形要走得動（真的高度圖也不會是一圈一圈的懸崖）
+    shapes.push(`<defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${(w / 40).toFixed(0)}"/></filter></defs>`);
     shapes.push(`<rect width="${w}" height="${h}" fill="#333"/>`);
+    shapes.push(`<g filter="url(#soft)">`);
     for (let i = 0; i < 50; i++) {
       const g = Math.floor(60 + r() * 190);
       shapes.push(
         `<circle cx="${(r() * w).toFixed(0)}" cy="${(r() * h).toFixed(0)}" r="${(20 + r() * 110).toFixed(0)}" fill="rgb(${g},${g},${g})" opacity="0.6"/>`,
       );
     }
+    shapes.push(`</g>`);
   } else if (kind === "TEXTURE") {
     shapes.push(`<rect width="${w}" height="${h}" fill="${c.accent}"/>`);
     for (let i = 0; i < 120; i++) {
