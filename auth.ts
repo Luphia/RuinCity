@@ -88,7 +88,8 @@ export const authConfig = (): NextAuthConfig => ({
   /**
    * Vercel 會自動偵測 host，但自架、Docker 與 E2E（127.0.0.1:3100）
    * 都需要顯式信任，否則 Auth.js 會擋下所有請求。
-   * 生產環境務必同時設定 AUTH_URL，讓 callback URL 是固定的。
+   * 網址由請求推得，所以本機換埠不必改任何設定。正式環境若在會改寫 Host 的代理後面，
+   * 再設定 AUTH_URL 把 callback 固定下來。
    */
   trustHost: true,
   pages: {

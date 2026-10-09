@@ -94,12 +94,12 @@ async function main() {
       console.error(
         `[start] macOS 的 AirPlay 接收器預設就聽 5000。兩種解法挑一個：\n` +
           `  · 關掉它：系統設定 → 一般 → AirDrop 與接力 → 關閉「AirPlay 接收器」\n` +
-          `  · 換一個埠：PORT=5001 pnpm start（記得同步改 .env.local 的 AUTH_URL）`,
+          `  · 換一個埠：PORT=5001 pnpm start`,
       );
     } else {
       console.error(
         `[start] 先收掉占用它的行程，或換一個埠：` +
-          `PORT=${port + 1} pnpm start（記得同步改 .env.local 的 AUTH_URL）`,
+          `PORT=${port + 1} pnpm start`,
       );
     }
     process.exit(1);
@@ -120,8 +120,8 @@ async function main() {
    * `pnpm start --port 3100` 之類的參數原封轉給 next。
    *
    * ★ 沒指定就用 `DEFAULT_PORT`（5000），不是 Next 的預設 3000 ——
-   *   `pnpm dev` 與 `pnpm start` 必須聽同一個號碼，否則
-   *   `AUTH_URL` 與 magic link 會在兩種模式之間漂移。
+   *   `pnpm dev` 與 `pnpm start` 聽同一個號碼，書籤與說明文件才不會在兩種模式之間漂移。
+   *   （登入連結的網址由請求推得 —— `trustHost` —— 不必另外設 AUTH_URL）
    *   `PORT` 環境變數優先（Docker、systemd、雲端平台都靠它）。
    */
   const extraArgs = [...argv];

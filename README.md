@@ -14,8 +14,7 @@
 
 ```bash
 pnpm install
-cp .env.example .env.local      # 填 AUTH_SECRET；資料庫預設是本機 SQLite 檔 ./data/ruincity.db，不用另外架
-pnpm db:migrate
+pnpm run initial                # 產生 .env.local（隨機密鑰）並建立本機 SQLite 資料庫；--demo 打開示範模式
 pnpm dev                        # http://localhost:5000
 pnpm worker                     # 另一個終端機：施工排程（每 10 秒一輪）
 ```

@@ -16,8 +16,7 @@
 
 ```bash
 pnpm install
-cp .env.example .env.local     # 填入 AUTH_SECRET；資料庫預設是本機 SQLite 檔 ./data/ruincity.db
-pnpm db:migrate
+pnpm run initial               # 產生 .env.local（AUTH_SECRET、CRON_SECRET 隨機產生）+ 建立資料庫；--demo 打開示範模式
 pnpm dev                       # http://localhost:5000（不是 Next 預設的 3000）
 pnpm worker                    # 施工排程：每 10 秒打一次 /api/cron/build
 pnpm build && pnpm start       # 正式模式：migration → web + worker
@@ -81,7 +80,8 @@ pnpm splash:paint              # 畫開場圖（象山俯視 101）：需要 GEM
 | 腳本的環境變數 | `scripts/*.ts` 的**第一個 import** 必須是 `./load-env` |
 | React Compiler | render 中不可呼叫 `Date.now()` 等不純函式；effect 本體裡不要同步 `setState` |
 | 失敗要看得見 | 每一個 fetch 都要有 catch，而 catch 裡要有 UI。只 `console.error` 不算 |
-| 埠 | 預設 5000（`pnpm dev`／`pnpm start`／`AUTH_URL` 要一致）。E2E 用 3100 |
+| 埠 | 預設 5000（`pnpm dev`／`pnpm start` 相同）。不必設 `AUTH_URL`：`trustHost` 由請求推得網址，換埠不用改設定。E2E 用 3100 |
+| 環境變數 | 只有 `AUTH_SECRET`、`CRON_SECRET` 是必要的，`pnpm run initial` 會產生；其餘都選填。`.env.example` 是範本與說明 —— **不要在那裡重抄預算參數的預設值**（只寫在 `budget.ts`，抄一份遲早不一致） |
 | 本機登入 | 沒設 `EMAIL_SERVER` 時，開發模式會把 magic link 印在終端機上。E2E 直接在資料庫建 session |
 
 <!-- BEGIN:nextjs-agent-rules -->
