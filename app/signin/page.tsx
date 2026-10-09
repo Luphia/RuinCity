@@ -45,8 +45,7 @@ export default async function SignInPage({
       <div className="flex flex-col gap-2">
         <h1 className="text-parchment text-2xl font-bold">登入 RuinCity</h1>
         <p className="text-ash text-sm leading-relaxed">
-          賽季需要一個能收來襲警報、能在第 11 日報名下一場的真實身分，
-          所以我們不做訪客帳號。
+          捐款需要一個能寄收據、能讓你之後改票的身分，所以我們不做訪客捐款。
         </p>
       </div>
 
@@ -67,7 +66,7 @@ export default async function SignInPage({
           >
             <button
               type="submit"
-              className="border-ink-mid text-parchment hover:border-relic hover:text-relic w-full rounded border px-5 py-3 transition-colors"
+              className="border-ink-mid text-parchment hover:border-rust hover:text-rust w-full rounded border px-5 py-3 transition-colors"
             >
               使用 Google 登入
             </button>
@@ -90,11 +89,11 @@ export default async function SignInPage({
               type="email"
               required
               placeholder="you@example.com"
-              className="border-ink-mid bg-ink-soft text-parchment placeholder:text-ink-mid focus:border-relic rounded border px-4 py-3 outline-none"
+              className="border-ink-mid bg-ink-soft text-parchment placeholder:text-ink-mid focus:border-rust rounded border px-4 py-3 outline-none"
             />
             <button
               type="submit"
-              className="border-ink-mid text-parchment hover:border-relic hover:text-relic w-full rounded border px-5 py-3 transition-colors"
+              className="border-ink-mid text-parchment hover:border-rust hover:text-rust w-full rounded border px-5 py-3 transition-colors"
             >
               {devMailbox ? "產生登入連結" : "寄送登入連結"}
             </button>

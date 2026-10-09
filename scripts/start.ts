@@ -6,19 +6,18 @@ import "./load-env";
  * 順序（每一步失敗都要**講清楚下一步**，不是丟一個 stack trace）：
  *
  *   1. 檢查 production build 存在（沒有 → 先執行 pnpm build）
- *   2. 資料庫 migration（`pnpm db:migrate` 的那一份，含 cause 鏈診斷）
- *   3. 同時啟動：
- *        [web]     next start（instrumentation 會在啟動時確保地形檔）
- *        [worker]  結算迴圈（執政官、行軍、賽季推進）
- *      任一個死掉就把另一個也收掉、以它的退出碼結束 ——
- *      「web 活著但 worker 早就死了」是最難察覺的半殘狀態。
+ *   2. 確認埠綁得起來
+ *   3. 資料庫 migration（`pnpm db:migrate` 的那一份，含 cause 鏈診斷）
+ *   4. 同時啟動：
+ *        [web]     next start
+ *        [worker]  施工排程（每 10 秒打一次 /api/cron/build）
+ *      任一個死掉就把另一個也收掉 —— 「web 活著但施工早就停了」是最難察覺的半殘狀態。
+ *      捐款入帳時 web 自己也會立刻開工（`lib/server/kick.ts`），worker 是安全網。
  *
- * ★ 沒設 DATABASE_URL（或還是範本的佔位值）時**只跑 web**：
- *   E2E 與純前端預覽本來就沒有資料庫，這是正常模式不是錯誤 ——
- *   但要在啟動時講出來，不能讓人以為遊戲邏輯在動。
+ * ★ 沒設 DATABASE_URL（或還是範本的佔位值）時照樣啟動 web，但要講出來 ——
+ *   地圖、認領、繪製全部需要資料庫，畫面會顯示「資料庫未設定」。
  *
- * ★ Vercel 不走這裡（它自己 serve build、cron 打 /api/cron/settle）。
- *   這個入口是給本機與自架的：一個指令，整套服務。
+ * ★ Vercel 不走這裡（它自己 serve build）。這個入口是給本機與自架的。
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -87,9 +86,8 @@ async function main() {
    *
    * ★ 這一步在 migration **之前**，而且要**講清楚下一步**。
    *
-   *   少了它，流程是：跑完 migration → 起 web → 起 worker →
-   *   web 撞 `EADDRINUSE` 吐一個 Node stack trace → 連帶收掉 worker。
-   *   三行紅字裡沒有一行告訴使用者該做什麼。
+   *   少了它，流程是：跑完 migration → 起 web → 撞 `EADDRINUSE`
+   *   吐一個 Node stack trace，裡面沒有一行告訴使用者該做什麼。
    *
    *   而在 macOS 上這不是罕見情況：**AirPlay 接收器預設就占用 5000**
    *   （Monterey 之後），所以每一台 Mac 第一次跑都會撞到。
@@ -127,7 +125,7 @@ async function main() {
       process.exit(r.status ?? 1);
     }
   } else {
-    log("⚠ 沒有設定 DATABASE_URL —— 只啟動 web（遊戲邏輯不會動）。");
+    log("⚠ 沒有設定 DATABASE_URL —— web 會啟動，但地圖、認領與繪製都需要資料庫。");
     log("  要玩的話：cp .env.example .env.local 填入連線字串，然後 pnpm db:migrate。");
   }
 
@@ -162,10 +160,7 @@ async function main() {
       children.delete(name);
       if (shuttingDown) return;
       shuttingDown = true;
-      // 任一個死掉，另一個也收掉 —— 半殘比全停更難察覺
-      console.error(
-        `[start] [${name}] 結束（${signal ?? `code ${code}`}）—— 收掉其餘服務。`,
-      );
+      console.error(`[start] [${name}] 結束（${signal ?? `code ${code}`}）—— 收掉其餘服務。`);
       for (const [, c] of children) c.kill("SIGTERM");
       setTimeout(() => process.exit(code ?? 1), 500);
     });
@@ -174,6 +169,7 @@ async function main() {
 
   launch("web", "pnpm", ["exec", "next", "start", ...extraArgs]);
   if (hasDb) {
+    process.env.WORKER_BASE_URL ??= `http://127.0.0.1:${port}`;
     launch("worker", "pnpm", ["worker"]);
   }
 

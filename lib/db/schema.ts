@@ -1,17 +1,24 @@
 /**
- * Drizzle schema —— 對應 docs/08-data-model.md。
+ * 資料庫結構。
  *
- * 兩個貫穿全表的設計：
- *  1. 所有遊戲資料以 `seasonId` 分割。任何時刻有兩場賽季並行（12 天賽季、7 天輪替）。
- *  2. 資源與人口採「快照 + 速率」惰性結算，不用定時器每秒寫 DB。
+ * 四張主表：
+ *
+ *   blocks     一塊地圖（0.01° × 0.01°）。只有被捐過款的塊才有一列
+ *   donations  捐款。**一筆捐款就是一張選票**：它的總額投給它選的那一家（或不投）
+ *   steps      施工紀錄。每一次嘗試一列（成功或失敗都記），帳由這裡加總
+ *   artifacts  產出的圖。**區塊完成前不對外提供**（`lib/server/artifacts.ts`）
+ *
+ * ★ 狀態（募款中／建設中／已完成）**不存欄位**，由帳推導（`lib/world/ledger.ts`）。
+ *   唯一存下來的是 `completed_at` 與 `paused_at` —— 它們是事件，不是餘額。
+ *
+ * ★ 金額一律是**微美元**的 bigint。新台幣只存捐款人實際付的整數金額與當時的匯率。
  */
 
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
   boolean,
-  char,
   check,
   customType,
   index,
@@ -20,889 +27,195 @@ import {
   numeric,
   pgEnum,
   pgTable,
-  primaryKey,
-  serial,
-  smallint,
   text,
   timestamp,
   uniqueIndex,
-  varchar,
 } from "drizzle-orm/pg-core";
 
-/** Postgres `bytea`。drizzle 沒有內建，地形 chunk 檔（每個 4 KB）用它 */
+import type { MapParams } from "@/lib/world/params";
+import type { Viewpoint } from "@/lib/world/prompts";
+
+/** Postgres `bytea`。drizzle 沒有內建 */
 const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
   dataType() {
     return "bytea";
   },
 });
 
-// ─────────────────────────────────────────────────────────────
-// Enums
-// ─────────────────────────────────────────────────────────────
-
-export const seasonStatusEnum = pgEnum("season_status", [
-  "REGISTRATION",
-  "SEALED",
-  "RUNNING",
-  "ENDING",
-  "ARCHIVED",
-]);
-
-export const spawnBandEnum = pgEnum("spawn_band", ["VANGUARD", "HEARTLAND", "FRONTIER"]);
-
-export const aiPersonaEnum = pgEnum("ai_persona", [
-  "SETTLER",
-  "WARDEN",
-  "WARLORD",
-  "RUIN_LEGION",
-]);
-
-export const allianceStatusEnum = pgEnum("alliance_status", ["ACTIVE", "FALLEN"]);
-export const allianceRankEnum = pgEnum("alliance_rank", ["LEADER", "OFFICER", "MEMBER"]);
-export const recruitModeEnum = pgEnum("recruit_mode", ["OPEN", "APPLY", "INVITE"]);
-
-export const tileKindEnum = pgEnum("tile_kind", [
-  "BASE_CORE",
-  "TERRITORY",
-  "RUIN",
-  "RUIN_OUTPOST",
-  "CAMP",
-]);
-export const tileStateEnum = pgEnum("tile_state", [
-  "NORMAL",
-  "CONTESTED",
-  "ISOLATED",
-  "CLAIMING",
-]);
-
-/**
- * 地形。真相在地圖靜態檔（`public/terrain/s{seasonId}`），
- * 這裡是**佔領時抄下來的一份**。
- *
- * ★ 為什麼要反正規化：結算路徑要算設施產出，而產出乘地形修正
- *   （`TERRAIN_YIELD`）。如果不存在這裡，每次結算都得去讀 chunk 檔 ——
- *   而 `/lib/game` 不准有 I/O，那些讀取只能發生在結算的熱路徑上。
- *   一格的地形整季不會變，抄一次就好。
- */
-export const terrainEnum = pgEnum("terrain", [
-  "PLAIN",
-  "RUBBLE",
-  "FOREST",
-  "WASTE",
-  "LODE",
-  "MARSH",
-  "MOUNTAIN",
-]);
-
-export const marchTypeEnum = pgEnum("march_type", [
-  "RAID",
-  "ATTACK",
-  "SCOUT",
-  "CLAIM",
-  "REINFORCE",
-  "GARRISON",
-  "RETURN",
-]);
-export const marchStatusEnum = pgEnum("march_status", ["IN_TRANSIT", "ARRIVED", "RECALLED"]);
-
-export const ruinPhaseEnum = pgEnum("ruin_phase", [
-  "SEALED",
-  "DORMANT",
-  "AWAKENED",
-  "CONTESTED",
-  "CONTROLLED",
-]);
-
-export const siegeStatusEnum = pgEnum("siege_status", ["ACTIVE", "BROKEN", "SUCCEEDED"]);
-
-export const eventTypeEnum = pgEnum("event_type", [
-  "BUILD_DONE",
-  "DEMOLISH_DONE",
-  "TRAIN_DONE",
-  "MARCH_ARRIVE",
-  "CLAIM_DONE",
-  "MARKET_DELIVERY",
-  "ISOLATION_EXPIRE",
-  "CONTEST_EXPIRE",
-  "RUIN_TICK",
-  "RUIN_UNSEAL",
-  "CAMP_RESPAWN",
-  "SEASON_VICTORY_CHECK",
-  "SEASON_EXPIRE",
-  "SEASON_CHANGE",
-  "REGION_ATTRITION",
-  "STARVATION",
-  "LEGION_GROWTH",
-  "LEGION_SORTIE",
-  "SIEGE_RESOLVE",
-  "LEADER_TRANSFER",
-  "AI_TICK",
-  "AI_RETALIATE",
-  "AI_TAKEOVER",
-  "STEWARD_TICK",
-]);
-
-export const stewardLogKindEnum = pgEnum("steward_log_kind", [
-  "CLAIM",
-  "BUILD",
-  "LEVY",
-  "WARNING",
-  "BLOCKED",
-]);
+const micros = (name: string) => bigint(name, { mode: "number" });
 
 // ─────────────────────────────────────────────────────────────
-// 全域
+// 區塊
 // ─────────────────────────────────────────────────────────────
 
-export const users = pgTable("users", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  email: text("email").notNull().unique(),
-  /** google | email —— 不做訪客帳號 */
-  provider: text("provider").notNull(),
-  displayName: text("display_name").notNull(),
-  /** 跨賽季傳承。上限刻意壓得極低，老玩家的優勢是經驗與人脈，不是數值。 */
-  legacyPoints: integer("legacy_points").notNull().default(0),
-  titles: jsonb("titles").notNull().default(sql`'[]'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-});
-
-export const seasons = pgTable("seasons", {
-  id: serial("id").primaryKey(),
-  /** 地圖生成種子，可能在封盤期因公平性驗證未過而被換掉多次 */
-  seed: bigint("seed", { mode: "bigint" }).notNull(),
-  status: seasonStatusEnum("status").notNull().default("REGISTRATION"),
-
-  registrationOpensAt: timestamp("registration_opens_at", { withTimezone: true }),
-  registrationClosesAt: timestamp("registration_closes_at", { withTimezone: true }),
-  /** T = 0，全員同時進入 */
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  endsAt: timestamp("ends_at", { withTimezone: true }),
-
-  /**
-   * ★ 數值表版本快照，封盤時固定。
-   * 進行中的賽季永遠不受新版本影響 —— 兩場並行時的隔離牆。
-   */
-  balanceVersion: text("balance_version").notNull(),
-
-  humanCount: integer("human_count").notNull().default(0),
-  aiCount: integer("ai_count").notNull().default(0),
-
-  ruinPositions: jsonb("ruin_positions"),
-  /** 五項公平性驗證的實際數值，封盤期公開給玩家檢查 */
-  fairnessReport: jsonb("fairness_report"),
-  /**
-   * ★ 封盤期解出來的 600 個座位（含 AI），T = 0 直接照抄。
-   *
-   * 不在開賽時重跑一次 `generateWorld` —— 那要 7～20 秒，
-   * 而 T = 0 是在交易裡寫 600 位玩家，不能再多花二十秒開著交易。
-   * 更要緊的是：重跑就代表「預覽的座標」與「真正的座標」是兩次獨立計算，
-   * 只要生成參數有任何一點不同，玩家就會生在別的地方。
-   */
-  spawnPlan: jsonb("spawn_plan"),
-
-  victoryAllianceId: bigint("victory_alliance_id", { mode: "number" }),
-  victoryCountdownStartedAt: timestamp("victory_countdown_started_at", { withTimezone: true }),
-
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-// ─────────────────────────────────────────────────────────────
-// 登記與名額
-// ─────────────────────────────────────────────────────────────
-
-export const seasonRegistrations = pgTable(
-  "season_registrations",
+export const blocks = pgTable(
+  "blocks",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    userId: bigint("user_id", { mode: "number" }).notNull().references(() => users.id),
-    /** 1 | 2 | 3，對應三座遺跡（各 200 名額） */
-    faction: smallint("faction").notNull(),
-    spawnBand: spawnBandEnum("spawn_band").notNull(),
-    /** 同行小隊代碼，最多 8 人共用 */
-    squadCode: varchar("squad_code", { length: 12 }),
-    assignedX: smallint("assigned_x"),
-    assignedY: smallint("assigned_y"),
-    playerId: bigint("player_id", { mode: "number" }),
+    /** 西南角，例如 `25.03_121.56`（`lib/world/grid.ts` 的 `blockKey`） */
+    key: text("key").notNull(),
+    row: integer("row").notNull(),
+    col: integer("col").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
     /**
-     * ★ 退出這一場的時刻（`docs/13` §8）。null = 還在。
-     *
-     * 不刪這一列：登記是歷史，而且 `player_id` 已經指出去了。
-     * 「一位領主同時只能在一場」的檢查因此要濾掉退出的登記 ——
-     * 少了它，放棄賽季的人會被自己的舊登記永遠擋在門外。
+     * 勘查選出的標記座標。只有全景 ID、座標與朝向 ——
+     * Google 允許無限期保存 pano ID，**不允許**保存影像，所以影像一張都不存。
      */
-    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
-  },
-  (t) => [
-    uniqueIndex("reg_season_user_uq").on(t.seasonId, t.userId),
-    index("reg_squad_idx").on(t.seasonId, t.squadCode),
-    check("reg_faction_range", sql`${t.faction} BETWEEN 1 AND 3`),
-  ],
-);
+    viewpoints: jsonb("viewpoints").$type<Viewpoint[]>(),
+    params: jsonb("params").$type<MapParams>(),
+    /** 模型給的參數格式不對、經過修正 */
+    paramsRepaired: boolean("params_repaired").notNull().default(false),
 
-/**
- * 每場固定 600 人 → 容量是常數，`CHECK (taken <= capacity)` 直接在 DB 層擋住超賣，
- * 不需要 advisory lock 或應用層的容量計算。
- */
-export const seasonQuotas = pgTable(
-  "season_quotas",
-  {
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    faction: smallint("faction").notNull(),
-    spawnBand: spawnBandEnum("spawn_band").notNull(),
-    /** 40 | 100 | 60 */
-    capacity: integer("capacity").notNull(),
-    taken: integer("taken").notNull().default(0),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    /** 完成時從淨額撥出的保存與分攤（之前為 null） */
+    storageAllocatedMicros: micros("storage_allocated_micros"),
+    computeAllocatedMicros: micros("compute_allocated_micros"),
+
+    /**
+     * 施工租約。一個步驟要呼叫外部 API 幾十秒，不能拿著交易鎖等 ——
+     * 所以用一個有期限的租約：拿到才施工，逾時自動失效（工作者當掉也不會永遠卡住）。
+     */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseHolder: text("lease_holder"),
+
+    /** 連續失敗次數。成功一次就歸零 */
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pauseReason: text("pause_reason"),
   },
   (t) => [
-    primaryKey({ columns: [t.seasonId, t.faction, t.spawnBand] }),
-    /** 這一條讓登記併發控制退化為一句原子 UPDATE，不需要 advisory lock */
-    check("quota_within_capacity", sql`${t.taken} >= 0 AND ${t.taken} <= ${t.capacity}`),
+    uniqueIndex("blocks_key_uq").on(t.key),
+    uniqueIndex("blocks_row_col_uq").on(t.row, t.col),
+    index("blocks_open_idx").on(t.id).where(sql`completed_at IS NULL AND paused_at IS NULL`),
   ],
 );
 
 // ─────────────────────────────────────────────────────────────
-// 玩家與據點
+// 捐款（也是選票）
 // ─────────────────────────────────────────────────────────────
 
-export const players = pgTable(
-  "players",
+export const donationStatusEnum = pgEnum("donation_status", ["PENDING", "PAID", "FAILED", "REFUNDED"]);
+
+export const donations = pgTable(
+  "donations",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    /** AI 為 NULL */
-    userId: bigint("user_id", { mode: "number" }).references(() => users.id),
-    allianceId: bigint("alliance_id", { mode: "number" }),
-    faction: smallint("faction").notNull(),
-    spawnBand: spawnBandEnum("spawn_band").notNull(),
+    blockId: bigint("block_id", { mode: "number" })
+      .notNull()
+      .references(() => blocks.id),
+    /** Auth.js 的使用者 id */
+    donorId: text("donor_id").notNull(),
+    status: donationStatusEnum("status").notNull().default("PENDING"),
 
-    /** 核心據點左上角（A 格） */
-    baseX: smallint("base_x").notNull(),
-    baseY: smallint("base_y").notNull(),
-    citadelLevel: smallint("citadel_level").notNull().default(1),
+    /** 捐款人付的新台幣（整數元） */
+    amountTwd: integer("amount_twd").notNull(),
+    /** 入帳時的匯率快照（新台幣／美元） */
+    twdPerUsd: numeric("twd_per_usd", { precision: 10, scale: 4 }).notNull(),
 
-    /** 用於執政官全權代理判定與遺物分配 */
-    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-    settledAt: timestamp("settled_at", { withTimezone: true }).notNull().defaultNow(),
+    /** 以下在 PAID 時填入（`ledger.splitDonation`） */
+    grossMicros: micros("gross_micros").notNull().default(0),
+    feeMicros: micros("fee_micros").notNull().default(0),
+    taxMicros: micros("tax_micros").notNull().default(0),
+    chargebackMicros: micros("chargeback_micros").notNull().default(0),
+    netMicros: micros("net_micros").notNull().default(0),
 
-    isAi: boolean("is_ai").notNull().default(false),
-    aiPersona: aiPersonaEnum("ai_persona"),
-    /** ±15% 個體偏移，賽季開始時由 seed 決定後固定 */
-    aiVariance: numeric("ai_variance", { precision: 4, scale: 3 }),
+    /** 這一張選票投給誰；null = 不投票 */
+    vote: text("vote"),
+    /** 給 AI 的建議（≤140 字，見 `prompts.wishesText`） */
+    wish: text("wish"),
 
-    /** 離開這一場的時刻。原因看 `exitReason` —— 判準始終只有這一個欄位 */
-    eliminatedAt: timestamp("eliminated_at", { withTimezone: true }),
-    /**
-     * ★ 為什麼離開：`KEEP_DESTROYED`（主城被打爆）或 `ABANDONED`（自願放棄）。
-     *
-     * 兩者的**後果完全相同**（領地釋放、駐軍清空、行軍取消、事件刪除），
-     * 所以共用一份實作；但講給玩家聽的故事不一樣 ——
-     * 「你的主城陷落了」與「你放棄了這場賽季」不該長成同一個畫面。
-     * 舊資料是 null，一律當作 `KEEP_DESTROYED`。
-     */
-    exitReason: text("exit_reason"),
-  },
-  (t) => [
-    uniqueIndex("players_season_user_uq").on(t.seasonId, t.userId),
-    uniqueIndex("players_season_base_uq").on(t.seasonId, t.baseX, t.baseY),
-    index("players_ai_idx").on(t.seasonId, t.isAi),
-    index("players_faction_idx").on(t.seasonId, t.faction),
-    index("players_alliance_idx").on(t.allianceId),
-    check("players_faction_range", sql`${t.faction} BETWEEN 1 AND 3`),
-  ],
-);
-
-/** 核心 2×2 的四個格位；A 恆為 CITADEL */
-export const baseSlots = pgTable(
-  "base_slots",
-  {
-    playerId: bigint("player_id", { mode: "number" }).notNull().references(() => players.id),
-    slot: char("slot", { length: 1 }).notNull(),
-    building: text("building"),
-    level: smallint("level").notNull().default(0),
-  },
-  (t) => [primaryKey({ columns: [t.playerId, t.slot] })],
-);
-
-/** 資源：快照 + 速率。只在速率改變或扣款時寫入。 */
-export const playerResources = pgTable("player_resources", {
-  playerId: bigint("player_id", { mode: "number" })
-    .primaryKey()
-    .references(() => players.id),
-  grain: numeric("grain", { precision: 14, scale: 3 }).notNull().default("500"),
-  timber: numeric("timber", { precision: 14, scale: 3 }).notNull().default("500"),
-  stone: numeric("stone", { precision: 14, scale: 3 }).notNull().default("500"),
-  iron: numeric("iron", { precision: 14, scale: 3 }).notNull().default("200"),
-  relic: numeric("relic", { precision: 14, scale: 3 }).notNull().default("0"),
-  grainRate: numeric("grain_rate", { precision: 12, scale: 3 }).notNull().default("0"),
-  timberRate: numeric("timber_rate", { precision: 12, scale: 3 }).notNull().default("0"),
-  stoneRate: numeric("stone_rate", { precision: 12, scale: 3 }).notNull().default("0"),
-  ironRate: numeric("iron_rate", { precision: 12, scale: 3 }).notNull().default("0"),
-  capacity: numeric("capacity", { precision: 12, scale: 0 }).notNull().default("2000"),
-  settledAt: timestamp("settled_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  /** 資源永不為負 —— 扣款與加值都在同一交易內，DB 層再擋一次 */
-  check("resources_non_negative", sql`
-    ${t.grain} >= 0 AND ${t.timber} >= 0 AND ${t.stone} >= 0
-    AND ${t.iron} >= 0 AND ${t.relic} >= 0`),
-]);
-
-/**
- * 人口：與資源相同的快照 + 速率模型。
- * 上限由主堡決定、成長率由領土決定、**陣亡不返還**。
- */
-export const playerPopulation = pgTable("player_population", {
-  playerId: bigint("player_id", { mode: "number" })
-    .primaryKey()
-    .references(() => players.id),
-  amount: numeric("amount", { precision: 12, scale: 3 }).notNull().default("0"),
-  rate: numeric("rate", { precision: 10, scale: 3 }).notNull().default("0"),
-  cap: numeric("cap", { precision: 10, scale: 0 }).notNull().default("60"),
-  /** 已被部隊佔用（含行軍中） */
-  used: numeric("used", { precision: 12, scale: 3 }).notNull().default("0"),
-  settledAt: timestamp("settled_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  check("population_non_negative", sql`${t.amount} >= 0 AND ${t.used} >= 0`),
-]);
-
-// ─────────────────────────────────────────────────────────────
-// 執政官
-// ─────────────────────────────────────────────────────────────
-
-export const stewards = pgTable("stewards", {
-  playerId: bigint("player_id", { mode: "number" })
-    .primaryKey()
-    .references(() => players.id),
-  name: text("name").notNull(),
-  avatarSeed: integer("avatar_seed").notNull(),
-  /** 拓荒／建設／募兵的開關、參數與資源保留下限 */
-  directives: jsonb("directives").notNull().default(sql`'{}'::jsonb`),
-  /** 領主接管中 */
-  pausedUntil: timestamp("paused_until", { withTimezone: true }),
-  /** 48h 未登入 → 全權代理（額外獲得防守調度與核心佇列權限） */
-  fullProxy: boolean("full_proxy").notNull().default(false),
-  lastActedAt: timestamp("last_acted_at", { withTimezone: true }),
-});
-
-/** 施政簡報素材。BLOCKED 與行動同等重要 —— 沒做什麼也要說。 */
-export const stewardLog = pgTable(
-  "steward_log",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    playerId: bigint("player_id", { mode: "number" }).notNull().references(() => players.id),
-    kind: stewardLogKindEnum("kind").notNull(),
-    payload: jsonb("payload").notNull(),
+    processor: text("processor").notNull(),
+    /** 金流商的訂單編號。webhook 依它對帳，所以要唯一 */
+    processorRef: text("processor_ref"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
   },
-  (t) => [index("steward_log_player_idx").on(t.playerId, t.createdAt)],
+  (t) => [
+    index("donations_block_idx").on(t.blockId, t.status),
+    index("donations_donor_idx").on(t.donorId),
+    uniqueIndex("donations_processor_ref_uq").on(t.processor, t.processorRef),
+    check("donations_amount_positive", sql`${t.amountTwd} > 0`),
+    check("donations_vote_known", sql`${t.vote} IS NULL OR ${t.vote} IN ('google','openai','anthropic')`),
+  ],
 );
 
 // ─────────────────────────────────────────────────────────────
-// 地圖
+// 施工紀錄
 // ─────────────────────────────────────────────────────────────
 
-/**
- * 賽季的地形檔：64 個 chunk（`{cx}_{cy}.bin`，每格 1 byte）+ `meta.json`。
- *
- * ★ 原本的決定是「地形不入庫，由 seed 決定性生成、以靜態檔提供」——
- *   但靜態檔活在**會蒸發的檔案系統**上：serverless 的每個新實例、
- *   每次重新部署，封盤時寫出的檔案都不在了，/map 只能退回開發地圖。
- *   資料庫才是不會蒸發的那一層：封盤時存進來（與 SEALED 同一個交易），
- *   啟動時 `ensureLatestTerrain` 補齊磁碟快取或直接由 API 供檔。
- *   一個賽季 65 列、約 260 KB —— 這是資產不是資料，但它得活得夠久。
- */
-export const terrainFiles = pgTable(
-  "terrain_files",
+export const stepStatusEnum = pgEnum("step_status", ["SUCCEEDED", "FAILED"]);
+
+export const steps = pgTable(
+  "steps",
   {
-    seasonId: integer("season_id").notNull(),
-    /** `meta.json` 或 `{cx}_{cy}.bin` —— 與磁碟上的檔名一字不差 */
-    name: text("name").notNull(),
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    blockId: bigint("block_id", { mode: "number" })
+      .notNull()
+      .references(() => blocks.id),
+    /** 在施工計畫裡的位置（`plan.planSteps` 的索引） */
+    seq: integer("seq").notNull(),
+    kind: text("kind").notNull(),
+    kindIndex: integer("kind_index").notNull().default(0),
+    status: stepStatusEnum("status").notNull(),
+
+    /** 這一步由誰畫（勘查為 null） */
+    provider: text("provider"),
+    /** 實際服務的模型（fallback 時與請求的不同） */
+    model: text("model"),
+
+    textIn: integer("text_in").notNull().default(0),
+    imageIn: integer("image_in").notNull().default(0),
+    textOut: integer("text_out").notNull().default(0),
+    imageOut: integer("image_out").notNull().default(0),
+    tokenMicros: micros("token_micros").notNull().default(0),
+    referenceMicros: micros("reference_micros").notNull().default(0),
+
+    pricingVersion: text("pricing_version").notNull(),
+    bibleVersion: text("bible_version").notNull(),
+    /** 開工時的票數快照：{ weights, ranking } —— 「為什麼這一步是它畫的」 */
+    tally: jsonb("tally").$type<{ weights: Record<string, number>; ranking: string[] }>(),
+
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    note: text("note"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("steps_block_idx").on(t.blockId, t.seq),
+    /** 一個位置只能成功一次 —— 兩個工作者搶到同一步時，第二個寫不進來 */
+    uniqueIndex("steps_block_seq_succeeded_uq")
+      .on(t.blockId, t.seq)
+      .where(sql`status = 'SUCCEEDED'`),
+    index("steps_observed_idx").on(t.provider, t.kind, t.id).where(sql`status = 'SUCCEEDED'`),
+  ],
+);
+
+// ─────────────────────────────────────────────────────────────
+// 產出
+// ─────────────────────────────────────────────────────────────
+
+export const artifacts = pgTable(
+  "artifacts",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    blockId: bigint("block_id", { mode: "number" })
+      .notNull()
+      .references(() => blocks.id),
+    stepId: bigint("step_id", { mode: "number" })
+      .notNull()
+      .references(() => steps.id),
+    kind: text("kind").notNull(),
+    kindIndex: integer("kind_index").notNull().default(0),
+    mime: text("mime").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
     data: bytea("data").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.seasonId, t.name] })],
-);
-
-/** 格子的「被誰佔用」才需要逐格持久化；地形本身在 terrain_files */
-export const tiles = pgTable(
-  "tiles",
-  {
-    seasonId: integer("season_id").notNull(),
-    x: smallint("x").notNull(),
-    y: smallint("y").notNull(),
-    kind: tileKindEnum("kind").notNull(),
-    playerId: bigint("player_id", { mode: "number" }),
-    /** 反正規化，加速地圖著色查詢 */
-    allianceId: bigint("alliance_id", { mode: "number" }),
-    facility: text("facility"),
-    facilityLevel: smallint("facility_level").notNull().default(0),
-    /** 佔領時從地圖靜態檔抄下來，整季不變 */
-    terrain: terrainEnum("terrain").notNull().default("PLAIN"),
-    /** 野地等級（docs/02 §2.5）：佔領時由 wildLevelAt 抄下來。1 = 無加成 */
-    level: smallint("level").notNull().default(1),
-    state: tileStateEnum("state").notNull().default("NORMAL"),
-    stateUntil: timestamp("state_until", { withTimezone: true }),
-    /**
-     * 領地建物（旗／要塞石塔）的當下耐久（`docs/02` §2.6）。
-     * `null` = 從沒被打過（滿血）—— 不預先寫滿血是刻意的：
-     * 滿血值是等級的函式，寫進資料庫就變成第二份真相，
-     * 升級要塞時兩邊會分岔。
-     */
-    structureHp: integer("structure_hp"),
-    /** 最後一次被打的時刻，自我修復由它與 `now` 推出來（不排程） */
-    structureHitAt: timestamp("structure_hit_at", { withTimezone: true }),
-  },
-  (t) => [
-    primaryKey({ columns: [t.seasonId, t.x, t.y] }),
-    index("tiles_player_idx").on(t.playerId),
-    index("tiles_alliance_idx").on(t.seasonId, t.allianceId),
-  ],
-);
-
-/** 100 個 50×50 區域。名稱由 seed 生成，讓戰報有地名可用。 */
-export const regions = pgTable(
-  "regions",
-  {
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    regionId: smallint("region_id").notNull(),
-    name: text("name").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.seasonId, t.regionId] })],
-);
-
-/**
- * 每個聯盟在每個區域的容量快取。
- * 季節係數不入庫 —— 讀取時計算，避免季節切換要重寫 100 × N 列。
- */
-export const regionCapacity = pgTable(
-  "region_capacity",
-  {
-    seasonId: integer("season_id").notNull(),
-    regionId: smallint("region_id").notNull(),
-    /** ALLIANCE | PLAYER（無聯盟者） */
-    holderKind: text("holder_kind").notNull(),
-    holderId: bigint("holder_id", { mode: "number" }).notNull(),
-    baseCapacity: numeric("base_capacity", { precision: 10, scale: 0 }).notNull(),
-    stationed: numeric("stationed", { precision: 10, scale: 0 }).notNull().default("0"),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.seasonId, t.regionId, t.holderKind, t.holderId] }),
-    index("region_cap_holder_idx").on(t.holderKind, t.holderId),
-  ],
-);
-
-// ─────────────────────────────────────────────────────────────
-// 軍事
-// ─────────────────────────────────────────────────────────────
-
-export const garrisons = pgTable(
-  "garrisons",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull(),
-    /** 部隊的所有者（付糧的人） */
-    ownerId: bigint("owner_id", { mode: "number" }).notNull().references(() => players.id),
-    atX: smallint("at_x").notNull(),
-    atY: smallint("at_y").notNull(),
-    /** 駐紮地的主人（增援時 ≠ owner） */
-    hostId: bigint("host_id", { mode: "number" }),
-    units: jsonb("units").notNull(),
-    /**
-     * 傷兵（`docs/04` §3c）：戰鬥結束十分鐘後歸隊 ——
-     * **但只有站在自己的據點或要塞才收得回來**，野地上沒人收容傷員。
-     * 陣亡的士兵不進這裡，他們永遠回不來。
-     */
-    wounded: jsonb("wounded"),
-    /** 傷兵是什麼時候倒下的；歸隊時間由它 + `WOUNDED.recoverMs` 推出來 */
-    woundedAt: timestamp("wounded_at", { withTimezone: true }),
-  },
-  (t) => [
-    uniqueIndex("garrisons_owner_at_uq").on(t.seasonId, t.ownerId, t.atX, t.atY),
-    index("garrisons_at_idx").on(t.seasonId, t.atX, t.atY),
-  ],
-);
-
-export const marches = pgTable(
-  "marches",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull(),
-    ownerId: bigint("owner_id", { mode: "number" }).notNull().references(() => players.id),
-    type: marchTypeEnum("type").notNull(),
-    fromX: smallint("from_x").notNull(),
-    fromY: smallint("from_y").notNull(),
-    toX: smallint("to_x").notNull(),
-    toY: smallint("to_y").notNull(),
-    units: jsonb("units").notNull(),
-    /** 返程時攜帶的資源 */
-    cargo: jsonb("cargo"),
-    /** 投石機指定拆除的核心建築格 */
-    targetSlot: char("target_slot", { length: 1 }),
-    departedAt: timestamp("departed_at", { withTimezone: true }).notNull(),
-    arrivesAt: timestamp("arrives_at", { withTimezone: true }).notNull(),
-    status: marchStatusEnum("status").notNull().default("IN_TRANSIT"),
-    eventId: bigint("event_id", { mode: "number" }),
-  },
-  (t) => [
-    index("marches_arrival_idx").on(t.arrivesAt),
-    index("marches_target_idx").on(t.seasonId, t.toX, t.toY),
-    index("marches_owner_idx").on(t.ownerId),
-  ],
-);
-
-/** snapshot 存完整的戰鬥輸入與輸出，讓玩家看得到「為什麼我輸了」。 */
-export const battleReports = pgTable(
-  "battle_reports",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull(),
-    attackerId: bigint("attacker_id", { mode: "number" }),
-    defenderId: bigint("defender_id", { mode: "number" }),
-    atX: smallint("at_x").notNull(),
-    atY: smallint("at_y").notNull(),
-    marchType: marchTypeEnum("march_type").notNull(),
-    snapshot: jsonb("snapshot").notNull(),
-    outcome: text("outcome").notNull(),
+    thumb: bytea("thumb").notNull(),
+    /** 例：材質名稱、標記座標的說明 */
+    label: text("label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [
-    index("reports_attacker_idx").on(t.attackerId, t.createdAt),
-    index("reports_defender_idx").on(t.defenderId, t.createdAt),
-  ],
+  (t) => [uniqueIndex("artifacts_block_kind_uq").on(t.blockId, t.kind, t.kindIndex)],
 );
-
-// ─────────────────────────────────────────────────────────────
-// 陣營 → 聯盟 → 玩家
-// ─────────────────────────────────────────────────────────────
-
-export const alliances = pgTable(
-  "alliances",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    /** 聯盟屬於一個陣營，成員必須全部同陣營 */
-    faction: smallint("faction").notNull(),
-    /** 1–5：該陣營的第幾個名額 */
-    slotNo: smallint("slot_no").notNull(),
-
-    name: text("name").notNull(),
-    tag: varchar("tag", { length: 5 }).notNull(),
-    /** '00'–'FF'，seed 洗牌後配發、賽季內唯一、永不可改 */
-    hexCode: char("hex_code", { length: 2 }).notNull(),
-    /** 0–14；同陣營 5 色同色系 */
-    color: smallint("color").notNull(),
-
-    recruitMode: recruitModeEnum("recruit_mode").notNull().default("APPLY"),
-    leaderId: bigint("leader_id", { mode: "number" }).notNull(),
-    leaderPendingId: bigint("leader_pending_id", { mode: "number" }),
-    leaderTransferAt: timestamp("leader_transfer_at", { withTimezone: true }),
-
-    status: allianceStatusEnum("status").notNull().default("ACTIVE"),
-    fallenAt: timestamp("fallen_at", { withTimezone: true }),
-    felledByAllianceId: bigint("felled_by_alliance_id", { mode: "number" }),
-    finalScore: integer("final_score"),
-
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("alliances_name_uq").on(t.seasonId, t.name),
-    uniqueIndex("alliances_tag_uq").on(t.seasonId, t.tag),
-    uniqueIndex("alliances_hex_uq").on(t.seasonId, t.hexCode),
-    uniqueIndex("alliances_color_uq").on(t.seasonId, t.color),
-    /** ★ 每陣營最多 5 個「進行中」的聯盟；淪陷會釋出 slot 供同陣營重用 */
-    uniqueIndex("alliances_faction_slot_uq")
-      .on(t.seasonId, t.faction, t.slotNo)
-      .where(sql`status = 'ACTIVE'`),
-    check("alliances_faction_range", sql`${t.faction} BETWEEN 1 AND 3`),
-    check("alliances_slot_range", sql`${t.slotNo} BETWEEN 1 AND 5`),
-  ],
-);
-
-export const allianceMembers = pgTable("alliance_members", {
-  playerId: bigint("player_id", { mode: "number" })
-    .primaryKey()
-    .references(() => players.id),
-  allianceId: bigint("alliance_id", { mode: "number" }).notNull().references(() => alliances.id),
-  rank: allianceRankEnum("rank").notNull().default("MEMBER"),
-  joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const allianceEvents = pgTable(
-  "alliance_events",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    allianceId: bigint("alliance_id", { mode: "number" }).notNull().references(() => alliances.id),
-    type: text("type").notNull(),
-    payload: jsonb("payload").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("alliance_events_idx").on(t.allianceId, t.createdAt)],
-);
-
-/** 斬首圍城：打贏盟主守軍 → 圍城 2 小時 → 全聯盟出局 */
-export const sieges = pgTable(
-  "sieges",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull(),
-    targetAllianceId: bigint("target_alliance_id", { mode: "number" })
-      .notNull()
-      .references(() => alliances.id),
-    attackerAllianceId: bigint("attacker_alliance_id", { mode: "number" })
-      .notNull()
-      .references(() => alliances.id),
-    atX: smallint("at_x").notNull(),
-    atY: smallint("at_y").notNull(),
-    garrisonId: bigint("garrison_id", { mode: "number" }),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-    resolvesAt: timestamp("resolves_at", { withTimezone: true }).notNull(),
-    status: siegeStatusEnum("status").notNull().default("ACTIVE"),
-    eventId: bigint("event_id", { mode: "number" }),
-  },
-  (t) => [
-    index("sieges_active_idx").on(t.resolvesAt),
-    uniqueIndex("sieges_one_per_target_uq")
-      .on(t.seasonId, t.targetAllianceId)
-      .where(sql`status = 'ACTIVE'`),
-  ],
-);
-
-export const chatMessages = pgTable(
-  "chat_messages",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    channelType: text("channel_type").notNull(),
-    channelId: bigint("channel_id", { mode: "number" }).notNull(),
-    playerId: bigint("player_id", { mode: "number" }),
-    body: text("body").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("chat_channel_idx").on(t.channelType, t.channelId, t.id)],
-);
-
-// ─────────────────────────────────────────────────────────────
-// 遺跡
-// ─────────────────────────────────────────────────────────────
-
-export const ruins = pgTable(
-  "ruins",
-  {
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    ruinId: smallint("ruin_id").notNull(),
-    x: smallint("x").notNull(),
-    y: smallint("y").notNull(),
-    phase: ruinPhaseEnum("phase").notNull().default("SEALED"),
-    /** T + 3 天（夏季首日） */
-    unsealsAt: timestamp("unseals_at", { withTimezone: true }).notNull(),
-
-    /** 軍團本體的兵種與數量 */
-    guardUnits: jsonb("guard_units").notNull(),
-    legionBase: numeric("legion_base", { precision: 10, scale: 0 }).notNull(),
-    /** 對應的系統 player（走與真人相同的引擎與驗證路徑） */
-    legionPlayerId: bigint("legion_player_id", { mode: "number" }),
-    lastSortieAt: timestamp("last_sortie_at", { withTimezone: true }),
-
-    controlAllianceId: bigint("control_alliance_id", { mode: "number" }),
-    progress: numeric("progress", { precision: 5, scale: 2 }).notNull().default("0"),
-    controlledSince: timestamp("controlled_since", { withTimezone: true }),
-  },
-  (t) => [primaryKey({ columns: [t.seasonId, t.ruinId] })],
-);
-
-export const ruinControlLog = pgTable("ruin_control_log", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  seasonId: integer("season_id").notNull(),
-  ruinId: smallint("ruin_id").notNull(),
-  allianceId: bigint("alliance_id", { mode: "number" }),
-  gainedAt: timestamp("gained_at", { withTimezone: true }).notNull(),
-  lostAt: timestamp("lost_at", { withTimezone: true }),
-});
-
-// ─────────────────────────────────────────────────────────────
-// 事件（結算引擎核心）
-// ─────────────────────────────────────────────────────────────
-
-/**
- * ★ 進行中的交戰（`docs/04` §3d）。
- *
- * 舊模型「抵達即結算」沒有這張表 —— 戰鬥只是一個瞬間，
- * 唯一的痕跡是 `battle_reports`。新模型讓戰鬥有**持續時間**：
- * 抵達的部隊加入這一格的交戰，兩分鐘後一起結算。
- *
- * 於是這張表回答三個舊模型答不出來的問題：
- *   1. 這一格**現在**在打仗嗎（任何人都能打開來看動畫）
- *   2. 還有沒有位子（5 對 5，主城 10 對 10）
- *   3. 誰在裡面（中立資源地的攻方名額對所有人開放 —— 競爭）
- */
-export const engagements = pgTable(
-  "engagements",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull(),
-    x: smallint("x").notNull(),
-    y: smallint("y").notNull(),
-    /** 守方玩家；null = 中立資源地（野生守衛） */
-    defenderId: bigint("defender_id", { mode: "number" }),
-    /** 主城的容量加倍，所以要記住這一格是不是主城 */
-    isKeep: boolean("is_keep").notNull().default(false),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-    /** 結算時刻。cron 掃到期的交戰，與行軍抵達同一個節奏 */
-    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-  },
-  (t) => [
-    /** 「這一格現在有沒有在打」要很快 —— 每一支抵達的部隊都會問一次 */
-    uniqueIndex("engagements_active_uq")
-      .on(t.seasonId, t.x, t.y)
-      .where(sql`resolved_at IS NULL`),
-    index("engagements_due_idx").on(t.endsAt).where(sql`resolved_at IS NULL`),
-  ],
-);
-
-/**
- * 交戰的參戰者。一列 = 一個**名額**。
- *
- * ★ 名額算的是部隊不是人：同一位玩家派兩支部隊就佔兩個位子。
- *   若改成「一人一格」，五個人聯手圍城反而比一個人分五批弱 ——
- *   那會鼓勵所有人用小號洗名額。
- */
-export const engagementParts = pgTable(
-  "engagement_parts",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    engagementId: bigint("engagement_id", { mode: "number" })
-      .notNull()
-      .references(() => engagements.id, { onDelete: "cascade" }),
-    /** ATTACKER | DEFENDER */
-    side: text("side").notNull(),
-    /** null = 野生守衛（中立地的守方沒有主人） */
-    playerId: bigint("player_id", { mode: "number" }),
-    /** 帶來這支部隊的行軍；守方的原駐軍沒有行軍 */
-    marchId: bigint("march_id", { mode: "number" }),
-    units: jsonb("units").notNull(),
-    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull(),
-  },
-  (t) => [index("engagement_parts_idx").on(t.engagementId)],
-);
-
-/**
- * 世界狀態 = f(上次結算狀態, 期間內所有已排程事件, 時間)，
- * 而 f 必須是確定性且冪等的。
- *
- * 結算順序：ORDER BY (resolve_at, seq, id)。
- * `seq` 讓同一時刻的事件有確定順序（例如建造完成必須排在戰鬥之前，
- * 確保剛升好的城牆能算進防禦）。
- */
-export const events = pgTable(
-  "events",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull(),
-    type: eventTypeEnum("type").notNull(),
-    actorId: bigint("actor_id", { mode: "number" }),
-    payload: jsonb("payload").notNull(),
-    resolveAt: timestamp("resolve_at", { withTimezone: true }).notNull(),
-    /** NULL = 未結算 */
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-    seq: integer("seq").notNull().default(0),
-  },
-  (t) => [
-    index("events_pending_idx").on(t.resolveAt, t.seq, t.id).where(sql`resolved_at IS NULL`),
-    index("events_actor_idx").on(t.actorId, t.resolveAt).where(sql`resolved_at IS NULL`),
-  ],
-);
-
-// ─────────────────────────────────────────────────────────────
-// 集市
-// ─────────────────────────────────────────────────────────────
-
-export const listingStatusEnum = pgEnum("listing_status", ["OPEN", "TAKEN", "CANCELLED"]);
-
-/**
- * 交易掛單。**只有同一聯盟的人看得到、接得到**（`docs/03` §5）。
- *
- * 掛單的當下賣方就被扣款，資源進入託管 ——
- * 否則掛十張單再把資源花光，承接的人會全部撲空。
- */
-export const marketListings = pgTable(
-  "market_listings",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    seasonId: integer("season_id").notNull().references(() => seasons.id),
-    sellerId: bigint("seller_id", { mode: "number" }).notNull().references(() => players.id),
-    /** 反正規化：掛單當下的聯盟。查詢時仍要驗賣方**現在**還在不在這個聯盟 */
-    allianceId: bigint("alliance_id", { mode: "number" }).notNull(),
-
-    offerResource: text("offer_resource").notNull(),
-    offerAmount: numeric("offer_amount", { precision: 14, scale: 3 }).notNull(),
-    wantResource: text("want_resource").notNull(),
-    wantAmount: numeric("want_amount", { precision: 14, scale: 3 }).notNull(),
-
-    status: listingStatusEnum("status").notNull().default("OPEN"),
-    buyerId: bigint("buyer_id", { mode: "number" }).references(() => players.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    closedAt: timestamp("closed_at", { withTimezone: true }),
-  },
-  (t) => [
-    index("listings_alliance_idx").on(t.seasonId, t.allianceId).where(sql`status = 'OPEN'`),
-    index("listings_seller_idx").on(t.sellerId).where(sql`status = 'OPEN'`),
-    check("listing_amounts_positive", sql`${t.offerAmount} > 0 AND ${t.wantAmount} > 0`),
-    check("listing_distinct_resources", sql`${t.offerResource} <> ${t.wantResource}`),
-  ],
-);
-
-/**
- * 每位玩家每個遊戲日的資源轉移量，用來套 `500 × 主堡等級` 的日上限。
- *
- * ★ 「一日」= 一個**遊戲月**，不是遊戲日。一個真實日等於一個遊戲月
- *   （`docs/00` 的賽季設定），而遊戲日只有 48 分鐘 ——
- *   照遊戲日重置的話上限會一天放行 30 次，等於沒有上限。
- *
- * ★ 為什麼是一張表而不是一個欄位：存 `(玩家, 遊戲月)` 就**不需要任何
- *   重置排程**。換月自動換一列，沒有「誰負責在午夜歸零」這個問題，
- *   也不會有排程掛掉導致上限永遠不重置的故障模式。
- */
-export const marketTransfers = pgTable(
-  "market_transfers",
-  {
-    playerId: bigint("player_id", { mode: "number" }).notNull().references(() => players.id),
-    /** 遊戲月 1–12，等於賽季的第幾個真實日 */
-    gameMonth: smallint("game_month").notNull(),
-    amount: numeric("amount", { precision: 14, scale: 3 }).notNull().default("0"),
-  },
-  (t) => [primaryKey({ columns: [t.playerId, t.gameMonth] })],
-);
-
-// ─────────────────────────────────────────────────────────────
-// Relations
-// ─────────────────────────────────────────────────────────────
-
-export const playersRelations = relations(players, ({ one, many }) => ({
-  user: one(users, { fields: [players.userId], references: [users.id] }),
-  season: one(seasons, { fields: [players.seasonId], references: [seasons.id] }),
-  resources: one(playerResources, {
-    fields: [players.id],
-    references: [playerResources.playerId],
-  }),
-  population: one(playerPopulation, {
-    fields: [players.id],
-    references: [playerPopulation.playerId],
-  }),
-  steward: one(stewards, { fields: [players.id], references: [stewards.playerId] }),
-  slots: many(baseSlots),
-}));
-
-export const alliancesRelations = relations(alliances, ({ many, one }) => ({
-  members: many(allianceMembers),
-  season: one(seasons, { fields: [alliances.seasonId], references: [seasons.id] }),
-}));
-
-export const allianceMembersRelations = relations(allianceMembers, ({ one }) => ({
-  alliance: one(alliances, {
-    fields: [allianceMembers.allianceId],
-    references: [alliances.id],
-  }),
-  player: one(players, { fields: [allianceMembers.playerId], references: [players.id] }),
-}));

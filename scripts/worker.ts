@@ -1,21 +1,19 @@
 import "./load-env";
 
 /**
- * 本機/自架的結算 worker：`pnpm worker`。
+ * 本機／自架的施工排程：`pnpm worker`。
  *
- * ★ production 由 Vercel Cron 每分鐘打 `/api/cron/settle`；
- *   本機沒有任何東西扮演那個角色 —— 於是執政官不動、行軍不抵達、
- *   賽季不推進，只剩「打開頁面那一刻」的惰性結算。這個迴圈跑的是
- *   **與路由完全相同**的 `runCronTick`（`lib/server/cron.ts`），
- *   不是第二份邏輯。
+ * 正式環境由 Vercel Cron 打 `/api/cron/build`；自架沒有東西扮演那個角色，
+ * 這個迴圈就是它。它**只是一個打那條路由的計時器** —— 施工邏輯只有一份，
+ * 在 web 行程裡（`lib/server/builder.ts`），不在這裡。
  *
  * 用法：
- *   pnpm worker                 # 每 60 秒一輪，Ctrl-C 結束
- *   pnpm worker --interval 10   # 開發時想看執政官動起來，10 秒一輪
- *   pnpm worker --once          # 只跑一輪就退出（外部 cron / 除錯用）
+ *   pnpm worker                   # 每 10 秒一輪，Ctrl-C 結束
+ *   pnpm worker --interval 30
+ *   pnpm worker --once            # 只跑一輪
+ *   WORKER_BASE_URL=http://127.0.0.1:5000 pnpm worker
  *
- * ★ 一輪做完才排下一輪（不會重疊）；單輪失敗印出來然後繼續 ——
- *   worker 的死法只有 Ctrl-C，不會因為一次 DB 抖動就整個停掉。
+ * ★ 一輪做完才排下一輪（路由每輪最多跑 50 秒）；單輪失敗印出來然後繼續。
  */
 
 function argValue(flag: string): string | null {
@@ -24,109 +22,30 @@ function argValue(flag: string): string | null {
 }
 
 const ONCE = process.argv.includes("--once");
-const INTERVAL_MS = Math.max(1, Number(argValue("--interval") ?? 60)) * 1000;
-
+const INTERVAL_MS = Math.max(1, Number(argValue("--interval") ?? 10)) * 1000;
+const BASE = process.env.WORKER_BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? 5000}`;
 const hhmmss = () => new Date().toISOString().slice(11, 19);
 
-function describe(tick: {
-  seasons: { locked: number; started: number; ended: number; created: number | null };
-  marches: { resolved: number; battles: number; failures: number };
-  settled: number;
-  stewardRuns: number;
-  failures: number;
-  pending: number;
-  note: string | null;
-  errors: string[];
-}): string {
-  const parts: string[] = [];
-  if (tick.settled > 0) parts.push(`結算 ${tick.settled}`);
-  if (tick.stewardRuns > 0) parts.push(`執政官 ${tick.stewardRuns}`);
-  if (tick.marches.resolved > 0) {
-    parts.push(`行軍 ${tick.marches.resolved}（戰鬥 ${tick.marches.battles}）`);
-  }
-  const s = tick.seasons;
-  if (s.locked || s.started || s.ended || s.created !== null) {
-    parts.push(
-      `賽季 封盤${s.locked}/開賽${s.started}/結束${s.ended}` +
-        (s.created !== null ? `/新建#${s.created}` : ""),
-    );
-  }
-  if (tick.pending > 0) parts.push(`待處理 ${tick.pending}`);
-  if (tick.failures > 0 || tick.marches.failures > 0) {
-    parts.push(`⚠ 失敗 ${tick.failures + tick.marches.failures}`);
-  }
-  if (tick.note) parts.push(tick.note);
-  return parts.length > 0 ? parts.join(" · ") : "無事";
+async function tick() {
+  const headers: Record<string, string> = {};
+  if (process.env.CRON_SECRET) headers.authorization = `Bearer ${process.env.CRON_SECRET}`;
+  const res = await fetch(`${BASE}/api/cron/build`, { headers });
+  const json = (await res.json().catch(() => ({}))) as { steps?: number; completed?: number; error?: string; skipped?: string };
+  if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+  if (json.skipped) return `略過（${json.skipped}）`;
+  return json.steps || json.completed ? `施工 ${json.steps} 步、完工 ${json.completed} 塊` : "無事";
 }
 
 async function main() {
-  const { runCronTick } = await import("@/lib/server/cron");
-  const { serverNow } = await import("@/lib/time");
-
-  let stop = false;
-  const onSignal = (sig: string) => {
-    console.log(`\n[${hhmmss()}] 收到 ${sig}，這一輪做完就停。`);
-    stop = true;
-  };
-  process.on("SIGINT", () => onSignal("SIGINT"));
-  process.on("SIGTERM", () => onSignal("SIGTERM"));
-
-  console.log(
-    `[${hhmmss()}] worker 啟動：每 ${INTERVAL_MS / 1000} 秒一輪` +
-      (ONCE ? "（--once：只跑一輪）" : "，Ctrl-C 結束"),
-  );
-
-  // ★ 啟動時先確保最新一季的地形檔可用（磁碟 → 資料庫 → 重新生成）
-  try {
-    const { ensureLatestTerrain } = await import("@/lib/server/terrain-files");
-    await ensureLatestTerrain((line) => console.log(`[${hhmmss()}] [terrain] ${line}`));
-  } catch (e) {
-    const { explainDbError, missingRelation } = await import("@/lib/db/diagnose");
-    console.error(`[${hhmmss()}] ⚠ 地形啟動確保失敗：${explainDbError(e)}`);
-    if (missingRelation(e)) {
-      // schema 落後時每一輪都會繼續炸 —— 停下來比每 60 秒刷一次錯誤誠實
-      console.error(`[${hhmmss()}] worker 停止：先把 migration 跑完再啟動。`);
-      process.exit(1);
-    }
-  }
-
-  while (!stop) {
-    const startedAt = Date.now();
+  for (;;) {
     try {
-      const tick = await runCronTick(await serverNow());
-      const took = Date.now() - startedAt;
-      console.log(`[${hhmmss()}] ${describe(tick)}（${took}ms）`);
-      // ★ 失敗要看得見：區段錯誤逐條印，不收進摘要裡含糊帶過
-      for (const e of tick.errors) console.error(`[${hhmmss()}] ⚠ ${e}`);
+      console.log(`[${hhmmss()}] [worker] ${await tick()}`);
     } catch (e) {
-      const { explainDbError } = await import("@/lib/db/diagnose");
-      console.error(`[${hhmmss()}] ⚠ 這一輪整個失敗：${explainDbError(e)}`);
+      console.error(`[${hhmmss()}] [worker] 失敗：${e instanceof Error ? e.message : String(e)}（${BASE} 還沒起來？）`);
     }
-
-    if (ONCE) break;
-    // 做完才排下一輪 —— 一輪超過 interval 時不重疊，直接接著跑
-    const wait = Math.max(0, INTERVAL_MS - (Date.now() - startedAt));
-    await new Promise<void>((resolve) => {
-      const id = setTimeout(resolve, wait);
-      // Ctrl-C 的時候不用等滿 interval
-      const poll = setInterval(() => {
-        if (stop) {
-          clearTimeout(id);
-          clearInterval(poll);
-          resolve();
-        }
-      }, 200);
-      setTimeout(() => clearInterval(poll), wait + 250);
-    });
+    if (ONCE) return;
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
   }
-
-  console.log(`[${hhmmss()}] worker 已停止。`);
 }
 
-main().then(
-  () => process.exit(0),
-  (e) => {
-    console.error(e);
-    process.exit(1);
-  },
-);
+void main();

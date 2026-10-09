@@ -57,6 +57,23 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-latest
+    # 完整的區塊生命週期需要真的 Postgres；模型、街景與金流都用示範實作（不花錢、不連外）
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ruincity
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:ruincity@127.0.0.1:5432/postgres
+      AUTH_SECRET: ci-e2e-secret-not-used-for-anything-real
+      AUTH_URL: http://127.0.0.1:3100
+      CRON_SECRET: ci-cron
+      FAKE_PROVIDERS: "1"
+      PAYMENTS: demo
+      MAP_STYLE_URL: /map-style-blank.json
     steps:
       - uses: actions/checkout@v5
 

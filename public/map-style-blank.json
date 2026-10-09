@@ -1,0 +1,6 @@
+{
+  "version": 8,
+  "name": "RuinCity blank",
+  "sources": {},
+  "layers": [{ "id": "bg", "type": "background", "paint": { "background-color": "#1f1d1a" } }]
+}

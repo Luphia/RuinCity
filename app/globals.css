@@ -1,42 +1,22 @@
 @import "tailwindcss";
 
 /**
- * 廢土像素風調色盤（docs/09-art-ux.md §3）。
- * 24 色，刻意受限。遺物金是整個遊戲最稀有的顏色 ——
- * 玩家在地圖上看到金色，就知道那裡有重要的東西。
+ * 色票：廢土與植被。強調色只有兩個 ——
+ * 苔綠（已完成、可以進入的地方）與鏽橘（施工中、需要捐款的地方）。
  */
 @theme {
-  /* 地形 */
-  --color-sand: #b8a07e;
-  --color-sand-deep: #8c7758;
-  --color-moss: #6b7f4a;
-  --color-moss-deep: #47562f;
-  --color-ash: #9a958c;
-  --color-ash-deep: #6b6862;
-  --color-marsh: #5c6b4a;
-  --color-marsh-bright: #7d9159;
-  --color-water: #33454f;
-
-  /* 結構 */
-  --color-rust: #a35a3a;
-  --color-rust-deep: #6e3a26;
-  --color-metal: #7d8087;
-  --color-metal-bright: #a8aab0;
-  --color-timber: #7a5a3c;
-  --color-timber-deep: #4d3826;
-
-  /* 陰影與描邊 */
-  --color-ink: #1a1614;
-  --color-ink-soft: #2e2723;
-  --color-ink-mid: #4a413a;
-
-  /* UI 與強調 */
-  --color-parchment: #e8dcc0;
-  --color-alarm: #c4442f;
-  --color-relic: #d9a441;
-  --color-vital: #4a8fa8;
-
-  --font-pixel: "Zpix", "Silkscreen", ui-monospace, monospace;
+  --color-ink: #141311;
+  --color-ink-soft: #1f1d1a;
+  --color-ink-mid: #3a3631;
+  --color-ash: #a39d92;
+  --color-ash-deep: #6f6a62;
+  --color-parchment: #ece3cf;
+  --color-moss: #7f9a5a;
+  --color-moss-deep: #4c6236;
+  --color-rust: #c8794a;
+  --color-rust-deep: #7c4528;
+  --color-water: #4f7a8c;
+  --color-alarm: #d1553c;
 }
 
 :root {
@@ -47,45 +27,13 @@ html,
 body {
   background: var(--color-ink);
   color: var(--color-parchment);
-  /* 直式為主，單手可操作 */
-  overscroll-behavior: none;
 }
 
-/* 像素資產永遠不插值 */
-.pixelated {
-  image-rendering: pixelated;
+/* MapLibre 的版權列在深色底上要看得到 */
+.maplibregl-ctrl-attrib {
+  background: rgb(20 19 17 / 0.75) !important;
+  color: var(--color-ash) !important;
 }
-
-/*
- * 建築的第二幀。`docs/09` §2：閒置動畫 2 幀、0.8s/幀。
- *
- * ★ 用 CSS 而不是 React state —— 每 0.8 秒 setState 一次會讓整個
- *   據點畫面重繪，而這只是一根煙囪在冒煙。`steps(1)` 讓它硬切，
- *   不是淡入淡出：像素動畫不該有中間幀。
- *   `prefers-reduced-motion` 由下面那一段一併停掉。
- */
-.ruin-frame2 {
-  opacity: 0;
-  animation: ruin-frame2 1.6s steps(1, end) infinite;
-}
-
-@keyframes ruin-frame2 {
-  0%,
-  50% {
-    opacity: 0;
-  }
-  50.01%,
-  100% {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+.maplibregl-ctrl-attrib a {
+  color: var(--color-parchment) !important;
 }

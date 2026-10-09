@@ -1,0 +1,92 @@
+import Link from "next/link";
+
+import { budgetConfig } from "@/lib/server/config";
+import { BIBLE_SUMMARY_ZH } from "@/lib/world/bible";
+import { MAX_SCENES, TEXTURES_PER_BLOCK } from "@/lib/world/plan";
+import { MODEL_PROFILES, PROVIDER_ORDER } from "@/lib/world/pricing";
+
+export const metadata = { title: "怎麼運作" };
+
+const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
+
+export default function About() {
+  const c = budgetConfig();
+  return (
+    <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 leading-relaxed">
+      <section className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold">千年之後</h1>
+        <p className="text-ash">
+          把地球依經緯度切成 0.01° × 0.01° 的區塊（在臺北約 1.0 × 1.1 公里），
+          用大家的捐款請 AI 畫出每一塊在人類離開一千年後的樣子。從臺北 101 開始，
+          哪一塊先蓋好，取決於誰為它捐款。
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-bold">世界觀</h2>
+        <ul className="text-ash list-disc pl-5">
+          {BIBLE_SUMMARY_ZH.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-bold">一塊地圖怎麼蓋</h2>
+        <ol className="text-ash list-decimal pl-5">
+          <li>勘查：在塊內 10×10 個點查 Google 街景，選出最多 {MAX_SCENES} 個標記座標（免費）</li>
+          <li>地圖參數：看地圖與幾張代表性街景，定下這一塊的地貌、水位、植被、材質與每個標記的說明</li>
+          <li>標記座標場景圖：每個標記一張「一千年後」的地面景像（最多 {MAX_SCENES} 張）</li>
+          <li>正射地圖底圖：俯視、北朝上、剛好框住這一塊 —— 世界地圖上看到的就是它</li>
+          <li>3D 圖資：與底圖對齊的高度圖，疊起來就是 3D 地景</li>
+          <li>材質貼圖：{TEXTURES_PER_BLOCK} 張可平鋪的材質，供 3D 使用</li>
+        </ol>
+        <p className="text-ash">
+          <b className="text-parchment">完成前無法進入。</b>施工中只公開四個數字：預計所需 Token、換算金額、已花費
+          Token、已花費金額，以及一份逐項列出算法的預算書。
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-bold">誰來畫：依捐款金額投票</h2>
+        <p className="text-ash">
+          每一筆捐款都可以選一家模型（也可以不投）。每一個施工步驟開工的那一刻計票，
+          得票金額最高、而且做得了這一步的那一家來畫。所以施工途中只要有人捐款改變了票數，
+          下一步就會換模型 —— 一塊地圖裡出現好幾種畫風，是設計的一部分。
+        </p>
+        <ul className="text-ash list-disc pl-5">
+          {PROVIDER_ORDER.map((p) => (
+            <li key={p}>
+              {MODEL_PROFILES[p].company} · {MODEL_PROFILES[p].displayName}
+              {MODEL_PROFILES[p].medium === "vector" ? "（畫的是向量插畫，不是照片）" : ""}
+              {!MODEL_PROFILES[p].canWriteText ? "（只會出圖；地圖參數那一步交給排名下一家）" : ""}
+            </li>
+          ))}
+        </ul>
+        <p className="text-ash">同票時依上面的順序決定；沒有任何人投票時用平台預設。</p>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-bold">錢花在哪裡</h2>
+        <ul className="text-ash list-disc pl-5">
+          <li>建設 token：各步驟實際用掉的 token × 該模型的公開費率</li>
+          <li>參考影像費：Google 街景與地圖靜態圖的每次請求費</li>
+          <li>失敗重試準備 {pct(c.retryReserveRate)}、匯率與價格波動緩衝 {pct(c.volatilityRate)}：只對還沒做的步驟提列，沒用完列為結餘</li>
+          <li>地圖資料 {c.retentionMonths / 12} 年保存：{c.storageReplicas} 份副本加上瀏覽傳輸費，完工時一次撥入保存基金</li>
+          <li>伺服器運算與資料庫分攤：每塊 US${c.computeUsdPerBlock}</li>
+          <li>平台管理費：{c.platformFeeRate > 0 ? pct(c.platformFeeRate) : "0%（不抽成）"}</li>
+          <li>金流手續費 {pct(c.paymentFeeRate)} + 每筆 NT${c.paymentFeeFixedTwd}、稅金與規費 {pct(c.taxRate)}、退款與拒付準備 {pct(c.chargebackRate)}</li>
+        </ul>
+        <p className="text-ash">
+          金額以美元計價、以新台幣（目前 1 美元 = {c.twdPerUsd} 元）收款；每筆捐款入帳時記下當時的匯率。
+        </p>
+      </section>
+
+      <p>
+        <Link href="/" className="text-rust underline">
+          回到世界地圖
+        </Link>
+      </p>
+    </main>
+  );
+}
